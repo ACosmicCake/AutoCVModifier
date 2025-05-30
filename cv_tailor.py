@@ -293,8 +293,23 @@ Now, please provide the tailored CV. If there is nothing in the structure place 
         tailored_cv_output = call_gemini_api(api_key, prompt_text)
 
         if tailored_cv_output:
+            # Clean the output
+            if tailored_cv_output.startswith("```json\n"):
+                tailored_cv_output = tailored_cv_output[len("```json\n"):]
+            elif tailored_cv_output.startswith("```json"): # Handle if no newline after json
+                tailored_cv_output = tailored_cv_output[len("```json"):]
+            elif tailored_cv_output.startswith("```"): # Handle if just ```
+                tailored_cv_output = tailored_cv_output[len("```"):]
+
+            if tailored_cv_output.endswith("\n```"):
+                tailored_cv_output = tailored_cv_output[:-len("\n```")]
+            elif tailored_cv_output.endswith("```"): # Handle if no newline before trailing ```
+                tailored_cv_output = tailored_cv_output[:-len("```")]
+
+            tailored_cv_output = tailored_cv_output.strip() # Clean any surrounding whitespace
+
             print("\n--- Step 4: Tailored CV Output ---")
-            print(tailored_cv_output)
+            print(tailored_cv_output) # This will now print the cleaned output
             
             # Directly attempt to generate PDF from tailored CV
             print("\nAttempting to generate PDF from tailored CV...")
