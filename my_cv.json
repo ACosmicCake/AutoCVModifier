@@ -1,5 +1,1 @@
-{
-  "contactInfo": { "name": "Jane Doe Test" },
-  "summary": "Test summary for JSON CV.",
-  "workExperience": [{"jobTitle": "Test PM", "company": "TestCorp"}]
-}
+{ "name": "Test CV" }

@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 import sys
 import json # New import
-import google.generativeai as genai # New import
+from google import genai # Updated import for google-genai
 from PyPDF2 import PdfReader # New import
 import docx # New import
 
@@ -85,22 +85,22 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
         The AI-generated text response, or None if an error occurs.
     """
     try:
-        # Configure the generative AI library with the API key
-        # This only needs to be done once if the key doesn't change,
-        # but doing it here encapsulates key usage within this function.
-        genai.configure(api_key=api_key)
+        # No genai.configure(api_key=api_key) is needed if using genai.Client
+        client = genai.Client(api_key=api_key) # Initialize client with API key
 
-        # Initialize the generative model
-        # For more options, see https://ai.google.dev/tutorials/python_quickstart
-        model = genai.GenerativeModel('gemini-pro')
+        model_to_use = "gemini-pro" # Or "gemini-1.0-pro" or other compatible model
 
-        # Generate content
-        response = model.generate_content(prompt_text)
+        # Use 'contents' as per the user's example
+        response = client.models.generate_content(
+            model=model_to_use,
+            contents=prompt_text
+        )
 
+        # Assuming response.text is still valid; if not, this might need adjustment
+        # based on the actual structure of 'response' from this new client.
         return response.text
     except Exception as e:
-        # Includes google.api_core.exceptions.GoogleAPIError and other potential errors
-        print(f"Error calling Gemini API: {e}")
+        print(f"Error calling Gemini API (google-genai): {e}")
         return None
 
 def get_cv_from_pdf_file(filepath: str) -> str | None:
@@ -125,13 +125,13 @@ def get_cv_from_pdf_file(filepath: str) -> str | None:
                 except Exception as decrypt_error:
                     print(f"Error: Could not decrypt PDF {filepath}. It might be password-protected. Error: {decrypt_error}")
                     return None
-            
+
             for page_num in range(len(reader.pages)):
                 page = reader.pages[page_num]
                 page_text = page.extract_text()
                 if page_text: # Ensure text was extracted
                     text_content.append(page_text)
-        
+
         if not text_content: # If no text was extracted (e.g., image-based PDF)
             print(f"Warning: No text could be extracted from PDF {filepath}. It might be an image-based PDF or have non-standard text encoding.")
             return "" # Return empty string as some text might be expected by downstream, None indicates file error
@@ -160,19 +160,19 @@ def get_cv_from_docx_file(filepath: str) -> str | None:
         text_content = []
         for para in document.paragraphs:
             text_content.append(para.text)
-        
+
         if not text_content and not document.tables: # Also check if tables exist, though we are not parsing them yet.
             # This check helps determine if the docx is truly empty vs. only having tables/images.
             print(f"Warning: No text paragraphs could be extracted from DOCX {filepath}. It might be empty or contain non-standard content.")
             # Return empty string as some text might be expected by downstream.
             # None would typically indicate a file error or major parsing issue.
-            return "" 
+            return ""
 
         return "\n".join(text_content)
     except FileNotFoundError:
         print(f"Error: DOCX file not found at {filepath}")
         return None
-    except Exception as e: 
+    except Exception as e:
         # Catches other python-docx errors (e.g., if the file is not a valid DOCX format)
         print(f"Error processing DOCX file {filepath}: {e}")
         return None
@@ -191,10 +191,10 @@ def main():
     # 1. Get CV Data
     print("\n--- Step 1: Provide Your CV ---")
     # Add 'docx' to the input choices
-    cv_input_choice = input("How would you like to provide your CV? (json / text / pdf / docx / paste / skip): ").strip().lower() 
+    cv_input_choice = input("How would you like to provide your CV? (json / text / pdf / docx / paste / skip): ").strip().lower()
     if cv_input_choice == 'json':
         cv_filepath = input("Enter path to your CV JSON file (e.g., my_cv.json): ").strip()
-        cv_data = get_cv_from_json_file(cv_filepath) 
+        cv_data = get_cv_from_json_file(cv_filepath)
         if cv_data:
             print(f"Successfully loaded CV from {cv_filepath}")
             cv_data_for_prompt = json.dumps(cv_data, indent=2)
@@ -221,12 +221,12 @@ def main():
                  print("Warning: The extracted text from the DOCX is empty.")
             cv_data_for_prompt = cv_data
     elif cv_input_choice == 'paste':
-        cv_data = get_cv_from_user_paste() 
-        if cv_data: 
+        cv_data = get_cv_from_user_paste()
+        if cv_data:
             print("Successfully received CV via paste.")
             cv_data_for_prompt = cv_data
         else:
-            print("No CV content was pasted.") 
+            print("No CV content was pasted.")
     elif cv_input_choice == 'skip':
         print("CV input skipped.")
     else:
@@ -251,7 +251,7 @@ def main():
 
     if cv_data_for_prompt and job_description_text: # Check cv_data_for_prompt now
         print("\n--- Step 3: Processing ---")
-        
+
         # Refined prompt construction
         prompt_text = f"""
 You are an expert CV tailoring assistant. Your task is to rewrite the provided CV to be perfectly tailored for the given job description.
