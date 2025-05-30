@@ -4,7 +4,7 @@
 This program helps you tailor your Curriculum Vitae (CV) to specific job descriptions using the power of Google's Gemini API. By providing your general CV and a target job description, the tool generates a version of your CV that is more aligned with the requirements and keywords of the job, potentially increasing your chances of landing an interview.
 
 ## Features
-*   **Flexible CV Input:** Load your CV from a plain text file (`.txt`) or a structured JSON file (`.json`).
+*   **Versatile CV Input:** Load your CV from a plain text file (`.txt`), a structured JSON file (`.json`), or a PDF file (`.pdf`).
 *   **Multiple Job Description Inputs:** Paste the job description directly into the console or load it from a text file (`.txt`).
 *   **Gemini API Integration:** Leverages the Google Gemini API for intelligent text generation and CV tailoring.
 *   **Secure API Key Management:** Your `GOOGLE_API_KEY` is kept secure using a `.env` file, not hardcoded into the script.
@@ -26,6 +26,7 @@ This program helps you tailor your Curriculum Vitae (CV) to specific job descrip
     ```bash
     pip install -r requirements.txt
     ```
+    (This will install `google-generativeai`, `python-dotenv`, and `PyPDF2`.)
 
 4.  **Create `.env` File:**
     In the project root directory, create a file named `.env`.
@@ -46,7 +47,7 @@ This program helps you tailor your Curriculum Vitae (CV) to specific job descrip
 
 2.  **Follow On-Screen Prompts:**
     The program will guide you through the following steps:
-    *   **CV Input:** Choose to provide your CV via a JSON file or a plain text file, and enter the file path.
+    *   **CV Input:** Choose to provide your CV via a JSON file, a plain text file, or a PDF file, and enter the file path.
     *   **Job Description Input:** Choose to paste the job description or provide it via a text file, and then enter the content or file path.
 
 3.  **View Tailored CV:**
@@ -57,11 +58,12 @@ The project includes example files to help you get started:
 *   `my_cv.txt`: A sample CV in plain text format.
 *   `my_cv.json`: A sample CV in structured JSON format.
 *   `job_description.txt`: A sample job description.
+*   (You can create a `my_cv.pdf` for testing the PDF input functionality).
 
 You can use these files to test the program's functionality. For example, when prompted, you can use `my_cv.json` as the CV input and `job_description.txt` as the job description input.
 
 ## Future Enhancements
 *   Allow direct pasting of CV content.
-*   Support for `.pdf` and `.docx` CV file parsing.
+*   Support for more advanced `.docx` CV file parsing.
 *   Option to save the tailored CV to a file.
 *   Development of a graphical user interface (GUI).

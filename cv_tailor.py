@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import sys
 import json # New import
 import google.generativeai as genai # New import
+from PyPDF2 import PdfReader # New import
 
 def get_api_key() -> str | None:
     """Loads the Google API key from environment variables or .env file."""
@@ -89,6 +90,48 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
         print(f"Error calling Gemini API: {e}")
         return None
 
+def get_cv_from_pdf_file(filepath: str) -> str | None:
+    """
+    Extracts text content from a PDF file.
+
+    Args:
+        filepath: The path to the PDF file.
+
+    Returns:
+        A string containing the extracted text, or None if an error occurs.
+    """
+    try:
+        text_content = []
+        with open(filepath, 'rb') as f: # Open in binary read mode
+            reader = PdfReader(f)
+            if reader.is_encrypted:
+                # Attempt to decrypt with an empty password, common for some PDFs.
+                # More complex decryption is not handled here.
+                try:
+                    reader.decrypt('')
+                except Exception as decrypt_error:
+                    print(f"Error: Could not decrypt PDF {filepath}. It might be password-protected. Error: {decrypt_error}")
+                    return None
+            
+            for page_num in range(len(reader.pages)):
+                page = reader.pages[page_num]
+                page_text = page.extract_text()
+                if page_text: # Ensure text was extracted
+                    text_content.append(page_text)
+        
+        if not text_content: # If no text was extracted (e.g., image-based PDF)
+            print(f"Warning: No text could be extracted from PDF {filepath}. It might be an image-based PDF or have non-standard text encoding.")
+            return "" # Return empty string as some text might be expected by downstream, None indicates file error
+
+        return "\n".join(text_content)
+    except FileNotFoundError:
+        print(f"Error: PDF file not found at {filepath}")
+        return None
+    except Exception as e:
+        # Catches other PyPDF2 errors or general issues
+        print(f"Error processing PDF file {filepath}: {e}")
+        return None
+
 def main():
     print("--- AI-Powered CV Tailoring Program ---")
     api_key = get_api_key()
@@ -102,19 +145,28 @@ def main():
 
     # 1. Get CV Data
     print("\n--- Step 1: Provide Your CV ---")
-    cv_input_choice = input("How would you like to provide your CV? (json / text / skip): ").strip().lower()
+    # Add 'pdf' to the input choices
+    cv_input_choice = input("How would you like to provide your CV? (json / text / pdf / skip): ").strip().lower() 
     if cv_input_choice == 'json':
         cv_filepath = input("Enter path to your CV JSON file (e.g., my_cv.json): ").strip()
         cv_data = get_cv_from_json_file(cv_filepath) # cv_data is a dict
         if cv_data:
             print(f"Successfully loaded CV from {cv_filepath}")
-            cv_data_for_prompt = json.dumps(cv_data, indent=2) # Convert dict to JSON string
+            cv_data_for_prompt = json.dumps(cv_data, indent=2)
     elif cv_input_choice == 'text':
         cv_filepath = input("Enter path to your CV text file (e.g., my_cv.txt): ").strip()
         cv_data = get_cv_from_text_file(cv_filepath) # cv_data is a string
-        if cv_data:
+        if cv_data is not None: # Check for None in case of file not found
             print(f"Successfully loaded CV from {cv_filepath}")
-            cv_data_for_prompt = cv_data # Already a string
+            cv_data_for_prompt = cv_data
+    elif cv_input_choice == 'pdf': # New block for PDF input
+        cv_filepath = input("Enter path to your CV PDF file (e.g., my_cv.pdf): ").strip()
+        cv_data = get_cv_from_pdf_file(cv_filepath) # cv_data is a string (extracted text) or None
+        if cv_data is not None: # Check if text extraction was successful (even empty string is a success)
+            print(f"Successfully extracted text from PDF CV at {cv_filepath}")
+            if not cv_data: # If extracted text is empty (e.g. image-based PDF and function returned "")
+                 print("Warning: The extracted text from the PDF is empty. Processing will continue, but the AI might not have CV content to work with.")
+            cv_data_for_prompt = cv_data
     elif cv_input_choice == 'skip':
         print("CV input skipped.")
     else:
