@@ -7,6 +7,7 @@ import sys
 import json # New import
 import google.generativeai as genai # New import
 from PyPDF2 import PdfReader # New import
+import docx # New import
 
 def get_api_key() -> str | None:
     """Loads the Google API key from environment variables or .env file."""
@@ -38,6 +39,18 @@ def get_cv_from_json_file(filepath: str) -> dict | None:
     except json.JSONDecodeError:
         print(f"Error: Could not decode JSON from {filepath}. Please ensure it's valid JSON.")
         return None
+
+def get_cv_from_user_paste() -> str:
+    """Gets CV content by asking the user to paste it into the console."""
+    print("\nPaste your full CV content below. Press Ctrl+D (Unix/Linux) or Ctrl+Z then Enter (Windows) when done:")
+    lines = []
+    while True:
+        try:
+            line = input()
+        except EOFError: # Detects Ctrl+D or Ctrl+Z
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
 def get_job_description_from_user_paste() -> str:
     """Gets job description by asking the user to paste it into the console."""
@@ -132,6 +145,38 @@ def get_cv_from_pdf_file(filepath: str) -> str | None:
         print(f"Error processing PDF file {filepath}: {e}")
         return None
 
+def get_cv_from_docx_file(filepath: str) -> str | None:
+    """
+    Extracts text content from a DOCX file.
+
+    Args:
+        filepath: The path to the DOCX file.
+
+    Returns:
+        A string containing the extracted text, or None if an error occurs.
+    """
+    try:
+        document = docx.Document(filepath)
+        text_content = []
+        for para in document.paragraphs:
+            text_content.append(para.text)
+        
+        if not text_content and not document.tables: # Also check if tables exist, though we are not parsing them yet.
+            # This check helps determine if the docx is truly empty vs. only having tables/images.
+            print(f"Warning: No text paragraphs could be extracted from DOCX {filepath}. It might be empty or contain non-standard content.")
+            # Return empty string as some text might be expected by downstream.
+            # None would typically indicate a file error or major parsing issue.
+            return "" 
+
+        return "\n".join(text_content)
+    except FileNotFoundError:
+        print(f"Error: DOCX file not found at {filepath}")
+        return None
+    except Exception as e: 
+        # Catches other python-docx errors (e.g., if the file is not a valid DOCX format)
+        print(f"Error processing DOCX file {filepath}: {e}")
+        return None
+
 def main():
     print("--- AI-Powered CV Tailoring Program ---")
     api_key = get_api_key()
@@ -145,28 +190,43 @@ def main():
 
     # 1. Get CV Data
     print("\n--- Step 1: Provide Your CV ---")
-    # Add 'pdf' to the input choices
-    cv_input_choice = input("How would you like to provide your CV? (json / text / pdf / skip): ").strip().lower() 
+    # Add 'docx' to the input choices
+    cv_input_choice = input("How would you like to provide your CV? (json / text / pdf / docx / paste / skip): ").strip().lower() 
     if cv_input_choice == 'json':
         cv_filepath = input("Enter path to your CV JSON file (e.g., my_cv.json): ").strip()
-        cv_data = get_cv_from_json_file(cv_filepath) # cv_data is a dict
+        cv_data = get_cv_from_json_file(cv_filepath) 
         if cv_data:
             print(f"Successfully loaded CV from {cv_filepath}")
             cv_data_for_prompt = json.dumps(cv_data, indent=2)
     elif cv_input_choice == 'text':
         cv_filepath = input("Enter path to your CV text file (e.g., my_cv.txt): ").strip()
-        cv_data = get_cv_from_text_file(cv_filepath) # cv_data is a string
-        if cv_data is not None: # Check for None in case of file not found
+        cv_data = get_cv_from_text_file(cv_filepath)
+        if cv_data is not None:
             print(f"Successfully loaded CV from {cv_filepath}")
             cv_data_for_prompt = cv_data
-    elif cv_input_choice == 'pdf': # New block for PDF input
+    elif cv_input_choice == 'pdf':
         cv_filepath = input("Enter path to your CV PDF file (e.g., my_cv.pdf): ").strip()
-        cv_data = get_cv_from_pdf_file(cv_filepath) # cv_data is a string (extracted text) or None
-        if cv_data is not None: # Check if text extraction was successful (even empty string is a success)
+        cv_data = get_cv_from_pdf_file(cv_filepath)
+        if cv_data is not None:
             print(f"Successfully extracted text from PDF CV at {cv_filepath}")
-            if not cv_data: # If extracted text is empty (e.g. image-based PDF and function returned "")
-                 print("Warning: The extracted text from the PDF is empty. Processing will continue, but the AI might not have CV content to work with.")
+            if not cv_data:
+                 print("Warning: The extracted text from the PDF is empty.")
             cv_data_for_prompt = cv_data
+    elif cv_input_choice == 'docx': # New block for DOCX input
+        cv_filepath = input("Enter path to your CV DOCX file (e.g., my_cv.docx): ").strip()
+        cv_data = get_cv_from_docx_file(cv_filepath) # cv_data is a string (extracted text) or None
+        if cv_data is not None: # Check if text extraction was successful
+            print(f"Successfully extracted text from DOCX CV at {cv_filepath}")
+            if not cv_data:
+                 print("Warning: The extracted text from the DOCX is empty.")
+            cv_data_for_prompt = cv_data
+    elif cv_input_choice == 'paste':
+        cv_data = get_cv_from_user_paste() 
+        if cv_data: 
+            print("Successfully received CV via paste.")
+            cv_data_for_prompt = cv_data
+        else:
+            print("No CV content was pasted.") 
     elif cv_input_choice == 'skip':
         print("CV input skipped.")
     else:
