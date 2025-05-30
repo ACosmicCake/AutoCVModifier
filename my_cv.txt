@@ -1,0 +1,18 @@
+John Doe
+john.doe@email.com | (555) 123-4567 | linkedin.com/in/johndoe
+
+Summary:
+A highly motivated software engineer with 5 years of experience in Python development,
+web technologies, and cloud computing. Seeking a challenging role at a dynamic company.
+
+Experience:
+Senior Software Engineer, Tech Solutions Inc. (Jan 2020 - Present)
+- Developed and maintained web applications using Python, Django, and React.
+- Led a team of 3 junior developers.
+- Migrated legacy systems to AWS cloud.
+
+Skills:
+Python, Django, Flask, JavaScript, React, AWS, Docker, SQL
+
+Education:
+B.S. Computer Science, State University (2019)

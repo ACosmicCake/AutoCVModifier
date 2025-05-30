@@ -1,0 +1,49 @@
+{
+  "contactInfo": {
+    "name": "Jane Doe",
+    "phone": "(555) 987-6543",
+    "email": "jane.doe@email.com",
+    "linkedin": "linkedin.com/in/janedoe"
+  },
+  "summary": "A results-oriented project manager with 8 years of experience leading complex software projects from ideation to deployment. Proven ability to deliver projects on time and within budget.",
+  "workExperience": [
+    {
+      "jobTitle": "Senior Project Manager",
+      "company": "Innovate Corp",
+      "dates": "Mar 2018 - Present",
+      "responsibilities": [
+        "Managed cross-functional teams of up to 15 members.",
+        "Oversaw project budgets exceeding $1M.",
+        "Implemented Agile methodologies, improving team velocity by 20%."
+      ],
+      "keywords_for_ai": ["project management", "agile", "scrum", "budget management", "team leadership"]
+    },
+    {
+      "jobTitle": "Project Coordinator",
+      "company": "Biz Solutions",
+      "dates": "Jun 2015 - Feb 2018",
+      "responsibilities": [
+        "Assisted in planning and execution of projects.",
+        "Maintained project documentation.",
+        "Coordinated stakeholder meetings."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "MBA, Specialization in Project Management",
+      "university": "City Business School",
+      "graduationYear": "2017"
+    },
+    {
+      "degree": "B.A. in Business Administration",
+      "university": "State College",
+      "graduationYear": "2015"
+    }
+  ],
+  "skills": {
+    "projectManagement": ["Agile", "Scrum", "JIRA", "Risk Management", "Stakeholder Management"],
+    "technical": ["MS Project", "Confluence", "Slack"],
+    "soft": ["Leadership", "Communication", "Problem Solving", "Negotiation"]
+  }
+}
