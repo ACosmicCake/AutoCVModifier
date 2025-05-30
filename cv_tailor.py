@@ -296,23 +296,14 @@ Now, please provide the tailored CV. If there is nothing in the structure place 
             print("\n--- Step 4: Tailored CV Output ---")
             print(tailored_cv_output)
             
-            # Ask user if they want to save the output
-            save_choice = input("\nDo you want to save the tailored CV to a file? (yes/no): ").strip().lower()
-            if save_choice == 'yes':
-                output_filename = input("Enter filename to save (e.g., tailored_cv.txt): ").strip()
-                try:
-                    with open(output_filename, 'w', encoding='utf-8') as f:
-                        f.write(tailored_cv_output)
-                    print(f"Tailored CV saved to {output_filename}")
-                    # Add new code here
-                    print("Attempting to generate PDF from tailored CV...")
-                    try:
-                        generate_cv_pdf_from_json_string(tailored_cv_output)
-                        print(f"Successfully generated PDF: tailored_cv.pdf") # Assuming a default name for now
-                    except Exception as e_pdf:
-                        print(f"Error generating PDF: {e_pdf}")
-                except Exception as e:
-                    print(f"Error saving file: {e}")
+            # Directly attempt to generate PDF from tailored CV
+            print("\nAttempting to generate PDF from tailored CV...")
+            try:
+                generate_cv_pdf_from_json_string(tailored_cv_output)
+                # Assuming generate_cv_pdf_from_json_string prints its own success/failure messages
+                # print(f"Successfully generated PDF: tailored_cv.pdf") # Or get filename from the function
+            except Exception as e_pdf:
+                print(f"Error during PDF generation process: {e_pdf}")
         else:
             print("\nFailed to get tailored CV from API.")
 
