@@ -10,7 +10,8 @@ def scrape_online_jobs(
     search_term: str = "software engineer",
     location: str = "USA",
     results_wanted: int = 5,
-    country_indeed: str = 'USA' # Example of a site-specific parameter
+    country_indeed: str = 'USA', # Example of a site-specific parameter
+    linkedin_fetch_description: bool = True # New parameter
     ) -> list[dict] | None:
     """
     Scrapes jobs from specified sites using JobSpy.
@@ -55,9 +56,10 @@ def scrape_online_jobs(
             search_term=search_term,
             location=location,
             results_wanted=results_wanted,
-            country_indeed=country_indeed # Pass site-specific params if needed
+            country_indeed=country_indeed, # Pass site-specific params if needed
+            linkedin_fetch_description=linkedin_fetch_description # Added parameter
             # Add other relevant parameters for jobspy if required by the UI/feature set
-            # e.g., distance_km, job_type, full_description
+            # e.g., distance_km, job_type
         )
 
         if jobs_df is not None and not jobs_df.empty:
