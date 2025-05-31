@@ -17,7 +17,7 @@ from .cv_utils import (
     get_cv_from_json_file # Used in helper
 )
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
-from .cv_analyzer import analyze_cv_with_gemini
+# analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
 
 # --- Configuration ---
@@ -184,46 +184,7 @@ def create_app(test_config=None):
         else:
             return jsonify({"error": "Invalid file type for CV"}), 400
 
-    @app.route('/api/analyze-cv', methods=['POST'])
-    def analyze_cv_endpoint():
-        current_api_key = app.config.get('GOOGLE_API_KEY')
-        if not current_api_key:
-            return jsonify({"error": "Server configuration error: API key not available"}), 500
-
-        if 'cv_file' not in request.files:
-            return jsonify({"error": "No CV file part"}), 400
-        file = request.files['cv_file']
-        if file.filename == '':
-            return jsonify({"error": "No selected CV file"}), 400
-
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-            try:
-                file.save(filepath)
-                cv_content_str = get_cv_content_from_file(filepath)
-            except Exception as e_save:
-                print(f"Error saving or processing uploaded file for analysis: {e_save}")
-                return jsonify({"error": f"Error saving or processing file: {str(e_save)}"}), 500
-            finally:
-                if os.path.exists(filepath):
-                    try:
-                        os.remove(filepath) # Clean up
-                    except OSError as e_remove:
-                        print(f"Error removing uploaded file for analysis {filepath}: {e_remove}")
-
-
-            if not cv_content_str:
-                return jsonify({"error": "Could not extract text from CV file for analysis"}), 500
-
-            analysis_result = analyze_cv_with_gemini(cv_content_str, current_api_key)
-            if analysis_result:
-                return jsonify({"analysis": analysis_result})
-            else:
-                return jsonify({"error": "Failed to analyze CV using Gemini API"}), 500
-        else:
-            return jsonify({"error": "Invalid file type for CV analysis"}), 400
+    # CV Analysis endpoint removed
 
     @app.route('/api/scrape-jobs', methods=['GET'])
     def scrape_jobs_endpoint():

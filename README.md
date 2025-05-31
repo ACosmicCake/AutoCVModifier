@@ -4,7 +4,6 @@
 This project provides a web-based user interface for the AI-Powered CV Tailoring Program. It allows users to:
 *   Tailor their CV to specific job descriptions using Google's Gemini API.
 *   Generate a PDF of the tailored CV.
-*   Get a full analysis of their CV.
 *   Scrape job listings from popular job boards using JobSpy.
 
 The core application logic is built with Python and Flask, with a user-friendly frontend.
@@ -21,7 +20,6 @@ The main application code resides within the `cv_tailor_project` directory.
 |   |   |-- main.py     # Flask app routes and core logic
 |   |   |-- cv_utils.py # CV processing and Gemini API interaction
 |   |   |-- pdf_generator.py # PDF generation for CVs
-|   |   |-- cv_analyzer.py   # CV analysis logic
 |   |   |-- job_scraper.py   # Job scraping logic
 |   |-- instance/       # Instance-specific config (e.g., uploads, generated PDFs)
 |   |-- CV_format.json  # Structure for the CV (used by the app)
@@ -96,12 +94,6 @@ The application provides the following features through a web interface and corr
         *   `cv_file`: Uploaded CV file.
         *   `job_description`: Text of the job description.
         *   Returns: JSON with tailored CV data and a PDF download link.
-
-*   **CV Analysis:**
-    *   **UI:** Upload CV, get a detailed analysis of its strengths and weaknesses.
-    *   **API:** `POST /api/analyze-cv`
-        *   `cv_file`: Uploaded CV file.
-        *   Returns: JSON with CV analysis text.
 
 *   **Job Scraping:**
     *   **UI:** Enter search term, location, sites (comma-separated, e.g., `indeed,linkedin`), and number of results to scrape.

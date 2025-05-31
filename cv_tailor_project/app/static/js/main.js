@@ -4,10 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const tailorResultDiv = document.getElementById('tailorResult');
     const pdfDownloadLinkDiv = document.getElementById('pdfDownloadLink');
 
-    const cvAnalysisForm = document.getElementById('cvAnalysisForm');
-    // Ensure this matches the HTML: the <pre> tag inside analysisResultDisplay div.
-    const analysisResultPre = document.querySelector('#analysisResultDisplay pre');
-
+    // CV Analysis constants removed
+    // const cvAnalysisForm = document.getElementById('cvAnalysisForm');
+    // const analysisResultPre = document.querySelector('#analysisResultDisplay pre');
 
     const jobScrapeForm = document.getElementById('jobScrapeForm');
     const jobResultsDiv = document.getElementById('jobResults');
@@ -78,36 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- CV Analysis ---
-    if (cvAnalysisForm) {
-        cvAnalysisForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            showLoading('Analyzing CV...');
-            if(analysisResultPre) analysisResultPre.textContent = 'Analyzing...';
-
-            const formData = new FormData(cvAnalysisForm);
-
-            try {
-                const response = await fetch('/api/analyze-cv', {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                const result = await response.json(); // Always try to parse JSON
-                hideLoading();
-
-                if (response.ok && analysisResultPre) {
-                    analysisResultPre.textContent = result.analysis || 'No analysis returned.';
-                } else if (analysisResultPre) {
-                    analysisResultPre.textContent = `Error: ${escapeHtml(result.error || 'Failed to analyze CV.')}`;
-                }
-            } catch (error) {
-                hideLoading();
-                console.error('CV Analysis Error:', error);
-                if(analysisResultPre) analysisResultPre.textContent = 'An unexpected error occurred. Check console.';
-            }
-        });
-    }
+    // --- CV Analysis --- Block Removed
 
     // --- Job Scraping ---
     if (jobScrapeForm) {
