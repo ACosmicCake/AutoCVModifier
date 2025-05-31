@@ -115,7 +115,7 @@ The application provides the following features through a web interface and corr
 
 ## Technology Stack
 *   **Backend:** Python, Flask
-*   **AI Integration:** Google Gemini API (`google-generativeai`)
+*   **AI Integration:** Google Gemini API (via google-genai package)
 *   **Job Scraping:** JobSpy
 *   **PDF Generation:** ReportLab
 *   **File Handling:** PyPDF2 (for PDF text extraction), python-docx (for DOCX text extraction)

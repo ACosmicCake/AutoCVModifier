@@ -2,7 +2,7 @@
 import os
 # import sys # No longer needed as sys.exit is removed
 import json
-import google.generativeai as genai # Using modern import for google-generativeai
+from google import genai # Changed import for Client pattern
 from PyPDF2 import PdfReader
 import docx
 # from dotenv import load_dotenv # load_dotenv will be called in main.py
@@ -95,30 +95,35 @@ def get_cv_from_docx_file(filepath: str) -> str | None:
 def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
     """
     Calls the Gemini API with the provided prompt and API key.
-    Uses the google-generativeai library.
+    Uses the google.genai Client.
     """
     try:
-        genai.configure(api_key=api_key)
+        client = genai.Client(api_key=api_key)
         # Model name based on common availability and recommendation in issue.
-        # Alternatives: "gemini-pro", "gemini-1.5-flash-latest" (if available and suitable)
-        model_to_use = "gemini-1.0-pro"
+        # For genai.Client, model name is typically prefixed with "models/".
+        model_to_use = "models/gemini-1.0-pro"
 
-        model = genai.GenerativeModel(model_to_use)
-        response = model.generate_content(prompt_text)
+        response = client.generate_content(
+            model=model_to_use,
+            contents=prompt_text
+        )
 
+        # Accessing the text response, ensuring parts and text exist
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             return response.candidates[0].content.parts[0].text
-        elif hasattr(response, 'text') and response.text: # Fallback for some response structures
+        # Fallback for older API versions or different response structures if needed
+        elif hasattr(response, 'text') and response.text: # Check if response.text exists and is not empty
              return response.text
         else:
             print("Warning: Gemini API response structure was not as expected or content was empty.")
+            # Log more details if available, e.g., response.prompt_feedback if it exists on this response object
             if hasattr(response, 'prompt_feedback'):
                  print(f"Prompt Feedback: {response.prompt_feedback}")
             return None
     except Exception as e:
         # Log the full error for debugging, especially for API configuration or call issues.
         import traceback
-        print(f"Error calling Gemini API (google-generativeai in cv_utils): {e}")
+        print(f"Error calling Gemini API (genai.Client in cv_utils): {e}")
         print(traceback.format_exc())
         return None
 
