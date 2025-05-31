@@ -20,6 +20,7 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
+from .database import init_db, save_job, get_jobs # Added get_jobs database import
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -84,6 +85,17 @@ def create_app(test_config=None):
         print("CRITICAL: GOOGLE_API_KEY not found after loading .env. Please set it in .env file at project root or as an environment variable.")
         # In a production app, you might want to prevent the app from starting.
         # For now, it will proceed, and endpoints requiring it will fail.
+
+    # --- Initialize Database ---
+    # Ensure the instance folder (where jobs.db will be) exists
+    # init_db itself will create jobs.db in instance/ if it doesn't exist
+    try:
+        os.makedirs(app.instance_path, exist_ok=True)
+        init_db() # Call the database initialization function
+        print(f"Database will be initialized at: {os.path.join(app.instance_path, 'jobs.db')}")
+    except OSError as e:
+        print(f"Error during instance path creation or DB initialization: {e}")
+        # Consider if the app should halt if DB init fails. For now, it prints an error.
 
     # --- Helper Functions ---
     def allowed_file(filename):
@@ -216,9 +228,187 @@ def create_app(test_config=None):
             country_indeed=country_indeed
         )
         if jobs is not None: # scrape_online_jobs returns [] for no jobs, None for error
+            # --- Save jobs to database ---
+            if isinstance(jobs, list) and jobs: # Ensure jobs is a list and not empty
+                for job in jobs:
+                    # Assuming scrape_online_jobs returns a list of dicts
+                    # and each dict contains the necessary fields for save_job.
+                    # 'source' might need to be inferred or passed along from scrape_online_jobs
+                    # For now, let's assume 'source' is part of the job dict from the scraper.
+                    # The jobspy library returns 'site' as the source name.
+                    # We'll map it to 'source' for our database schema and also add raw_job_data.
+                    db_job_data = {
+                        'title': job.get('title'),
+                        'company': job.get('company'),
+                        'location': job.get('location'),
+                        'description': job.get('description'),
+                        'url': job.get('job_url'), # jobspy uses 'job_url'
+                        'source': job.get('site'), # jobspy uses 'site'
+                        # date_scraped is handled by the database
+                        'raw_job_data': job # Store the original job dict from the scraper
+                    }
+                    # Ensure essential fields like URL and source are present before saving
+                    if db_job_data['url'] and db_job_data['source']:
+                        save_job(db_job_data)
+                    else:
+                        print(f"Skipping job due to missing URL or source: {job.get('title')}")
             return jsonify({"jobs": jobs})
         else:
             return jsonify({"error": "Failed to scrape jobs or an error occurred"}), 500
+
+    @app.route('/api/jobs', methods=['GET'])
+    def api_get_jobs():
+        """API endpoint to get jobs from the database with optional filters."""
+        filters = {}
+        keyword = request.args.get('keyword')
+        location = request.args.get('location')
+        source = request.args.get('source')
+
+        if keyword:
+            filters['keyword'] = keyword
+        if location:
+            filters['location'] = location
+        if source:
+            filters['source'] = source
+
+        # Potentially add more filters like company, specific title keywords, etc.
+        # For date range filters, a bit more logic would be needed in get_jobs
+
+        retrieved_jobs = get_jobs(filters) # get_jobs is from database.py
+
+        # The 'date_scraped' is a datetime object, ensure it's JSON serializable (string)
+        # get_jobs already converts rows to dicts, so date_scraped should be fine if stored as TEXT/TIMESTAMP
+        # If it's a Python datetime object, it needs conversion:
+        for job in retrieved_jobs:
+            if hasattr(job['date_scraped'], 'isoformat'): # Check if it's a datetime object
+                 job['date_scraped'] = job['date_scraped'].isoformat()
+            # If date_scraped is already a string from DB (e.g. due to how it was stored or sqlite3.Row behavior),
+            # this conversion might not be strictly necessary but is good for ensuring format.
+            # SQLite typically returns strings for TIMESTAMP if not handled by a custom adapter/converter.
+
+        return jsonify({"jobs": retrieved_jobs})
+
+    @app.route('/api/batch-generate-cvs', methods=['POST'])
+    def batch_generate_cvs_endpoint():
+        current_api_key = app.config.get('GOOGLE_API_KEY')
+        if not current_api_key:
+            return jsonify({"error": "Server configuration error: API key not available"}), 500
+
+        if 'cv_file' not in request.files:
+            return jsonify({"error": "No CV file part"}), 400
+
+        cv_file = request.files['cv_file']
+        if cv_file.filename == '':
+            return jsonify({"error": "No selected CV file"}), 400
+
+        job_descriptions = request.form.getlist('job_descriptions[]')
+        job_titles = request.form.getlist('job_titles[]') # For summary in results
+
+        if not job_descriptions:
+            return jsonify({"error": "No job descriptions provided"}), 400
+
+        if len(job_descriptions) != len(job_titles):
+             # Fallback if titles are not sent consistently, though JS aims to send them.
+            job_titles = [f"Job {i+1}" for i in range(len(job_descriptions))]
+
+
+        results = []
+        cv_content_str = None
+        temp_cv_filepath = None
+
+        if cv_file and allowed_file(cv_file.filename):
+            # Save CV file temporarily to process it
+            # Use a unique name for the temp CV file in case of concurrent requests (though Python's UUID might be overkill here)
+            temp_cv_filename = f"temp_cv_{uuid.uuid4()}_{secure_filename(cv_file.filename)}"
+            temp_cv_filepath = os.path.join(app.config['UPLOAD_FOLDER'], temp_cv_filename)
+
+            try:
+                cv_file.save(temp_cv_filepath)
+                cv_content_str = get_cv_content_from_file(temp_cv_filepath)
+                if not cv_content_str:
+                    return jsonify({"error": "Could not extract text from uploaded CV file"}), 500
+            except Exception as e_save:
+                print(f"Error saving or processing uploaded CV file for batch: {e_save}")
+                return jsonify({"error": f"Error saving or processing CV file: {str(e_save)}"}), 500
+        else:
+            return jsonify({"error": "Invalid CV file type"}), 400
+
+        # Load CV format template (once)
+        try:
+            with open(app.config['CV_FORMAT_FILE_PATH'], 'r', encoding='utf-8') as f:
+                cv_template_content_str = f.read()
+        except Exception as e_format:
+            print(f"Error reading CV format file: {e_format}")
+            if temp_cv_filepath and os.path.exists(temp_cv_filepath): # Cleanup
+                os.remove(temp_cv_filepath)
+            return jsonify({"error": "Server configuration error: Could not read CV format file."}), 500
+
+        # Process each job description
+        for index, jd_content in enumerate(job_descriptions):
+            job_title_summary = job_titles[index] if index < len(job_titles) else f"Job Description {index + 1}"
+
+            if not jd_content:
+                results.append({
+                    "job_title_summary": job_title_summary,
+                    "status": "error",
+                    "message": "Empty job description provided."
+                })
+                continue
+
+            try:
+                tailored_cv_json_str = process_cv_and_jd(
+                    cv_content_str, # Processed CV text
+                    jd_content,     # Current job description
+                    cv_template_content_str,
+                    current_api_key
+                )
+
+                if not tailored_cv_json_str:
+                    results.append({
+                        "job_title_summary": job_title_summary,
+                        "status": "error",
+                        "message": "Failed to tailor CV (API processing failed)."
+                    })
+                    continue
+
+                # PDF Generation for this tailored CV
+                # Sanitize title for use in filename (optional, uuid is main uniqueness)
+                safe_title_part = secure_filename(job_title_summary)[:30] if job_title_summary else "job"
+                unique_pdf_filename = f"tailored_cv_{safe_title_part}_{uuid.uuid4()}.pdf"
+                full_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], unique_pdf_filename)
+
+                pdf_generation_success = generate_cv_pdf_from_json_string(tailored_cv_json_str, full_pdf_path)
+
+                if pdf_generation_success:
+                    results.append({
+                        "job_title_summary": job_title_summary,
+                        "status": "success",
+                        "pdf_url": f"/api/download-cv/{unique_pdf_filename}"
+                    })
+                else:
+                    results.append({
+                        "job_title_summary": job_title_summary,
+                        "status": "error",
+                        "message": "Tailored, but PDF generation failed."
+                        # Optionally include tailored_cv_json_str here if useful for debugging
+                    })
+
+            except Exception as e_proc:
+                print(f"Error processing job description '{job_title_summary}': {e_proc}")
+                results.append({
+                    "job_title_summary": job_title_summary,
+                    "status": "error",
+                    "message": f"An unexpected error occurred: {str(e_proc)}"
+                })
+
+        # Clean up the temporarily saved CV file
+        if temp_cv_filepath and os.path.exists(temp_cv_filepath):
+            try:
+                os.remove(temp_cv_filepath)
+            except OSError as e_remove:
+                print(f"Error removing temporary CV file {temp_cv_filepath}: {e_remove}")
+
+        return jsonify({"results": results})
 
     @app.route('/api/download-cv/<filename>', methods=['GET'])
     def download_cv(filename):

@@ -14,3 +14,6 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# Instance folder (contains uploads, generated PDFs, SQLite DB, etc.)
+instance/
