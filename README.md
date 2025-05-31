@@ -51,10 +51,17 @@ The main application code resides within the `cv_tailor_project` directory.
         ```env
         # .env (This file should be in the root of your cloned repository)
         GOOGLE_API_KEY="YOUR_ACTUAL_GOOGLE_API_KEY"
-        SECRET_KEY="YOUR_STRONG_RANDOM_SECRET_KEY_FOR_FLASK"
+
+        # Flask SECRET_KEY:
+        # Used for session management and security.
+        # - If left blank or not set, a temporary key is auto-generated at startup (ideal for quick local testing).
+        # - For development requiring stable sessions or for any production use,
+        #   set this to a strong, unique, randomly generated string.
+        #   You can generate one using: python -c 'import secrets; print(secrets.token_hex(16))'
+        SECRET_KEY=""
         ```
         Replace `"YOUR_ACTUAL_GOOGLE_API_KEY"` with your real API key.
-        Replace `"YOUR_STRONG_RANDOM_SECRET_KEY_FOR_FLASK"` with a long, random string.
+        For SECRET_KEY, you can leave it blank for the app to auto-generate a temporary one, or set a persistent strong random string for more stable development/production, e.g., by running the python command suggested in the comments and pasting the output.
 
 3.  **Navigate to the Application Directory:**
     The main application is inside the `cv_tailor_project` folder.

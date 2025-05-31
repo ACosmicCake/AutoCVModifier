@@ -2,6 +2,7 @@
 import os
 import uuid
 import json # For get_cv_content_from_file if handling JSON CVs directly
+import secrets # For generating a fallback SECRET_KEY
 from flask import Flask, request, jsonify, send_file, render_template
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -42,9 +43,18 @@ def create_app(test_config=None):
     else:
         print(f".env file not found at {dotenv_path}. Relying on environment variables.")
 
+    # --- Determine SECRET_KEY ---
+    secret_key_env = os.environ.get('SECRET_KEY')
+    if not secret_key_env:
+        secret_key = secrets.token_hex(16)
+        print(f"Warning: SECRET_KEY not found in environment. Using a temporary, auto-generated key: {secret_key[:8]}...")
+        print("For production or persistent sessions, set a fixed SECRET_KEY in your .env file or environment.")
+    else:
+        secret_key = secret_key_env
+
     # --- App Configuration ---
     app.config.from_mapping(
-        SECRET_KEY=os.environ.get('SECRET_KEY', 'dev_secret_key'), # Add a secret key for session management, etc.
+        SECRET_KEY=secret_key,
         UPLOAD_FOLDER=os.path.join(app.instance_path, UPLOAD_FOLDER_NAME),
         GENERATED_PDFS_FOLDER=os.path.join(app.instance_path, GENERATED_PDFS_FOLDER_NAME),
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16 MB upload limit
