@@ -1,6 +1,7 @@
-# cv_tailor_project/app/job_scraper.py
+# app/job_scraper.py
 from jobspy import scrape_jobs as jobspy_scrape
 import pandas as pd # jobspy returns a pandas DataFrame
+import requests # For catching specific network exceptions like ReadTimeout
 
 def scrape_online_jobs(
     site_names: list[str] = ["indeed", "linkedin"],
@@ -50,16 +51,20 @@ def scrape_online_jobs(
         else: # Should not happen if jobspy_scrape returns None on error
             print("Job scraping returned None, indicating an issue.")
             return None
-
+    except requests.exceptions.ReadTimeout as rte:
+        print(f"Timeout error while scraping jobs: {rte}")
+        print("This could be due to network issues or the site (e.g., Indeed) being slow/blocking the request.")
+        # For now, a general timeout message. Consistent return with other errors.
+        return None
     except Exception as e:
-        print(f"Error scraping jobs using JobSpy: {e}")
+        print(f"An unexpected error occurred while scraping jobs using JobSpy: {e}")
         import traceback
         traceback.print_exc()
         return None
 
 # Example usage (for testing this module directly)
 if __name__ == '__main__':
-    import json # Added for printing job details in test cases
+    # import json # json is already imported in one of the test cases, ensure it's at top if needed globally for tests
     print("Testing job_scraper.py...")
 
     # Test Case 1: Default parameters
