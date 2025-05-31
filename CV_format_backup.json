@@ -1,0 +1,74 @@
+{
+  "CV": {
+    "PersonalInformation": {
+      "Name": "",
+      "PhoneNumber": "",
+      "EmailAddress": "",
+      "WebsiteOrLinkedInURL": ""
+    },
+    "SummaryOrObjective": {
+      "Statement": ""
+    },
+    "Education": [
+      {
+        "InstitutionName": "",
+        "DegreeEarned": "",
+        "MajorOrFieldOfStudy": "",
+        "GraduationDateOrExpected": "",
+        "Location": "",
+        "HonorsAndAwardsOrRelevantCoursework": [
+          ""
+        ]
+      }
+    ],
+    "ProfessionalExperience": [
+      {
+        "CompanyName": "",
+        "JobTitle": "",
+        "EmploymentDates": "",
+        "Location": "",
+        "ResponsibilitiesAndAchievements": [
+          ""
+        ]
+      }
+    ],
+    "Projects": [
+      {
+        "ProjectName": "",
+        "DatesOrDuration": "",
+        "Description": "",
+        "KeyContributionsOrTechnologiesUsed": [
+          ""
+        ]
+      }
+    ],
+    "Skills": [
+      {
+        "SkillCategory": "",
+        "Skill": [""]
+      }
+    ],
+    "Certifications": [
+      {
+        "CertificationName": "",
+        "IssuingOrganization": "",
+        "DateObtained": ""
+      }
+    ],
+    "AwardsAndRecognition": [
+      {
+        "AwardName": "",
+        "AwardingBody": "",
+        "DateReceived": ""
+      }
+    ],
+    "VolunteerExperience": [
+      {
+        "OrganizationName": "",
+        "Role": "",
+        "Dates": "",
+        "Description": ""
+      }
+    ]
+  }
+}

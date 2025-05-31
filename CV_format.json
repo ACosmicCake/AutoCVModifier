@@ -55,20 +55,5 @@
         "DateObtained": ""
       }
     ],
-    "AwardsAndRecognition": [
-      {
-        "AwardName": "",
-        "AwardingBody": "",
-        "DateReceived": ""
-      }
-    ],
-    "VolunteerExperience": [
-      {
-        "OrganizationName": "",
-        "Role": "",
-        "Dates": "",
-        "Description": ""
-      }
-    ]
   }
 }
