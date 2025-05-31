@@ -1,4 +1,4 @@
-// cv_tailor_project/app/static/js/main.js
+// app/static/js/main.js
 document.addEventListener('DOMContentLoaded', () => {
     const cvTailorForm = document.getElementById('cvTailorForm');
     const tailorResultDiv = document.getElementById('tailorResult');
@@ -110,7 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     ${job.job_url ? `<a href="${escapeHtml(job.job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm">View Job</a>` : ''}
                                     ${job.description ? `<details class="mt-2 text-sm">
                                         <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Description</summary>
-                                        <p class="mt-1 text-gray-600 leading-relaxed">${escapeHtml(job.description.substring(0,300))}...</p> <!-- Show snippet -->
+                                        <p class="mt-1 text-gray-600 leading-relaxed">${escapeHtml(job.description || 'No description available.')}</p>
                                     </details>` : '<p class="mt-2 text-sm text-gray-500">No description available.</p>'}
                                 </div>`;
                         });
