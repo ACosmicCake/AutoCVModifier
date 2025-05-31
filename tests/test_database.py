@@ -2,8 +2,8 @@ import pytest
 import pytest
 import sqlite3
 import json
-from app.database import save_job, get_jobs, get_db_connection
-from datetime import datetime, date # Import date as well
+from app.database import save_job, get_jobs, get_db_connection, toggle_applied_status # Import toggle_applied_status
+from datetime import datetime, date
 
 # Sample job data for testing
 SAMPLE_JOB_1 = {
@@ -55,6 +55,7 @@ def test_save_new_job(test_db):
     assert job_from_db['source'] == SAMPLE_JOB_1['source']
     assert json.loads(job_from_db['raw_job_data']) == SAMPLE_JOB_1['raw_job_data']
     assert 'date_scraped' in job_from_db and job_from_db['date_scraped'] is not None
+    assert job_from_db['applied'] == 0 # Verify default applied status
 
 def test_save_duplicate_job_url(test_db):
     """Test that saving a job with a duplicate URL is ignored (due to ON CONFLICT DO NOTHING)."""
@@ -262,6 +263,166 @@ def test_save_job_with_dates_in_raw_data(test_db):
     assert retrieved_raw_data['event_times'][0] == "2023-02-01T14:00:00"
     assert retrieved_raw_data['event_times'][1] == "2023-02-02T15:30:00"
     assert retrieved_raw_data['id'] == sample_job_with_dates['raw_job_data']['id']
+
+
+# --- Tests for toggle_applied_status ---
+def test_toggle_applied_status_success(test_db):
+    """Test toggling the applied status of a job."""
+    # Save a job first (it will have applied = 0 by default)
+    save_job(SAMPLE_JOB_1)
+
+    # Get its ID
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM jobs WHERE url = ?", (SAMPLE_JOB_1['url'],))
+    job_id = cursor.fetchone()['id']
+    conn.close()
+
+    # Toggle 1: 0 -> 1
+    result1 = toggle_applied_status(job_id)
+    assert result1 is not None
+    assert result1['id'] == job_id
+    assert result1['applied'] == 1
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+    status_in_db1 = cursor.fetchone()['applied']
+    conn.close()
+    assert status_in_db1 == 1
+
+    # Toggle 2: 1 -> 0
+    result2 = toggle_applied_status(job_id)
+    assert result2 is not None
+    assert result2['id'] == job_id
+    assert result2['applied'] == 0
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+    status_in_db2 = cursor.fetchone()['applied']
+    conn.close()
+    assert status_in_db2 == 0
+
+def test_toggle_applied_status_non_existent_job(test_db):
+    """Test toggling applied status for a job ID that does not exist."""
+    result = toggle_applied_status(99999) # Assuming 99999 does not exist
+    assert result is None
+
+def test_toggle_applied_status_db_error(test_db, monkeypatch):
+    """Test toggle_applied_status behavior on database error."""
+    save_job(SAMPLE_JOB_1)
+    conn_temp = get_db_connection()
+    job_id = conn_temp.execute("SELECT id FROM jobs WHERE url = ?", (SAMPLE_JOB_1['url'],)).fetchone()['id']
+    conn_temp.close()
+
+    # Mock commit to raise an error
+    def mock_commit():
+        raise sqlite3.OperationalError("Simulated commit error")
+
+    # Find the connection object within the function to mock its commit
+    # This is a bit more involved, might be simpler to mock cursor.execute on the UPDATE
+    with patch('sqlite3.Connection.commit', side_effect=sqlite3.OperationalError("Simulated commit error")):
+         with pytest.raises(sqlite3.OperationalError, match="Simulated commit error"):
+            toggle_applied_status(job_id)
+
+    # Verify status was not changed
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+    status_in_db = cursor.fetchone()['applied']
+    conn.close()
+    assert status_in_db == 0 # Should remain initial status
+
+
+# --- Tests for get_jobs with 'applied' filter ---
+def test_get_jobs_filter_by_applied_status(test_db):
+    """Test filtering jobs by their 'applied' status."""
+    # Helper to directly set applied status for testing get_jobs
+    def set_applied_status(job_url, status):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE jobs SET applied = ? WHERE url = ?", (status, job_url))
+        conn.commit()
+        conn.close()
+
+    save_job(SAMPLE_JOB_1) # url: ...swe1, default applied=0
+    save_job(SAMPLE_JOB_2) # url: ...ds1, default applied=0
+    save_job(SAMPLE_JOB_3) # url: ...ssenior, default applied=0
+
+    # Manually set some jobs as applied
+    set_applied_status(SAMPLE_JOB_1['url'], 1) # swe1 is applied
+    set_applied_status(SAMPLE_JOB_3['url'], 1) # ssenior is applied
+                                            # ds1 remains not applied (0)
+
+    # Test filter: applied
+    jobs_applied = get_jobs(filters={'applied_status': 'applied'})
+    assert len(jobs_applied) == 2
+    applied_urls = {job['url'] for job in jobs_applied}
+    assert SAMPLE_JOB_1['url'] in applied_urls
+    assert SAMPLE_JOB_3['url'] in applied_urls
+
+    # Test filter: not_applied
+    jobs_not_applied = get_jobs(filters={'applied_status': 'not_applied'})
+    assert len(jobs_not_applied) == 1
+    assert jobs_not_applied[0]['url'] == SAMPLE_JOB_2['url']
+
+    # Test filter: all (or no filter for applied status)
+    jobs_all_by_status_all = get_jobs(filters={'applied_status': 'all'})
+    assert len(jobs_all_by_status_all) == 3
+
+    jobs_all_no_status_filter = get_jobs(filters={}) # No applied_status key
+    assert len(jobs_all_no_status_filter) == 3
+
+
+def test_get_jobs_combined_filter_with_applied_status(test_db):
+    def set_applied_status(job_url, status):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE jobs SET applied = ? WHERE url = ?", (status, job_url))
+        conn.commit()
+        conn.close()
+
+    # SAMPLE_JOB_1: Software Engineer, TestIndeed, Remote, USA. Desc: ...applications.
+    # SAMPLE_JOB_2: Data Scientist, TestLinkedIn, New York, NY. Desc: ...datasets.
+    # SAMPLE_JOB_3: Senior Software Engineer, TestIndeed, San Francisco, CA. Desc: ...Python and SQL.
+    save_job(SAMPLE_JOB_1)
+    save_job(SAMPLE_JOB_2)
+    save_job(SAMPLE_JOB_3)
+
+    set_applied_status(SAMPLE_JOB_1['url'], 1) # Applied
+    set_applied_status(SAMPLE_JOB_2['url'], 0) # Not Applied
+    set_applied_status(SAMPLE_JOB_3['url'], 1) # Applied
+
+    # Filter: keyword "Software", source "TestIndeed", applied_status "applied"
+    filters = {
+        'keyword': 'Software',
+        'source': 'TestIndeed',
+        'applied_status': 'applied'
+    }
+    jobs = get_jobs(filters=filters)
+    assert len(jobs) == 2 # SAMPLE_JOB_1 and SAMPLE_JOB_3
+    urls = {job['url'] for job in jobs}
+    assert SAMPLE_JOB_1['url'] in urls
+    assert SAMPLE_JOB_3['url'] in urls
+
+    # Filter: keyword "Python", applied_status "not_applied"
+    # (SAMPLE_JOB_3 has Python but is applied=1, so should not be found)
+    filters_py_not_applied = {
+        'keyword': 'Python',
+        'applied_status': 'not_applied'
+    }
+    jobs_py_not_applied = get_jobs(filters=filters_py_not_applied)
+    assert len(jobs_py_not_applied) == 0
+
+    # Filter: location "USA", applied_status "applied"
+    filters_loc_applied = {
+        'location': 'USA', # SAMPLE_JOB_1
+        'applied_status': 'applied'
+    }
+    jobs_loc_applied = get_jobs(filters=filters_loc_applied)
+    assert len(jobs_loc_applied) == 1
+    assert jobs_loc_applied[0]['url'] == SAMPLE_JOB_1['url']
 
 
 # Example of how to use the app_context if some db functions might need it

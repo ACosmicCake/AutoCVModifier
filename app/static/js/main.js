@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const filterKeywordInput = document.getElementById('filterKeyword');
     const filterLocationInput = document.getElementById('filterLocation');
     const filterSourceSelect = document.getElementById('filterSource');
+    const filterAppliedStatusSelect = document.getElementById('filterAppliedStatus'); // Added
     const filterJobsButton = document.getElementById('filterJobsButton');
     const clearFiltersButton = document.getElementById('clearFiltersButton');
 
@@ -149,16 +150,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const formatted_date_scraped = date_scraped_obj.toLocaleDateString() + ' ' + date_scraped_obj.toLocaleTimeString();
             // Use job.id from database as the unique value for checkbox
             const jobId = job.id;
+            const isApplied = job.applied === 1 || job.applied === true;
 
             html += `
-                <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card">
+                <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id-card="${escapeHtml(jobId)}">
                     <div class="flex items-start">
                         <input type="checkbox" class="job-select-checkbox mt-1 mr-3 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" value="${escapeHtml(jobId)}" data-job-description="${escapeHtml(description)}" data-job-title="${escapeHtml(job.title || 'N/A')}">
                         <div class="flex-grow">
-                            <h4 class="text-lg font-bold text-blue-600">${escapeHtml(job.title || 'N/A')}</h4>
+                            <div class="flex justify-between items-center">
+                                <h4 class="text-lg font-bold text-blue-600">${escapeHtml(job.title || 'N/A')}</h4>
+                                <button class="text-xs py-1 px-2 rounded border toggle-applied-btn ${isApplied ? 'bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}" data-job-id="${escapeHtml(jobId)}">${isApplied ? 'Mark Unapplied' : 'Mark Applied'}</button>
+                            </div>
                             <p class="text-sm text-gray-700">${escapeHtml(company)} - ${escapeHtml(location)}</p>
                             <p class="text-xs text-gray-500">Source: ${escapeHtml(source)} | Scraped: ${escapeHtml(formatted_date_scraped)} | DB ID: ${jobId}</p>
-                            ${job_url ? `<a href="${escapeHtml(job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm">View Original Job</a>` : ''}
+                            <p class="text-xs text-gray-500 job-applied-status">Status: ${isApplied ? 'Applied' : 'Not Applied'}</p>
+                            ${job_url ? `<a href="${escapeHtml(job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm mr-2">View Original Job</a>` : ''}
                             <details class="mt-2 text-sm">
                                 <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Full Description (for reference)</summary>
                                 <p class="mt-1 text-gray-600 leading-relaxed whitespace-pre-line">${escapeHtml(description)}</p>
@@ -179,11 +185,64 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectAllCheckbox = document.getElementById('selectAllJobsCheckbox');
         if(selectAllCheckbox) {
             selectAllCheckbox.addEventListener('change', (e) => {
-                jobCheckboxes.forEach(cb => cb.checked = e.target.checked);
+                jobCheckboxes.forEach(cb => cb.checked = e.target.checked); // Apply to current list of checkboxes
                 updateBatchButtonState();
             });
         }
-        updateBatchButtonState(); // Initial check after rendering
+
+        // Add event listeners for toggle applied buttons
+        const toggleButtons = jobResultsDiv.querySelectorAll('.toggle-applied-btn');
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', async (event) => {
+                const jobId = event.target.dataset.jobId;
+                if (!jobId) return;
+
+                showLoading('Updating status...');
+
+                try {
+                    const response = await fetch(`/api/jobs/${jobId}/toggle-applied`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    const result = await response.json();
+                    hideLoading();
+
+                    if (response.ok && result.new_status !== undefined) {
+                        // Dynamically update the specific job card's UI
+                        const card = event.target.closest('.job-card');
+                        if (card) {
+                            const statusTextElement = card.querySelector('.job-applied-status');
+                            const toggleButton = event.target; // or card.querySelector('.toggle-applied-btn')
+
+                            const newAppliedStatusBool = result.new_status === 1 || result.new_status === true;
+
+                            if (statusTextElement) {
+                                statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
+                            }
+                            if (toggleButton) {
+                                toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
+                                if (newAppliedStatusBool) {
+                                    toggleButton.classList.add('bg-yellow-500', 'text-white');
+                                    toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                                } else {
+                                    toggleButton.classList.remove('bg-yellow-500', 'text-white');
+                                    toggleButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                                }
+                            }
+                        }
+                    } else {
+                        alert(`Error updating status: ${result.error || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    hideLoading();
+                    console.error('Toggle Applied Status Error:', error);
+                    alert('An unexpected error occurred while updating status.');
+                }
+            });
+        });
+        updateBatchButtonState(); // Update batch button state after rendering jobs and attaching listeners
     }
 
     // --- Fetch and Display Jobs (Filtered or All) ---
@@ -195,6 +254,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (queryParams.keyword) params.append('keyword', queryParams.keyword);
         if (queryParams.location) params.append('location', queryParams.location);
         if (queryParams.source) params.append('source', queryParams.source);
+        if (queryParams.applied_status && queryParams.applied_status !== 'all') {
+            params.append('applied_status', queryParams.applied_status);
+        }
 
         try {
             const response = await fetch(`/api/jobs?${params.toString()}`);
@@ -221,7 +283,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const filters = {
                 keyword: filterKeywordInput ? filterKeywordInput.value.trim() : '',
                 location: filterLocationInput ? filterLocationInput.value.trim() : '',
-                source: filterSourceSelect ? filterSourceSelect.value : ''
+                source: filterSourceSelect ? filterSourceSelect.value : '',
+                applied_status: filterAppliedStatusSelect ? filterAppliedStatusSelect.value : 'all'
             };
             fetchAndDisplayJobs(filters);
         });
@@ -233,6 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if(filterKeywordInput) filterKeywordInput.value = '';
             if(filterLocationInput) filterLocationInput.value = '';
             if(filterSourceSelect) filterSourceSelect.value = '';
+            if(filterAppliedStatusSelect) filterAppliedStatusSelect.value = 'all'; // Reset new filter
             fetchAndDisplayJobs(); // Fetch all jobs
         });
     }
@@ -270,7 +334,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const currentFilters = {
                         keyword: filterKeywordInput ? filterKeywordInput.value.trim() : '',
                         location: filterLocationInput ? filterLocationInput.value.trim() : '',
-                        source: filterSourceSelect ? filterSourceSelect.value : ''
+                        source: filterSourceSelect ? filterSourceSelect.value : '',
+                        applied_status: filterAppliedStatusSelect ? filterAppliedStatusSelect.value : 'all'
                     };
                     fetchAndDisplayJobs(currentFilters);
 

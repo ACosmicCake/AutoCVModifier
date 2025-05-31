@@ -20,7 +20,7 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs # Added get_jobs database import
+from .database import init_db, save_job, get_jobs, toggle_applied_status # Added toggle_applied_status
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -259,22 +259,23 @@ def create_app(test_config=None):
     @app.route('/api/jobs', methods=['GET'])
     def api_get_jobs():
         """API endpoint to get jobs from the database with optional filters."""
-        filters = {}
-        keyword = request.args.get('keyword')
-        location = request.args.get('location')
-        source = request.args.get('source')
+        filters = {
+            'keyword': request.args.get('keyword'),
+            'location': request.args.get('location'),
+            'source': request.args.get('source'),
+            'applied_status': request.args.get('applied_status') # Get the new filter
+        }
 
-        if keyword:
-            filters['keyword'] = keyword
-        if location:
-            filters['location'] = location
-        if source:
-            filters['source'] = source
+        # Clean up None values from filters to avoid passing them if get_jobs expects no key
+        # or ensure get_jobs handles None/empty string values appropriately (which it does for applied_status).
+        # For keyword, location, source, if they are None, get_jobs won't add a clause.
+        # For applied_status, get_jobs handles None or 'all' by not filtering.
+        # So, direct pass-through of None is fine.
+        # However, if a filter was an empty string from query param and you want to treat it as 'not set',
+        # then cleaning is good:
+        cleaned_filters = {k: v for k, v in filters.items() if v is not None and v != ''}
 
-        # Potentially add more filters like company, specific title keywords, etc.
-        # For date range filters, a bit more logic would be needed in get_jobs
-
-        retrieved_jobs = get_jobs(filters) # get_jobs is from database.py
+        retrieved_jobs = get_jobs(cleaned_filters) # get_jobs is from database.py
 
         # The 'date_scraped' is a datetime object, ensure it's JSON serializable (string)
         # get_jobs already converts rows to dicts, so date_scraped should be fine if stored as TEXT/TIMESTAMP
@@ -287,6 +288,31 @@ def create_app(test_config=None):
             # SQLite typically returns strings for TIMESTAMP if not handled by a custom adapter/converter.
 
         return jsonify({"jobs": retrieved_jobs})
+
+    @app.route('/api/jobs/<int:job_id>/toggle-applied', methods=['POST'])
+    def api_toggle_applied(job_id):
+        """API endpoint to toggle the 'applied' status of a job."""
+        import sqlite3 # Import for specific exception handling
+        try:
+            result = toggle_applied_status(job_id)
+            if result is None:
+                return jsonify({"error": "Job not found"}), 404
+
+            # 'result' is expected to be {"id": job_id, "applied": new_status}
+            return jsonify({
+                "message": "Applied status updated successfully",
+                "job_id": result["id"],
+                "new_status": result["applied"]
+            }), 200
+        except sqlite3.Error as e:
+            # Log the exception e if you have logging configured
+            print(f"Database error on toggle applied status for job_id {job_id}: {e}")
+            return jsonify({"error": "Database operation failed"}), 500
+        except Exception as e:
+            # Catch any other unexpected errors
+            print(f"Unexpected error on toggle applied status for job_id {job_id}: {e}")
+            return jsonify({"error": "An unexpected server error occurred"}), 500
+
 
     @app.route('/api/batch-generate-cvs', methods=['POST'])
     def batch_generate_cvs_endpoint():

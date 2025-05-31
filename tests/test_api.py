@@ -194,6 +194,137 @@ class TestApiEndpoints:
         assert DB_JOB_1['url'] in urls
         assert DB_JOB_3['url'] in urls
 
+    def test_get_jobs_api_filter_by_applied_status(self, client):
+        from app.database import save_job, get_db_connection
+
+        # Save jobs
+        save_job(DB_JOB_1) # default applied = 0
+        save_job(DB_JOB_2) # default applied = 0
+        save_job(DB_JOB_3) # default applied = 0
+
+        # Manually update applied status for some jobs
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Get IDs first
+        job1_id = cursor.execute("SELECT id FROM jobs WHERE url = ?", (DB_JOB_1['url'],)).fetchone()['id']
+        job3_id = cursor.execute("SELECT id FROM jobs WHERE url = ?", (DB_JOB_3['url'],)).fetchone()['id']
+
+        cursor.execute("UPDATE jobs SET applied = 1 WHERE id = ?", (job1_id,))
+        cursor.execute("UPDATE jobs SET applied = 1 WHERE id = ?", (job3_id,))
+        conn.commit()
+        conn.close()
+
+        # Test ?applied_status=applied
+        response = client.get('/api/jobs?applied_status=applied')
+        json_data = response.get_json()
+        assert response.status_code == 200
+        assert len(json_data['jobs']) == 2
+        urls_applied = {job['url'] for job in json_data['jobs']}
+        assert DB_JOB_1['url'] in urls_applied
+        assert DB_JOB_3['url'] in urls_applied
+
+        # Test ?applied_status=not_applied
+        response = client.get('/api/jobs?applied_status=not_applied')
+        json_data = response.get_json()
+        assert response.status_code == 200
+        assert len(json_data['jobs']) == 1
+        assert json_data['jobs'][0]['url'] == DB_JOB_2['url']
+
+        # Test ?applied_status=all (or no param) - should return all
+        response_all = client.get('/api/jobs?applied_status=all')
+        json_data_all = response_all.get_json()
+        assert response_all.status_code == 200
+        assert len(json_data_all['jobs']) == 3
+
+        response_no_param = client.get('/api/jobs') # No applied_status param
+        json_data_no_param = response_no_param.get_json()
+        assert response_no_param.status_code == 200
+        assert len(json_data_no_param['jobs']) == 3
+
+    def test_get_jobs_api_combined_filter_with_applied(self, client):
+        from app.database import save_job, get_db_connection
+        save_job(DB_JOB_1) # APISourceIndeed, API Test SWE, Remote, TestLocation, default applied=0
+        save_job(DB_JOB_2) # APISourceLinkedIn, API Test Data Scientist, New York, TestLocation, default applied=0
+        save_job(DB_JOB_3) # APISourceIndeed, API Test DevOps, Austin, TX, desc Python, default applied=0
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        job1_id = cursor.execute("SELECT id FROM jobs WHERE url = ?", (DB_JOB_1['url'],)).fetchone()['id']
+        cursor.execute("UPDATE jobs SET applied = 1 WHERE id = ?", (job1_id,)) # DB_JOB_1 is applied
+        conn.commit()
+        conn.close()
+
+        # Keyword "API", source "APISourceIndeed", applied_status "applied"
+        response = client.get('/api/jobs?keyword=API&source=APISourceIndeed&applied_status=applied')
+        json_data = response.get_json()
+        assert response.status_code == 200
+        assert len(json_data['jobs']) == 1
+        assert json_data['jobs'][0]['url'] == DB_JOB_1['url']
+
+        # Keyword "API", source "APISourceIndeed", applied_status "not_applied"
+        response_not_applied = client.get('/api/jobs?keyword=API&source=APISourceIndeed&applied_status=not_applied')
+        json_data_not = response_not_applied.get_json()
+        assert response_not_applied.status_code == 200
+        assert len(json_data_not['jobs']) == 1
+        assert json_data_not['jobs'][0]['url'] == DB_JOB_3['url'] # DB_JOB_3 matches keyword & source, and is not applied
+
+
+    # --- Tests for /api/jobs/<job_id>/toggle-applied ---
+    def test_toggle_applied_endpoint_success(self, client):
+        from app.database import save_job, get_db_connection
+        save_job(DB_JOB_1) # Default applied = 0
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        job_id = cursor.execute("SELECT id FROM jobs WHERE url = ?", (DB_JOB_1['url'],)).fetchone()['id']
+        conn.close()
+
+        # Toggle 1: 0 -> 1
+        response1 = client.post(f'/api/jobs/{job_id}/toggle-applied')
+        json_data1 = response1.get_json()
+        assert response1.status_code == 200
+        assert json_data1['message'] == "Applied status updated successfully"
+        assert json_data1['job_id'] == job_id
+        assert json_data1['new_status'] == 1
+
+        conn = get_db_connection()
+        db_status1 = conn.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,)).fetchone()['applied']
+        conn.close()
+        assert db_status1 == 1
+
+        # Toggle 2: 1 -> 0
+        response2 = client.post(f'/api/jobs/{job_id}/toggle-applied')
+        json_data2 = response2.get_json()
+        assert response2.status_code == 200
+        assert json_data2['new_status'] == 0
+
+        conn = get_db_connection()
+        db_status2 = conn.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,)).fetchone()['applied']
+        conn.close()
+        assert db_status2 == 0
+
+    def test_toggle_applied_endpoint_not_found(self, client):
+        response = client.post('/api/jobs/99999/toggle-applied') # Non-existent ID
+        assert response.status_code == 404
+        json_data = response.get_json()
+        assert "Job not found" in json_data['error']
+
+    @patch('app.database.toggle_applied_status') # Mock the database function
+    def test_toggle_applied_endpoint_db_error(self, mock_toggle_db_func, client):
+        from app.database import save_job, get_db_connection
+        import sqlite3
+        save_job(DB_JOB_1)
+        conn = get_db_connection()
+        job_id = conn.execute("SELECT id FROM jobs WHERE url = ?", (DB_JOB_1['url'],)).fetchone()['id']
+        conn.close()
+
+        mock_toggle_db_func.side_effect = sqlite3.Error("Simulated DB error on toggle")
+
+        response = client.post(f'/api/jobs/{job_id}/toggle-applied')
+        assert response.status_code == 500
+        json_data = response.get_json()
+        assert "Database operation failed" in json_data['error']
+
 
     @patch('app.main.process_cv_and_jd')
     @patch('app.main.generate_cv_pdf_from_json_string')

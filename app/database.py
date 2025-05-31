@@ -35,12 +35,30 @@ def init_db():
             url TEXT UNIQUE NOT NULL,
             source TEXT NOT NULL,
             date_scraped TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            raw_job_data TEXT
+            raw_job_data TEXT,
+            applied INTEGER NOT NULL DEFAULT 0
         )
     ''')
+    # Commit the CREATE TABLE statement
     conn.commit()
+
+    # Attempt to add the 'applied' column if it doesn't exist (for existing databases)
+    # This is a common pattern for simple schema migrations in SQLite.
+    try:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN applied INTEGER NOT NULL DEFAULT 0;")
+        conn.commit() # Commit the ALTER TABLE statement
+        print("Column 'applied' added to 'jobs' table or already existed with default.")
+    except sqlite3.OperationalError as e:
+        # Check if the error is "duplicate column name"
+        if "duplicate column name: applied" in str(e).lower():
+            print("Column 'applied' already exists in 'jobs' table.")
+        else:
+            # If it's a different OperationalError, re-raise it
+            print(f"An unexpected SQLite OperationalError occurred: {e}")
+            raise
+
     conn.close()
-    print("Database initialized and jobs table created (if it didn't exist).")
+    print("Database initialized and jobs table schema updated (if necessary).")
 
 def save_job(job_data):
     """Saves a single job listing to the database.
@@ -96,6 +114,50 @@ def save_job(job_data):
     finally:
         conn.close()
 
+def toggle_applied_status(job_id: int) -> dict | None:
+    """Toggles the 'applied' status of a job (0 to 1 or 1 to 0).
+
+    Args:
+        job_id: The ID of the job to update.
+
+    Returns:
+        A dictionary containing the job_id and the new_status if successful,
+        None if the job_id is not found.
+    Raises:
+        sqlite3.Error: For database related errors during the transaction.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Fetch the current 'applied' status
+        cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+        job = cursor.fetchone()
+
+        if job is None:
+            conn.close()
+            return None # Job not found
+
+        current_status = job['applied']
+        new_status = 1 - current_status # Toggle logic (0 becomes 1, 1 becomes 0)
+
+        # Update the 'applied' status
+        cursor.execute("UPDATE jobs SET applied = ? WHERE id = ?", (new_status, job_id))
+        conn.commit()
+
+        conn.close()
+        return {"id": job_id, "applied": new_status}
+
+    except sqlite3.Error as e:
+        # Rollback in case of error if 'conn' was opened with a transaction context manager,
+        # but here we are manually committing. If an error occurs before commit, nothing is saved.
+        # If after commit (unlikely here for a simple update), it's already committed.
+        # For more complex transactions, explicit rollback might be needed.
+        print(f"Database error toggling applied status for job {job_id}: {e}")
+        if conn: # Ensure connection exists before trying to close
+            conn.close()
+        raise # Re-raise the exception to be handled by the caller (API endpoint)
+
 if __name__ == '__main__':
     # For testing or manual initialization
     init_db()
@@ -136,7 +198,8 @@ def get_jobs(filters=None):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    base_query = "SELECT id, title, company, location, description, url, source, date_scraped FROM jobs"
+    # Update base_query to include the new 'applied' column
+    base_query = "SELECT id, title, company, location, description, url, source, date_scraped, applied FROM jobs"
     where_clauses = []
     params = []
 
@@ -144,11 +207,9 @@ def get_jobs(filters=None):
         keyword = filters.get('keyword')
         location = filters.get('location')
         source = filters.get('source')
-        # title_keyword = filters.get('title_keyword') # More specific if needed
-        # description_keyword = filters.get('description_keyword') # More specific if needed
+        applied_status = filters.get('applied_status')
 
         if keyword:
-            # Search keyword in both title and description
             where_clauses.append("(title LIKE ? OR description LIKE ?)")
             params.extend([f"%{keyword}%", f"%{keyword}%"])
 
@@ -157,8 +218,14 @@ def get_jobs(filters=None):
             params.append(f"%{location}%")
 
         if source:
-            where_clauses.append("source = ?") # Exact match for source
+            where_clauses.append("source = ?")
             params.append(source)
+
+        if applied_status == 'applied':
+            where_clauses.append("applied = 1")
+        elif applied_status == 'not_applied':
+            where_clauses.append("applied = 0")
+        # If applied_status is 'all', None, or any other value, do not add a filter for 'applied' status
 
     if where_clauses:
         query = f"{base_query} WHERE {' AND '.join(where_clauses)}"
