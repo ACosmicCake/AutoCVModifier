@@ -478,3 +478,54 @@ class TestApiEndpoints:
         # Restore original path (monkeypatch should do this, but good practice if not using setitem)
         # app.config['CV_FORMAT_FILE_PATH'] = original_path
         # For setitem, monkeypatch handles restoration.
+
+    # --- Tests for /api/auto-apply/<job_id> ---
+
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_success(self, mock_get_job_by_id, client):
+        """Test successful auto-apply when job and URL exist."""
+        sample_job_id = 1
+        sample_job_url = f'http://example.com/job/{sample_job_id}'
+        mock_get_job_by_id.return_value = {
+            'id': sample_job_id,
+            'url': sample_job_url,
+            'title': 'Test Job for AutoApply'
+        }
+
+        response = client.post(f'/api/auto-apply/{sample_job_id}')
+
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert json_data['message'] == f"AutoApply initiated for job URL: {sample_job_url}. Full automation pending."
+        assert json_data['job_url'] == sample_job_url
+        mock_get_job_by_id.assert_called_once_with(sample_job_id)
+
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_job_not_found(self, mock_get_job_by_id, client):
+        """Test auto-apply when the job_id does not exist."""
+        non_existent_job_id = 999
+        mock_get_job_by_id.return_value = None
+
+        response = client.post(f'/api/auto-apply/{non_existent_job_id}')
+
+        assert response.status_code == 404
+        json_data = response.get_json()
+        assert json_data['error'] == "Job not found"
+        mock_get_job_by_id.assert_called_once_with(non_existent_job_id)
+
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_job_url_missing(self, mock_get_job_by_id, client):
+        """Test auto-apply when the job exists but its URL is missing."""
+        job_id_no_url = 2
+        mock_get_job_by_id.return_value = {
+            'id': job_id_no_url,
+            'url': None, # URL is missing
+            'title': 'Test Job without URL'
+        }
+
+        response = client.post(f'/api/auto-apply/{job_id_no_url}')
+
+        assert response.status_code == 500
+        json_data = response.get_json()
+        assert json_data['error'] == "Job found, but URL is missing"
+        mock_get_job_by_id.assert_called_once_with(job_id_no_url)

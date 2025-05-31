@@ -158,6 +158,18 @@ def toggle_applied_status(job_id: int) -> dict | None:
             conn.close()
         raise # Re-raise the exception to be handled by the caller (API endpoint)
 
+def get_job_by_id(job_id: int):
+    """Fetches a single job by its ID from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Ensure all relevant columns are selected, similar to get_jobs
+    cursor.execute("SELECT id, title, company, location, description, url, source, date_scraped, applied FROM jobs WHERE id = ?", (job_id,))
+    job = cursor.fetchone()
+    conn.close()
+    if job:
+        return dict(job) # Convert sqlite3.Row to dict
+    return None
+
 if __name__ == '__main__':
     # For testing or manual initialization
     init_db()

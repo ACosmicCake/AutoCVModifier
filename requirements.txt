@@ -7,3 +7,4 @@ jobspy
 reportlab
 pytest
 pytest-mock
+selenium

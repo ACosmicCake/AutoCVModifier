@@ -3,7 +3,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const cvTailorForm = document.getElementById('cvTailorForm');
     const cvFileInput = document.getElementById('cvFile');
     const tailorResultDiv = document.getElementById('tailorResult');
-    const pdfDownloadLinkDiv = document.getElementById('pdfDownloadLink');
+    const pdfDownloadLinkDiv = document.getElementById('pdfDownloadLinkDiv'); // ID updated
+    const autoApplyButton = document.getElementById('autoApplyButton'); // Added
 
     const jobScrapeForm = document.getElementById('jobScrapeForm');
     const jobResultsDiv = document.getElementById('jobResults');
@@ -84,7 +85,14 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             showLoading('Tailoring CV and generating PDF...');
             if (tailorResultDiv) tailorResultDiv.innerHTML = '';
-            if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
+            // Clear only dynamic content (links/messages) from pdfDownloadLinkDiv, not the button itself
+            if (pdfDownloadLinkDiv) {
+                const existingLink = pdfDownloadLinkDiv.querySelector('a');
+                if (existingLink) existingLink.remove();
+                const existingMessages = pdfDownloadLinkDiv.querySelectorAll('p');
+                existingMessages.forEach(msg => msg.remove());
+            }
+            if (autoApplyButton) autoApplyButton.style.display = 'none'; // Hide button at start
             if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear batch results too
 
             const formData = new FormData(cvTailorForm);
@@ -104,20 +112,53 @@ document.addEventListener('DOMContentLoaded', () => {
                         const formattedJson = JSON.stringify(result.tailored_cv_json, null, 2);
                         tailorResultDiv.innerHTML += `<h4 class="font-semibold mt-2">Tailored CV (JSON Preview):</h4><pre class="whitespace-pre-wrap text-xs">${escapeHtml(formattedJson)}</pre>`;
                     }
-                    if (result.pdf_download_url && pdfDownloadLinkDiv) {
-                        pdfDownloadLinkDiv.innerHTML = `<a href="${escapeHtml(result.pdf_download_url)}" target="_blank" class="inline-block mt-3 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Download Tailored CV (PDF)</a>`;
-                    } else if (result.error_pdf && pdfDownloadLinkDiv) {
-                         pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">Note: ${escapeHtml(result.error_pdf)}</p>`;
-                    } else if (pdfDownloadLinkDiv) {
-                         pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">PDF download link not available. JSON preview above.</p>`;
+
+                    // Always clear previous dynamic content (links or messages) before adding new ones
+                    if (pdfDownloadLinkDiv) {
+                        const existingLink = pdfDownloadLinkDiv.querySelector('a');
+                        if (existingLink) existingLink.remove();
+                        const existingErrorMessages = pdfDownloadLinkDiv.querySelectorAll('p');
+                        existingErrorMessages.forEach(p => p.remove());
                     }
-                } else {
+
+                    if (result.pdf_download_url && pdfDownloadLinkDiv) {
+                        const downloadLink = document.createElement('a');
+                        downloadLink.href = escapeHtml(result.pdf_download_url);
+                        downloadLink.target = '_blank';
+                        downloadLink.className = 'inline-block mt-3 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline';
+                        downloadLink.textContent = 'Download Tailored CV (PDF)';
+                        pdfDownloadLinkDiv.prepend(downloadLink); // Prepend to appear before the button
+
+                        if (autoApplyButton) autoApplyButton.style.display = 'inline-block'; // Show button
+                    } else if (result.error_pdf && pdfDownloadLinkDiv) {
+                        const errorMsg = document.createElement('p');
+                        errorMsg.className = "text-orange-500 mt-2";
+                        errorMsg.textContent = `Note: ${escapeHtml(result.error_pdf)}`;
+                        pdfDownloadLinkDiv.appendChild(errorMsg); // Append the message
+                        if (autoApplyButton) autoApplyButton.style.display = 'none'; // Hide on error
+                    } else if (pdfDownloadLinkDiv) { // Case for no PDF link and no specific PDF error
+                        const noticeMsg = document.createElement('p');
+                        noticeMsg.className = "text-orange-500 mt-2";
+                        noticeMsg.textContent = `PDF download link not available. JSON preview above.`;
+                        pdfDownloadLinkDiv.appendChild(noticeMsg); // Append the message
+                        if (autoApplyButton) autoApplyButton.style.display = 'none'; // Hide if no PDF
+                    }
+                } else { // Response not ok
                     if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to tailor CV.')}</p>`;
+                    // Ensure pdfDownloadLinkDiv is also cleared of old links/messages and button hidden
+                    if (pdfDownloadLinkDiv) {
+                        const existingLink = pdfDownloadLinkDiv.querySelector('a');
+                        if (existingLink) existingLink.remove();
+                        const existingErrorMessages = pdfDownloadLinkDiv.querySelectorAll('p');
+                        existingErrorMessages.forEach(p => p.remove());
+                    }
+                    if (autoApplyButton) autoApplyButton.style.display = 'none'; // Hide on error
                 }
             } catch (error) {
                 hideLoading();
                 console.error('CV Tailoring Error:', error);
                 if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-red-600">An unexpected error occurred. Check console.</p>`;
+                if (autoApplyButton) autoApplyButton.style.display = 'none'; // Hide on error
             }
         });
     }
@@ -290,6 +331,57 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- AutoApply Button Event Listener ---
+    if (autoApplyButton) {
+        autoApplyButton.addEventListener('click', async () => {
+            if (!jobResultsDiv) {
+                console.error("jobResultsDiv not found. Cannot proceed with AutoApply.");
+                alert("An error occurred. Job results area not found.");
+                return;
+            }
+            const selectedCheckboxes = jobResultsDiv.querySelectorAll('.job-select-checkbox:checked');
+
+            if (selectedCheckboxes.length !== 1) {
+                alert('Please select exactly one job from the list to AutoApply.');
+                return;
+            }
+
+            const jobId = selectedCheckboxes[0].value;
+            // Clear previous messages in tailorResultDiv before showing new ones
+            if (tailorResultDiv) tailorResultDiv.innerHTML = '';
+
+
+            showLoading('Attempting AutoApply...');
+
+            try {
+                // The endpoint /api/auto-apply/<job_id> doesn't exist yet.
+                // This fetch will likely result in a 404 or network error.
+                const response = await fetch(`/api/auto-apply/${jobId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    // Body can be empty or include placeholder for CV data in future
+                    body: JSON.stringify({ placeholder: "CV data would go here if available client-side" })
+                });
+
+                hideLoading();
+                // For now, we expect this to fail or not be fully implemented.
+                if (response.ok) {
+                    const result = await response.json();
+                    if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-green-600">AutoApply successful (mocked): ${escapeHtml(result.message || 'Application submitted.')}</p>`;
+                } else {
+                    // Handle non-OK responses (like 404, 500, etc.)
+                     if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-orange-500">AutoApply feature is under development. Endpoint returned status: ${response.status}.</p>`;
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('AutoApply Error:', error);
+                if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-red-600">AutoApply feature is under development. Endpoint not ready or network error.</p>`;
+            }
+        });
+    }
+
     // --- Event Listener for Clear Filters Button ---
     if (clearFiltersButton) {
         clearFiltersButton.addEventListener('click', () => {
@@ -366,7 +458,17 @@ document.addEventListener('DOMContentLoaded', () => {
             showLoading(`Generating ${selectedCheckboxes.length} CV(s)...`);
             if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = '';
             if (tailorResultDiv) tailorResultDiv.innerHTML = ''; // Clear single tailor results
-            if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
+
+            // Clear single CV tailoring dynamic content (links/messages) from pdfDownloadLinkDiv
+            if (pdfDownloadLinkDiv) {
+                const existingLink = pdfDownloadLinkDiv.querySelector('a');
+                if (existingLink) existingLink.remove();
+                const existingMessages = pdfDownloadLinkDiv.querySelectorAll('p');
+                existingMessages.forEach(msg => msg.remove());
+            }
+            // Also ensure autoApplyButton is hidden when starting batch generation,
+            // as it's tied to the single CV generation flow.
+            if (autoApplyButton) autoApplyButton.style.display = 'none';
 
 
             const formData = new FormData();

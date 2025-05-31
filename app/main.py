@@ -20,7 +20,7 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, toggle_applied_status # Added toggle_applied_status
+from .database import init_db, save_job, get_jobs, toggle_applied_status, get_job_by_id # Added get_job_by_id
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -97,6 +97,30 @@ def create_app(test_config=None):
         print(f"Error during instance path creation or DB initialization: {e}")
         # Consider if the app should halt if DB init fails. For now, it prints an error.
 
+    # --- API Endpoints ---
+    @app.route('/')
+    def index():
+        # This will look for templates/index.html in the app folder
+        return render_template('index.html')
+
+    @app.route('/api/auto-apply/<int:job_id>', methods=['POST'])
+    def auto_apply(job_id):
+        job = get_job_by_id(job_id)
+        if job is None:
+            return jsonify({"error": "Job not found"}), 404
+
+        job_url = job.get('url')
+        if not job_url:
+            # This case should ideally not happen if jobs are saved with URLs, but good to check
+            return jsonify({"error": "Job found, but URL is missing"}), 500
+
+        # For now, just acknowledge and return the URL.
+        # Future implementation would involve browser automation (e.g. Selenium) here or queueing.
+        return jsonify({
+            "message": f"AutoApply initiated for job URL: {job_url}. Full automation pending.",
+            "job_url": job_url
+        }), 200
+
     # --- Helper Functions ---
     def allowed_file(filename):
         return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -120,12 +144,6 @@ def create_app(test_config=None):
         if content is None:
             print(f"Could not extract content from file {filepath} with extension {ext}.")
         return content
-
-    # --- API Endpoints ---
-    @app.route('/')
-    def index():
-        # This will look for templates/index.html in the app folder
-        return render_template('index.html')
 
     @app.route('/api/tailor-cv', methods=['POST'])
     def tailor_cv_endpoint():
