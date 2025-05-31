@@ -101,7 +101,7 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
         client = genai.Client(api_key=api_key)
         # Model name based on common availability and recommendation in issue.
         # For genai.Client, model name is typically prefixed with "models/".
-        model_to_use = "models/gemini-1.0-pro"
+        model_to_use = "models/gemini-2.5-flash-preview-05-20" # User specified preview model
 
         response = client.generate_content(
             model=model_to_use,
