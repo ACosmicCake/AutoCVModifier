@@ -1,4 +1,4 @@
-# cv_tailor_project/app/main.py
+# app/main.py
 import os
 import uuid
 import json # For get_cv_content_from_file if handling JSON CVs directly
@@ -32,11 +32,11 @@ CV_FORMAT_FILENAME = 'CV_format.json' # Path relative to project root
 # --- App Initialization ---
 def create_app(test_config=None):
     app = Flask(__name__, instance_relative_config=True) # instance_relative_config=True
+    project_root = os.path.dirname(app.instance_path) # Get project root (/path/to/repo)
 
     # --- Load Environment Variables ---
-    # .env should be in the project root (cv_tailor_project/.env)
-    # os.path.join(os.path.dirname(__file__), '..', '.env') points to cv_tailor_project/.env from app/main.py
-    dotenv_path = os.path.join(app.root_path, '..', '.env')
+    # .env is now at the project root
+    dotenv_path = os.path.join(project_root, '.env')
     if os.path.exists(dotenv_path):
         load_dotenv(dotenv_path)
         print(f"Loaded .env file from {dotenv_path}")
@@ -58,7 +58,7 @@ def create_app(test_config=None):
         UPLOAD_FOLDER=os.path.join(app.instance_path, UPLOAD_FOLDER_NAME),
         GENERATED_PDFS_FOLDER=os.path.join(app.instance_path, GENERATED_PDFS_FOLDER_NAME),
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16 MB upload limit
-        CV_FORMAT_FILE_PATH=os.path.join(app.root_path, '..', CV_FORMAT_FILENAME) # Path to CV_format.json in project root
+        CV_FORMAT_FILE_PATH=os.path.join(project_root, CV_FORMAT_FILENAME) # Path to CV_format.json at project root
     )
 
     if test_config:

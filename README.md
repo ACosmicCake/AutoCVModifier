@@ -9,27 +9,26 @@ This project provides a web-based user interface for the AI-Powered CV Tailoring
 The core application logic is built with Python and Flask, with a user-friendly frontend.
 
 ## Project Structure
-The main application code resides within the `cv_tailor_project` directory.
+The main application code is structured in the repository root.
 ```
 /
-|-- cv_tailor_project/
-|   |-- app/            # Contains the Flask application modules
-|   |   |-- static/     # CSS, JavaScript, images
-|   |   |-- templates/  # HTML templates
-|   |   |-- __init__.py
-|   |   |-- main.py     # Flask app routes and core logic
-|   |   |-- cv_utils.py # CV processing and Gemini API interaction
-|   |   |-- pdf_generator.py # PDF generation for CVs
-|   |   |-- job_scraper.py   # Job scraping logic
-|   |-- instance/       # Instance-specific config (e.g., uploads, generated PDFs)
-|   |-- CV_format.json  # Structure for the CV (used by the app)
-|   |-- requirements.txt # Python dependencies
-|   |-- run.py          # Script to run the Flask development server
-|-- .env                # Environment variables (GOOGLE_API_KEY, SECRET_KEY) - **CREATE THIS FILE in project root**
-|-- README.md           # This file (in project root)
-|-- job_description.txt # Example job description file
-|-- my_cv.json          # Example CV file
-|-- my_cv.txt           # Example CV file
+|-- app/            # Contains the Flask application modules
+|   |-- static/     # CSS, JavaScript, images
+|   |-- templates/  # HTML templates
+|   |-- __init__.py
+|   |-- main.py     # Flask app routes and core logic
+|   |-- cv_utils.py # CV processing and Gemini API interaction
+|   |-- pdf_generator.py # PDF generation for CVs
+|   |-- job_scraper.py   # Job scraping logic
+|-- instance/       # Instance-specific config (e.g., uploads, generated PDFs)
+|-- .env            # Environment variables (GOOGLE_API_KEY, SECRET_KEY)
+|-- CV_format.json  # Structure for the CV (used by the app)
+|-- requirements.txt # Python dependencies
+|-- run.py          # Script to run the Flask development server
+|-- README.md       # This file
+|-- job_description.txt # Example job description file (can be used for testing UI)
+|-- my_cv.json          # Example CV file (can be used for testing UI)
+|-- my_cv.txt           # Example CV file (can be used for testing UI)
 ```
 
 ## Prerequisites
@@ -63,32 +62,25 @@ The main application code resides within the `cv_tailor_project` directory.
         Replace `"YOUR_ACTUAL_GOOGLE_API_KEY"` with your real API key.
         For SECRET_KEY, you can leave it blank for the app to auto-generate a temporary one, or set a persistent strong random string for more stable development/production, e.g., by running the python command suggested in the comments and pasting the output.
 
-3.  **Navigate to the Application Directory:**
-    The main application is inside the `cv_tailor_project` folder.
-    ```bash
-    cd cv_tailor_project
-    ```
-
-4.  **Create a Virtual Environment (Recommended, inside `cv_tailor_project`):**
+3.  **Create a Virtual Environment (Recommended, in the project root directory):**
     ```bash
     python -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scriptsctivate`
+    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
     ```
 
-5.  **Install Dependencies (inside `cv_tailor_project` and with venv activated):**
+4.  **Install Dependencies (in project root and with venv activated):**
     ```bash
     pip install -r requirements.txt
     ```
 
 ## Running the Application
 
-1.  **Ensure you are in the `cv_tailor_project` directory.**
-2.  **Activate your virtual environment** (e.g., `source venv/bin/activate`).
-3.  **Run the Flask Development Server:**
+1.  **Activate your virtual environment** (e.g., `source venv/bin/activate`).
+2.  **Run the Flask Development Server (from the project root):**
     ```bash
     python run.py
     ```
-4.  **Access the Web UI:**
+3.  **Access the Web UI:**
     Open your web browser and go to `http://127.0.0.1:5001` (or the host/port shown in the console if you configured it differently via environment variables in your `.env` file like `FLASK_RUN_HOST` or `FLASK_RUN_PORT`).
 
 ## Features & API Endpoints
@@ -122,5 +114,5 @@ The application provides the following features through a web interface and corr
 *   **Frontend:** HTML, Tailwind CSS, JavaScript
 
 ## Original Command-Line Tool
-The original command-line Python scripts and associated files (like `cv_tailor.py`, `generate_cv.py`) have been superseded by the web application in the `cv_tailor_project` directory. The example text files (`my_cv.txt`, `my_cv.json`, `job_description.txt`) in the root directory can still be used as sources of content to copy-paste into the web UI.
+The original command-line Python scripts and associated files (like `cv_tailor.py`, `generate_cv.py`) have been superseded by the web application now structured in the repository root. The example text files (`my_cv.txt`, `my_cv.json`, `job_description.txt`) in the root directory can still be used as sources of content to copy-paste into the web UI.
 ```
