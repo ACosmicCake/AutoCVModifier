@@ -151,9 +151,10 @@ Follow these instructions carefully:
 2.  Rewrite the CV's summary, work experience, and other relevant sections to highlight these aspects.
 3.  Use strong action verbs and quantify achievements where possible.
 4.  Ensure the tone is professional and matches the industry.
-5.  The output MUST be a single, complete, well-formatted JSON object that strictly adheres to the provided labeling structure.
-6.  Do NOT output anything before or after the JSON object itself. Specifically, do not use markdown like "```json" or "```".
-7.  If a field in the JSON structure is not applicable or has no content after tailoring, represent it as an empty string "" for string fields, or an empty list [] for list fields, or an empty object {{}} for object fields if appropriate, within the JSON structure.
+5.  For the skills section, only generate a few skills, focus on keywords. 
+6.  The output MUST be a single, complete, well-formatted JSON object that strictly adheres to the provided labeling structure.
+7.  Do NOT output anything before or after the JSON object itself. Specifically, do not use markdown like "```json" or "```".
+8.  If a field in the JSON structure is not applicable or has no content after tailoring, represent it as an empty string "" for string fields, or an empty list [] for list fields, or an empty object {{}} for object fields if appropriate, within the JSON structure.
 
 Here is the original CV (which could be plain text, or a JSON string itself):
 --- BEGIN CV ---
