@@ -95,7 +95,7 @@ The application provides the following features through a web interface and corr
         *   Returns: JSON with tailored CV data and a PDF download link.
 
 *   **Job Scraping:**
-    *   **UI:** Enter search term, location, sites (comma-separated, e.g., `indeed,linkedin`), and number of results to scrape.
+    *   **UI:** Enter search term, location, sites (comma-separated), and number of results to scrape. Supported sites: `indeed`, `linkedin`, `zip_recruiter`, `glassdoor`, `google`, `bayt`, `naukri`.
     *   **API:** `GET /api/scrape-jobs`
         *   Query Parameters: `search_term`, `location`, `site_names`, `results_wanted`.
         *   Returns: JSON list of scraped job details.
