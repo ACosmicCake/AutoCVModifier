@@ -350,19 +350,39 @@ document.addEventListener('DOMContentLoaded', () => {
             // Clear previous messages in tailorResultDiv before showing new ones
             if (tailorResultDiv) tailorResultDiv.innerHTML = '';
 
+            let requestBody = {};
+            if (tailorResultDiv) {
+                const preElement = tailorResultDiv.querySelector('pre');
+                if (preElement && preElement.textContent) {
+                    try {
+                        const tailoredCvJson = JSON.parse(preElement.textContent);
+                        requestBody = { tailored_cv: tailoredCvJson };
+                    } catch (parseError) {
+                        console.warn('Failed to parse tailored CV JSON from <pre> tag:', parseError);
+                        // Send empty object as per requirement if parsing fails
+                        requestBody = {};
+                    }
+                } else {
+                    console.warn('Tailored CV JSON <pre> tag not found in tailorResultDiv. Sending empty object for AutoApply.');
+                    requestBody = {};
+                }
+            } else {
+                // Should not happen if tailorResultDiv is essential for other messages too
+                console.warn('tailorResultDiv itself not found. Sending empty object for AutoApply.');
+                requestBody = {};
+            }
 
             showLoading('Attempting AutoApply...');
 
             try {
-                // The endpoint /api/auto-apply/<job_id> doesn't exist yet.
-                // This fetch will likely result in a 404 or network error.
+                // The endpoint /api/auto-apply/<job_id> exists from previous step,
+                // but full auto-application logic is pending server-side.
                 const response = await fetch(`/api/auto-apply/${jobId}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    // Body can be empty or include placeholder for CV data in future
-                    body: JSON.stringify({ placeholder: "CV data would go here if available client-side" })
+                    body: JSON.stringify(requestBody)
                 });
 
                 hideLoading();

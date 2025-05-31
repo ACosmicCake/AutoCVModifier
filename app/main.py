@@ -6,6 +6,35 @@ import secrets # For generating a fallback SECRET_KEY
 from flask import Flask, request, jsonify, send_file, render_template
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+from selenium import webdriver
+# -----------------------------------------------------------------------------
+# IMPORTANT: Selenium WebDriver Configuration
+#
+# To use Selenium, the appropriate WebDriver for your browser (e.g., chromedriver
+# for Chrome, geckodriver for Firefox) must be installed and accessible.
+#
+# 1. Installation: Download the WebDriver executable matching your browser version.
+# 2. Accessibility:
+#    a) PATH: Ensure the directory containing the WebDriver executable is in your
+#       system's PATH environment variable. This is the simplest approach if
+#       `webdriver.Chrome()` (or equivalent) is called without arguments.
+#    b) Explicit Path: Alternatively, provide the path to the executable directly:
+#       from selenium.webdriver.chrome.service import Service as ChromeService
+#       service = ChromeService(executable_path='/path/to/your/chromedriver')
+#       driver = webdriver.Chrome(service=service)
+# 3. Automation Libraries: Consider using a library like `webdriver-manager`
+#    which can automatically download and manage WebDrivers for you:
+#       from webdriver_manager.chrome import ChromeDriverManager
+#       service = ChromeService(ChromeDriverManager().install())
+#       driver = webdriver.Chrome(service=service)
+#
+# The current basic implementation `driver = webdriver.Chrome()` assumes option 2a.
+# -----------------------------------------------------------------------------
+# from selenium.webdriver.chrome.service import Service as ChromeService # Example for explicit path
+# from webdriver_manager.chrome import ChromeDriverManager # Example for webdriver-manager
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
+import time
 
 # --- Import refactored utility functions ---
 # Assuming these files are in the same directory 'app'
@@ -111,15 +140,139 @@ def create_app(test_config=None):
 
         job_url = job.get('url')
         if not job_url:
-            # This case should ideally not happen if jobs are saved with URLs, but good to check
             return jsonify({"error": "Job found, but URL is missing"}), 500
 
-        # For now, just acknowledge and return the URL.
-        # Future implementation would involve browser automation (e.g. Selenium) here or queueing.
-        return jsonify({
-            "message": f"AutoApply initiated for job URL: {job_url}. Full automation pending.",
-            "job_url": job_url
-        }), 200
+        request_data = request.get_json()
+        tailored_cv_data = None
+        if request_data:
+            tailored_cv_data = request_data.get('tailored_cv')
+
+        if not tailored_cv_data:
+            # Handle missing CV data gracefully for now
+            print(f"Warning: No tailored CV data received for job ID {job_id}. Proceeding without it or with default.")
+            # In a real scenario, might return an error or use a default CV from user profile.
+
+        driver = None
+        try:
+            # Initialize WebDriver. Assumes chromedriver is in PATH.
+            # For robust setup, use webdriver_manager or specify service object:
+            # driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
+            # For now, basic initialization:
+            driver = webdriver.Chrome()
+
+            # Navigate to the job URL
+            driver.get(job_url)
+            time.sleep(2) # Allow page to load a bit, can be replaced by explicit waits
+
+            # Extract CV data for form filling
+            personal_info = tailored_cv_data.get("PersonalInformation", {}) if tailored_cv_data else {}
+            cv_name = personal_info.get("Name", "Default Name")
+            cv_email = personal_info.get("EmailAddress", "default@example.com")
+            cv_phone = personal_info.get("PhoneNumber", "0000000000")
+
+            # --- Example Form Filling (Highly Simplified) ---
+            # IMPORTANT NOTE ON FORM STRUCTURE:
+            # The element locators used below (IDs, names, CSS selectors) are generic examples.
+            # Real-world job application forms have vastly different HTML structures.
+            # These locators WILL NEED TO BE ADAPTED for each specific job application site
+            # to correctly identify the target input fields. This often involves inspecting
+            # the webpage's HTML source to find suitable and stable selectors.
+
+            # Name Field
+            try:
+                # Common IDs/names: full_name, name, candidate_name, applicant_name, etc.
+                name_field = driver.find_element(By.ID, "full_name") # Example ID
+                name_field.send_keys(cv_name)
+                print(f"Filled name field with: {cv_name}")
+            except NoSuchElementException:
+                try:
+                    name_field = driver.find_element(By.NAME, "name") # Example name attribute
+                    name_field.send_keys(cv_name)
+                    print(f"Filled name field (by name) with: {cv_name}")
+                except NoSuchElementException:
+                    print("Name field not found on page.")
+
+            # Email Field
+            try:
+                # Common IDs/names: email, email_address, applicant_email
+                email_field = driver.find_element(By.ID, "email") # Example ID
+                email_field.send_keys(cv_email)
+                print(f"Filled email field with: {cv_email}")
+            except NoSuchElementException:
+                try:
+                    email_field = driver.find_element(By.NAME, "email_address") # Example name attribute
+                    email_field.send_keys(cv_email)
+                    print(f"Filled email field (by name) with: {cv_email}")
+                except NoSuchElementException:
+                    print("Email field not found on page.")
+
+            # Phone Field
+            try:
+                # Common IDs/names: phone, phone_number, applicant_phone
+                phone_field = driver.find_element(By.ID, "phone") # Example ID
+                phone_field.send_keys(cv_phone)
+                print(f"Filled phone field with: {cv_phone}")
+            except NoSuchElementException:
+                try:
+                    phone_field = driver.find_element(By.NAME, "phone_number") # Example name attribute
+                    phone_field.send_keys(cv_phone)
+                    print(f"Filled phone field (by name) with: {cv_phone}")
+                except NoSuchElementException:
+                    print("Phone field not found on page.")
+
+            # CV File Upload
+            try:
+                # Common IDs/names: resume, cv_upload, file_upload, resumeupload
+                # Often type="file"
+                cv_upload_field = driver.find_element(By.CSS_SELECTOR, "input[type='file']") # Example CSS selector
+
+                # --- IMPORTANT: CV File Upload Path ---
+                # The path `dummy_cv_file_path` currently points to a placeholder PDF
+                # (`instance/dummy_cv_for_upload.pdf`) located on the server.
+                #
+                # For a real application, this mechanism needs to be robust:
+                # 1. Identification: The correct, tailored PDF (generated by `tailor_cv_endpoint`)
+                #    must be identified for the current application attempt. This might involve:
+                #    - Passing the unique PDF filename from the client when AutoApply is clicked.
+                #    - Storing a reference to the generated PDF in the user's session or
+                #      associating it with the `job_id` temporarily.
+                #    - Querying the `GENERATED_PDFS_FOLDER` for the most recent file
+                #      attributable to this user/session (less reliable in concurrent scenarios).
+                # 2. Accessibility: The identified PDF path must be accessible by the Selenium
+                #    WebDriver process running on the server.
+                #
+                # Using a static dummy file path is a major simplification for this development stage.
+                dummy_cv_file_path = os.path.join(app.instance_path, 'dummy_cv_for_upload.pdf')
+                if not os.path.exists(dummy_cv_file_path):
+                    print(f"Error: Dummy CV file for upload (placeholder) not found at {dummy_cv_file_path}. Skipping upload.")
+                else:
+                    cv_upload_field.send_keys(dummy_cv_file_path)
+                    print(f"Attempted to upload CV from: {dummy_cv_file_path}")
+            except NoSuchElementException:
+                print("CV upload field (input[type='file']) not found on page.")
+
+            time.sleep(5) # For visual inspection during dev; remove for production/tests.
+
+            return jsonify({
+                "message": f"Navigated to job URL and attempted basic form filling for {job_url}. Please verify.",
+                "job_url": job_url,
+                "cv_data_received": bool(tailored_cv_data)
+            }), 200
+
+        except Exception as e_selenium:
+            # Catch broad exceptions from Selenium operations (init, navigation)
+            # More specific exceptions (WebDriverException, TimeoutException) can be caught if needed.
+            error_message = f"Selenium operation failed: {str(e_selenium)}"
+            print(f"Error during AutoApply for job ID {job_id} at URL {job_url}: {error_message}")
+
+            # Determine if it was WebDriver init or navigation failure based on driver state
+            if driver is None and not "driver.get" in str(e_selenium).lower(): # Heuristic: if driver is still None, init likely failed
+                 return jsonify({"error": "WebDriver initialization failed.", "details": str(e_selenium)}), 500
+            else: # Otherwise, assume navigation or other Selenium step failed
+                 return jsonify({"error": f"Failed to process job URL: {job_url}", "details": str(e_selenium)}), 500
+        finally:
+            if driver:
+                driver.quit()
 
     # --- Helper Functions ---
     def allowed_file(filename):

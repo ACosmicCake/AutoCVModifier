@@ -481,27 +481,81 @@ class TestApiEndpoints:
 
     # --- Tests for /api/auto-apply/<job_id> ---
 
+    @patch('app.main.time.sleep')
+    @patch('app.main.os.path.exists')
+    @patch('app.main.webdriver.Chrome')
     @patch('app.main.get_job_by_id')
-    def test_auto_apply_success(self, mock_get_job_by_id, client):
-        """Test successful auto-apply when job and URL exist."""
+    def test_auto_apply_success(self, mock_get_job_by_id, mock_webdriver_chrome, mock_os_path_exists, mock_time_sleep, client):
+        """Test successful auto-apply with Selenium interactions mocked."""
         sample_job_id = 1
         sample_job_url = f'http://example.com/job/{sample_job_id}'
+
         mock_get_job_by_id.return_value = {
             'id': sample_job_id,
             'url': sample_job_url,
             'title': 'Test Job for AutoApply'
         }
 
-        response = client.post(f'/api/auto-apply/{sample_job_id}')
+        mock_driver_instance = MagicMock()
+        mock_webdriver_chrome.return_value = mock_driver_instance
+        mock_element = MagicMock() # Mock for element returned by find_element
+        mock_driver_instance.find_element.return_value = mock_element
+
+        mock_os_path_exists.return_value = True # Assume dummy CV file exists
+
+        # Sample CV data to be sent in the request
+        cv_data_payload = {
+            "tailored_cv": {
+                "PersonalInformation": {
+                    "Name": "Test User",
+                    "EmailAddress": "test@example.com",
+                    "PhoneNumber": "1234567890"
+                }
+                # Other CV sections can be added if needed for more detailed tests
+            }
+        }
+
+        response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
 
         assert response.status_code == 200
         json_data = response.get_json()
-        assert json_data['message'] == f"AutoApply initiated for job URL: {sample_job_url}. Full automation pending."
+        assert "Navigated to job URL and attempted basic form filling" in json_data['message']
         assert json_data['job_url'] == sample_job_url
+        assert json_data['cv_data_received'] is True
+
         mock_get_job_by_id.assert_called_once_with(sample_job_id)
+        mock_webdriver_chrome.assert_called_once() # Check driver was initialized
+        mock_driver_instance.get.assert_called_once_with(sample_job_url)
+
+        # Check find_element calls (at least a few)
+        # Exact By.ID/NAME might be too brittle, check call count or specific important ones
+        assert mock_driver_instance.find_element.call_count >= 4 # Name, Email, Phone, File
+        # Example check for a specific call if needed (requires importing By from app.main or selenium)
+        # from app.main import By # Or from selenium.webdriver.common.by import By
+        # mock_driver_instance.find_element.assert_any_call(By.ID, "full_name")
+        # mock_driver_instance.find_element.assert_any_call(By.CSS_SELECTOR, "input[type='file']")
+
+        # Check that send_keys was called on the mock element for CV upload
+        # This assumes the file upload field was found and send_keys was attempted
+        # Need to ensure that the path used in send_keys is correct.
+        # The path is constructed using app.instance_path.
+        # For testing, app.instance_path is a temporary directory.
+        # We can assert that send_keys was called with a path ending in 'dummy_cv_for_upload.pdf'.
+        upload_path_found = False
+        for call_args in mock_element.send_keys.call_args_list:
+            args, _ = call_args
+            if isinstance(args[0], str) and args[0].endswith('dummy_cv_for_upload.pdf'):
+                upload_path_found = True
+                break
+        assert upload_path_found, "send_keys for CV upload path not called as expected"
+
+
+        mock_time_sleep.assert_any_call(5) # Check the final sleep
+        mock_driver_instance.quit.assert_called_once()
+        mock_os_path_exists.assert_called() # Check that os.path.exists was called for dummy cv
 
     @patch('app.main.get_job_by_id')
-    def test_auto_apply_job_not_found(self, mock_get_job_by_id, client):
+    def test_auto_apply_job_not_found(self, mock_get_job_by_id, client): # No selenium mocks needed here
         """Test auto-apply when the job_id does not exist."""
         non_existent_job_id = 999
         mock_get_job_by_id.return_value = None
@@ -529,3 +583,56 @@ class TestApiEndpoints:
         json_data = response.get_json()
         assert json_data['error'] == "Job found, but URL is missing"
         mock_get_job_by_id.assert_called_once_with(job_id_no_url)
+
+    @patch('app.main.webdriver.Chrome', side_effect=Exception("WebDriver init failed simulation"))
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_webdriver_init_failure(self, mock_get_job_by_id, mock_webdriver_chrome, client):
+        """Test auto-apply when WebDriver initialization fails."""
+        sample_job_id = 3
+        mock_get_job_by_id.return_value = {
+            'id': sample_job_id,
+            'url': 'http://example.com/job/3',
+            'title': 'Job for WebDriver Fail Test'
+        }
+        # CV data is optional here as it should fail before using it
+        cv_data_payload = {"tailored_cv": {"PersonalInformation": {"Name": "Test"}}}
+
+        response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
+
+        assert response.status_code == 500
+        json_data = response.get_json()
+        assert json_data['error'] == "WebDriver initialization failed."
+        assert "WebDriver init failed simulation" in json_data['details']
+        mock_webdriver_chrome.assert_called_once() # Attempted to init driver
+        mock_get_job_by_id.assert_called_once_with(sample_job_id)
+
+    @patch('app.main.time.sleep') # Mock sleep as it's called before quit
+    @patch('app.main.webdriver.Chrome')
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_navigation_failure(self, mock_get_job_by_id, mock_webdriver_chrome, mock_time_sleep, client):
+        """Test auto-apply when WebDriver navigation (driver.get) fails."""
+        sample_job_id = 4
+        sample_job_url = 'http://example.com/job/4/navfail'
+        mock_get_job_by_id.return_value = {
+            'id': sample_job_id,
+            'url': sample_job_url,
+            'title': 'Job for Navigation Fail Test'
+        }
+
+        mock_driver_instance = MagicMock()
+        mock_webdriver_chrome.return_value = mock_driver_instance
+        mock_driver_instance.get.side_effect = Exception("Navigation failed simulation")
+
+        cv_data_payload = {"tailored_cv": {"PersonalInformation": {"Name": "Test"}}}
+
+        response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
+
+        assert response.status_code == 500
+        json_data = response.get_json()
+        assert json_data['error'] == f"Failed to process job URL: {sample_job_url}"
+        assert "Navigation failed simulation" in json_data['details']
+
+        mock_webdriver_chrome.assert_called_once()
+        mock_driver_instance.get.assert_called_once_with(sample_job_url)
+        mock_driver_instance.quit.assert_called_once() # quit should still be called
+        mock_get_job_by_id.assert_called_once_with(sample_job_id)
