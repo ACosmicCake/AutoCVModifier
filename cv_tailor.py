@@ -4,10 +4,11 @@
 import os
 from dotenv import load_dotenv
 import sys
-import json # New import
-from google import genai # Updated import for google-genai
-from PyPDF2 import PdfReader # New import
-import docx # New import
+import json
+from google import genai
+from PyPDF2 import PdfReader
+import docx
+from generate_cv import generate_cv_pdf_from_json_string
 
 def get_api_key() -> str | None:
     """Loads the Google API key from environment variables or .env file."""
@@ -85,20 +86,23 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
         The AI-generated text response, or None if an error occurs.
     """
     try:
-        # No genai.configure(api_key=api_key) is needed if using genai.Client
-        client = genai.Client(api_key=api_key) # Initialize client with API key
+        client = genai.Client(api_key=api_key)
+        model_to_use = "gemini-2.5-flash-preview-05-20" # Or other compatible model like "gemini-1.0-pro"
 
-        model_to_use = "gemini-pro" # Or "gemini-1.0-pro" or other compatible model
-
-        # Use 'contents' as per the user's example
         response = client.models.generate_content(
-            model=model_to_use,
+            model = model_to_use,
             contents=prompt_text
         )
-
-        # Assuming response.text is still valid; if not, this might need adjustment
-        # based on the actual structure of 'response' from this new client.
-        return response.text
+        # Accessing the text response, ensuring parts and text exist
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            return response.candidates[0].content.parts[0].text
+        else:
+            # Handle cases where the response structure is unexpected or content is missing
+            print("Warning: Gemini API response structure was not as expected or content was empty.")
+            # Attempt to access response.text directly as a fallback
+            if hasattr(response, 'text'):
+                return response.text
+            return None
     except Exception as e:
         print(f"Error calling Gemini API (google-genai): {e}")
         return None
@@ -118,8 +122,6 @@ def get_cv_from_pdf_file(filepath: str) -> str | None:
         with open(filepath, 'rb') as f: # Open in binary read mode
             reader = PdfReader(f)
             if reader.is_encrypted:
-                # Attempt to decrypt with an empty password, common for some PDFs.
-                # More complex decryption is not handled here.
                 try:
                     reader.decrypt('')
                 except Exception as decrypt_error:
@@ -132,16 +134,15 @@ def get_cv_from_pdf_file(filepath: str) -> str | None:
                 if page_text: # Ensure text was extracted
                     text_content.append(page_text)
 
-        if not text_content: # If no text was extracted (e.g., image-based PDF)
+        if not text_content:
             print(f"Warning: No text could be extracted from PDF {filepath}. It might be an image-based PDF or have non-standard text encoding.")
-            return "" # Return empty string as some text might be expected by downstream, None indicates file error
+            return ""
 
         return "\n".join(text_content)
     except FileNotFoundError:
         print(f"Error: PDF file not found at {filepath}")
         return None
     except Exception as e:
-        # Catches other PyPDF2 errors or general issues
         print(f"Error processing PDF file {filepath}: {e}")
         return None
 
@@ -161,11 +162,8 @@ def get_cv_from_docx_file(filepath: str) -> str | None:
         for para in document.paragraphs:
             text_content.append(para.text)
 
-        if not text_content and not document.tables: # Also check if tables exist, though we are not parsing them yet.
-            # This check helps determine if the docx is truly empty vs. only having tables/images.
+        if not text_content and not document.tables:
             print(f"Warning: No text paragraphs could be extracted from DOCX {filepath}. It might be empty or contain non-standard content.")
-            # Return empty string as some text might be expected by downstream.
-            # None would typically indicate a file error or major parsing issue.
             return ""
 
         return "\n".join(text_content)
@@ -173,58 +171,52 @@ def get_cv_from_docx_file(filepath: str) -> str | None:
         print(f"Error: DOCX file not found at {filepath}")
         return None
     except Exception as e:
-        # Catches other python-docx errors (e.g., if the file is not a valid DOCX format)
         print(f"Error processing DOCX file {filepath}: {e}")
         return None
 
 def main():
     print("--- AI-Powered CV Tailoring Program ---")
     api_key = get_api_key()
-    if not api_key: # get_api_key now exits on failure, but good practice to check
+    if not api_key:
         return
     print("Successfully loaded API key.")
 
-    cv_data = None
+    cv_data = None # Stores raw CV data (dict if json, str otherwise)
     job_description_text = None
-    cv_data_for_prompt = None # Initialize here
+    cv_data_for_prompt = None # Stores CV data as a string for the prompt
 
     # 1. Get CV Data
     print("\n--- Step 1: Provide Your CV ---")
-    # Add 'docx' to the input choices
     cv_input_choice = input("How would you like to provide your CV? (json / text / pdf / docx / paste / skip): ").strip().lower()
     if cv_input_choice == 'json':
         cv_filepath = input("Enter path to your CV JSON file (e.g., my_cv.json): ").strip()
         cv_data = get_cv_from_json_file(cv_filepath)
         if cv_data:
             print(f"Successfully loaded CV from {cv_filepath}")
-            cv_data_for_prompt = json.dumps(cv_data, indent=2)
+            cv_data_for_prompt = json.dumps(cv_data, indent=2) # Convert dict to formatted JSON string
     elif cv_input_choice == 'text':
         cv_filepath = input("Enter path to your CV text file (e.g., my_cv.txt): ").strip()
-        cv_data = get_cv_from_text_file(cv_filepath)
-        if cv_data is not None:
+        cv_data_for_prompt = get_cv_from_text_file(cv_filepath) # Directly use string content
+        if cv_data_for_prompt is not None:
             print(f"Successfully loaded CV from {cv_filepath}")
-            cv_data_for_prompt = cv_data
     elif cv_input_choice == 'pdf':
         cv_filepath = input("Enter path to your CV PDF file (e.g., my_cv.pdf): ").strip()
-        cv_data = get_cv_from_pdf_file(cv_filepath)
-        if cv_data is not None:
+        cv_data_for_prompt = get_cv_from_pdf_file(cv_filepath)
+        if cv_data_for_prompt is not None:
             print(f"Successfully extracted text from PDF CV at {cv_filepath}")
-            if not cv_data:
+            if not cv_data_for_prompt:
                  print("Warning: The extracted text from the PDF is empty.")
-            cv_data_for_prompt = cv_data
-    elif cv_input_choice == 'docx': # New block for DOCX input
+    elif cv_input_choice == 'docx':
         cv_filepath = input("Enter path to your CV DOCX file (e.g., my_cv.docx): ").strip()
-        cv_data = get_cv_from_docx_file(cv_filepath) # cv_data is a string (extracted text) or None
-        if cv_data is not None: # Check if text extraction was successful
+        cv_data_for_prompt = get_cv_from_docx_file(cv_filepath)
+        if cv_data_for_prompt is not None:
             print(f"Successfully extracted text from DOCX CV at {cv_filepath}")
-            if not cv_data:
+            if not cv_data_for_prompt:
                  print("Warning: The extracted text from the DOCX is empty.")
-            cv_data_for_prompt = cv_data
     elif cv_input_choice == 'paste':
-        cv_data = get_cv_from_user_paste()
-        if cv_data:
+        cv_data_for_prompt = get_cv_from_user_paste()
+        if cv_data_for_prompt:
             print("Successfully received CV via paste.")
-            cv_data_for_prompt = cv_data
         else:
             print("No CV content was pasted.")
     elif cv_input_choice == 'skip':
@@ -249,10 +241,25 @@ def main():
     else:
         print("Invalid choice for job description input. Skipping.")
 
-    if cv_data_for_prompt and job_description_text: # Check cv_data_for_prompt now
+    if cv_data_for_prompt and job_description_text:
         print("\n--- Step 3: Processing ---")
 
-        # Refined prompt construction
+        # Load CV template structure from CV_format.json
+        cv_template_content = ""  # Default to empty string
+        cv_format_filename = "CV_format.json"
+        try:
+            with open(cv_format_filename, 'r', encoding='utf-8') as f:
+                cv_template_content = f.read()
+            if not cv_template_content.strip():
+                print(f"Warning: '{cv_format_filename}' was found but is empty or contains only whitespace. Using an empty structure for CV_template.")
+                cv_template_content = ""  # Ensure it's truly empty if only whitespace
+            else:
+                print(f"Successfully loaded CV labeling structure from '{cv_format_filename}'.")
+        except FileNotFoundError:
+            print(f"Warning: '{cv_format_filename}' not found. The CV labeling structure part of the prompt will be empty.")
+        except Exception as e:
+            print(f"Error reading '{cv_format_filename}': {e}. The CV labeling structure part of the prompt will be empty.")
+
         prompt_text = f"""
 You are an expert CV tailoring assistant. Your task is to rewrite the provided CV to be perfectly tailored for the given job description.
 
@@ -273,21 +280,47 @@ Here is the target job description:
 {job_description_text}
 --- END JOB DESCRIPTION ---
 
-Now, please provide the tailored CV:
+Generate the text based on this labeling structure:
+--- BEGIN LABELING STRUCTURE ---
+{cv_template_content}
+--- END LABELING STRUCTURE ---
+
+Now, please provide the tailored CV. If there is nothing in the structure place , do not output anthing in that spot:
 """
-        print(f"Generated prompt (first 100 chars): {prompt_text[:100]}...")
+        print(f"Generated prompt (first 200 chars): {prompt_text[:200].replace(os.linesep, ' ')}...") # Show more context
 
         print("Calling Gemini API...")
         tailored_cv_output = call_gemini_api(api_key, prompt_text)
 
         if tailored_cv_output:
+            # Clean the output
+            if tailored_cv_output.startswith("```json\n"):
+                tailored_cv_output = tailored_cv_output[len("```json\n"):]
+            elif tailored_cv_output.startswith("```json"): # Handle if no newline after json
+                tailored_cv_output = tailored_cv_output[len("```json"):]
+            elif tailored_cv_output.startswith("```"): # Handle if just ```
+                tailored_cv_output = tailored_cv_output[len("```"):]
+
+            if tailored_cv_output.endswith("\n```"):
+                tailored_cv_output = tailored_cv_output[:-len("\n```")]
+            elif tailored_cv_output.endswith("```"): # Handle if no newline before trailing ```
+                tailored_cv_output = tailored_cv_output[:-len("```")]
+
+            tailored_cv_output = tailored_cv_output.strip() # Clean any surrounding whitespace
+
             print("\n--- Step 4: Tailored CV Output ---")
-            print(tailored_cv_output)
+            print(tailored_cv_output) # This will now print the cleaned output
+            
+            # Directly attempt to generate PDF from tailored CV
+            print("\nAttempting to generate PDF from tailored CV...")
+            try:
+                generate_cv_pdf_from_json_string(tailored_cv_output)
+                # Assuming generate_cv_pdf_from_json_string prints its own success/failure messages
+                # print(f"Successfully generated PDF: tailored_cv.pdf") # Or get filename from the function
+            except Exception as e_pdf:
+                print(f"Error during PDF generation process: {e_pdf}")
         else:
             print("\nFailed to get tailored CV from API.")
-
-        # Placeholder for saving output (can be a future step)
-        # print("\nTODO: Save the tailored CV to a file.")
 
     else:
         print("\nSkipping processing as either CV or Job Description is missing.")
