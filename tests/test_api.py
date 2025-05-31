@@ -2,6 +2,7 @@ import pytest
 import json
 import os
 from unittest.mock import patch, MagicMock # For mocking
+from datetime import date, datetime # Import date and datetime
 
 # Sample data for mocking jobspy
 MOCK_JOBSPY_RESULT_DF_EMPTY = MagicMock()
@@ -65,31 +66,50 @@ DB_JOB_3 = { # For keyword search in description
 class TestApiEndpoints:
 
     @patch('app.main.scrape_online_jobs') # Path to where scrape_online_jobs is IMPORTED in main.py
-    def test_scrape_jobs_endpoint_success_and_save(self, mock_scrape_online_jobs, client):
-        # Mock scrape_online_jobs to return a list of job dictionaries (like jobspy would, after to_dict)
-        mock_scrape_online_jobs.return_value = [MOCK_JOBSPY_JOB_1, MOCK_JOBSPY_JOB_2]
+    def test_scrape_jobs_endpoint_success_and_save_with_dates(self, mock_scrape_online_jobs, client):
+        # Updated mock job data to include date/datetime objects
+        mock_job_with_dates_from_scraper = {
+            'site': 'TestDateSource',
+            'job_url': 'http://example.com/mockjobwithdates',
+            'title': 'Mock Job With Dates',
+            'company': 'DateMockCo',
+            'location': 'MockDateLocation, USA',
+            'description': 'Develop mock applications with date fields.',
+            'date_posted': date(2023, 3, 10),  # datetime.date object
+            'last_seen': datetime(2023, 3, 15, 12, 0, 0), # datetime.datetime object
+            'misc_details': {'event_date': date(2023, 4, 1)}
+        }
 
-        response = client.get('/api/scrape-jobs?search_term=test&location=testloc&site_names=TestIndeed,TestLinkedIn&results_wanted=2')
+        mock_scrape_online_jobs.return_value = [mock_job_with_dates_from_scraper, MOCK_JOBSPY_JOB_1]
+
+        response = client.get('/api/scrape-jobs?search_term=testdates&location=dateloc&site_names=TestDateSource,TestIndeed&results_wanted=2')
 
         assert response.status_code == 200
         json_data = response.get_json()
         assert 'jobs' in json_data
         assert len(json_data['jobs']) == 2
-        # Check if the mocked function was called
         mock_scrape_online_jobs.assert_called_once()
 
-
-        # Verify jobs were saved to the database (indirectly, by querying /api/jobs)
-        # This relies on /api/jobs working correctly, or requires direct DB check.
-        # For true unit testing, you'd use a direct DB check from app.database.get_jobs
-        from app.database import get_jobs # Use the actual DB access function
+        # Verify jobs were saved and dates in raw_job_data are serialized
+        from app.database import get_jobs
         db_jobs = get_jobs()
         assert len(db_jobs) == 2
-        db_urls = {job['url'] for job in db_jobs}
-        assert MOCK_JOBSPY_JOB_1['job_url'] in db_urls
-        assert MOCK_JOBSPY_JOB_2['job_url'] in db_urls
-        # Check that source was correctly mapped from 'site'
-        assert any(job['source'] == MOCK_JOBSPY_JOB_1['site'] for job in db_jobs)
+
+        saved_job_with_dates = None
+        for job in db_jobs:
+            if job['url'] == mock_job_with_dates_from_scraper['job_url']:
+                saved_job_with_dates = job
+                break
+
+        assert saved_job_with_dates is not None
+        assert saved_job_with_dates['source'] == mock_job_with_dates_from_scraper['site']
+
+        # Check raw_job_data serialization for dates
+        raw_data_dict = json.loads(saved_job_with_dates['raw_job_data'])
+        assert raw_data_dict['date_posted'] == "2023-03-10"
+        assert raw_data_dict['last_seen'] == "2023-03-15T12:00:00"
+        assert raw_data_dict['misc_details']['event_date'] == "2023-04-01"
+        assert raw_data_dict['title'] == mock_job_with_dates_from_scraper['title'] # Ensure other fields are there
 
 
     @patch('app.main.scrape_online_jobs')

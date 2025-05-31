@@ -1,8 +1,19 @@
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, date # Ensure date is also imported
 
 DATABASE_NAME = 'instance/jobs.db'
+
+# Helper function for JSON serialization with date/datetime handling
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+    if isinstance(obj, (datetime, date)): # Handles both datetime.datetime and datetime.date
+        return obj.isoformat()
+    # Add handling for other non-serializable types if necessary in the future
+    # For example, if jobspy returns other complex types not handled by default.
+    # However, be cautious about overly broad try-except blocks or stringifying unknown types.
+    # It's often better to explicitly handle known non-serializable types.
+    raise TypeError (f"Type {type(obj)} not serializable for JSON")
 
 def get_db_connection():
     """Establishes a connection to the SQLite database."""
@@ -39,8 +50,25 @@ def save_job(job_data):
     cursor = conn.cursor()
 
     # Prepare data for insertion
-    # Ensure all expected keys are present, providing defaults if necessary
-    # and converting raw_job_data to JSON string.
+    # Ensure all expected keys are present, providing defaults if necessary.
+
+    # Serialize raw_job_data with custom date/datetime handler
+    # The 'raw_job_data' key in job_data should ideally hold the original dict from scraper.
+    # If not, the whole job_data is used as a fallback.
+    data_to_serialize_for_raw_json = job_data.get('raw_job_data', job_data)
+    try:
+        # Use the json_serial helper as the default for json.dumps
+        raw_job_json_string = json.dumps(data_to_serialize_for_raw_json, default=json_serial)
+    except TypeError as e:
+        # This catch block is a fallback if json_serial itself can't handle a type
+        # and raises TypeError, or if another unexpected serialization issue occurs.
+        print(f"Error serializing raw_job_data for job URL {job_data.get('url')}: {e}. Storing as basic JSON object.")
+        # Store a minimal representation or an error marker.
+        # Storing the original job_data might also fail if it contains the problematic type.
+        # A simple placeholder indicating serialization failure:
+        raw_job_json_string = json.dumps({"error": "raw_job_data serialization failed", "details": str(e)})
+
+
     data_to_insert = (
         job_data.get('title'),
         job_data.get('company'),
@@ -48,8 +76,8 @@ def save_job(job_data):
         job_data.get('description'),
         job_data.get('url'),
         job_data.get('source'),
-        datetime.now(),  # date_scraped
-        json.dumps(job_data.get('raw_job_data', job_data)) # Store the whole job_data if raw_job_data specific key is not present
+        datetime.now(),  # date_scraped is always set to current timestamp on save
+        raw_job_json_string # Use the safely serialized string
     )
 
     try:

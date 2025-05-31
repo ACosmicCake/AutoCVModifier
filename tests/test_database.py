@@ -1,8 +1,9 @@
 import pytest
+import pytest
 import sqlite3
 import json
 from app.database import save_job, get_jobs, get_db_connection
-from datetime import datetime
+from datetime import datetime, date # Import date as well
 
 # Sample job data for testing
 SAMPLE_JOB_1 = {
@@ -225,6 +226,43 @@ def test_date_scraped_auto_population(test_db):
         datetime.strptime(date_val.split('.')[0], "%Y-%m-%d %H:%M:%S")
     except ValueError:
         pytest.fail(f"date_scraped format is not as expected: {date_val}")
+
+def test_save_job_with_dates_in_raw_data(test_db):
+    """Test saving a job where raw_job_data contains date/datetime objects."""
+    sample_job_with_dates = {
+        "title": "Developer with Dates",
+        "company": "DateCorp",
+        "location": "Timezone City",
+        "description": "A job with date objects.",
+        "url": "http://example.com/jobwithdates",
+        "source": "test_source_dates",
+        "raw_job_data": {
+            "id": "job_dates_123",
+            "posted_on_date": date(2023, 1, 15),
+            "last_updated_datetime": datetime(2023, 1, 16, 10, 30, 0),
+            "event_times": [datetime(2023, 2, 1, 14, 0, 0), datetime(2023, 2, 2, 15, 30, 0)],
+            "details": "Contains various date objects for testing serialization."
+        }
+    }
+    save_job(sample_job_with_dates)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT raw_job_data FROM jobs WHERE url = ?", (sample_job_with_dates['url'],))
+    raw_json_from_db = cursor.fetchone()[0]
+    conn.close()
+
+    assert isinstance(raw_json_from_db, str)
+    retrieved_raw_data = json.loads(raw_json_from_db)
+
+    # Verify that the date/datetime objects were converted to ISO strings
+    assert retrieved_raw_data['posted_on_date'] == "2023-01-15"
+    assert retrieved_raw_data['last_updated_datetime'] == "2023-01-16T10:30:00"
+    assert len(retrieved_raw_data['event_times']) == 2
+    assert retrieved_raw_data['event_times'][0] == "2023-02-01T14:00:00"
+    assert retrieved_raw_data['event_times'][1] == "2023-02-02T15:30:00"
+    assert retrieved_raw_data['id'] == sample_job_with_dates['raw_job_data']['id']
+
 
 # Example of how to use the app_context if some db functions might need it
 # (though current ones don't seem to strictly require it for connection)
