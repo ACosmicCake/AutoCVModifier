@@ -433,3 +433,58 @@ def test_get_jobs_combined_filter_with_applied_status(test_db):
 #         jobs = get_jobs()
 #         assert len(jobs) == 1
 #         assert jobs[0]['title'] == SAMPLE_JOB_1['title']
+
+
+# --- Tests for get_job_by_id ---
+def test_get_job_by_id_exists(test_db):
+    """Test fetching a single job by its ID when the job exists."""
+    # Save a job and get its ID
+    save_job(SAMPLE_JOB_1)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM jobs WHERE url = ?", (SAMPLE_JOB_1['url'],))
+    job_row = cursor.fetchone()
+    assert job_row is not None, "Job was not saved, cannot get ID"
+    job_id = job_row['id']
+    conn.close()
+
+    # Import here to ensure it's using the patched DATABASE_NAME via test_db context
+    from app.database import get_job_by_id
+    retrieved_job = get_job_by_id(job_id)
+
+    assert retrieved_job is not None
+    assert isinstance(retrieved_job, dict)
+    assert retrieved_job['id'] == job_id
+    assert retrieved_job['title'] == SAMPLE_JOB_1['title']
+    assert retrieved_job['url'] == SAMPLE_JOB_1['url']
+    assert retrieved_job['company'] == SAMPLE_JOB_1['company']
+    assert retrieved_job['location'] == SAMPLE_JOB_1['location']
+    assert retrieved_job['description'] == SAMPLE_JOB_1['description']
+    assert retrieved_job['source'] == SAMPLE_JOB_1['source']
+    assert retrieved_job['applied'] == 0 # Default
+    # raw_job_data is also stored as JSON string, so compare parsed versions
+    assert json.loads(retrieved_job['raw_job_data']) == SAMPLE_JOB_1['raw_job_data']
+
+
+def test_get_job_by_id_not_exists(test_db):
+    """Test fetching a single job by its ID when the job does not exist."""
+    from app.database import get_job_by_id
+    retrieved_job = get_job_by_id(99999) # Assuming this ID does not exist
+    assert retrieved_job is None
+
+
+def test_get_job_by_id_db_error(test_db, monkeypatch):
+    """Test get_job_by_id behavior on database error during fetch."""
+    # Mock cursor execute to raise an error
+    def mock_execute_error(query, params):
+        raise sqlite3.OperationalError("Simulated fetch error")
+
+    monkeypatch.setattr(sqlite3.Cursor, 'execute', mock_execute_error)
+
+    from app.database import get_job_by_id
+    # We need to ensure a connection is attempted, so the mocked execute can be called.
+    # The function get_job_by_id establishes its own connection.
+    # The mock above will affect any cursor.execute call.
+
+    result = get_job_by_id(1) # Try to fetch any ID, the execute will fail
+    assert result is None # Function should catch exception and return None

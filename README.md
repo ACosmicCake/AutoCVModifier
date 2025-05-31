@@ -105,6 +105,15 @@ The application provides the following features through a web interface and corr
     *   **API:** `GET /api/download-cv/<filename>`
         *   `<filename>`: The unique filename of the generated PDF.
 
+*   **AutoApply to Jobs (Experimental):**
+    *   **UI:** After tailoring a CV, "AutoApply" buttons become available for job listings. Clicking this button will attempt to open the job URL and (currently) simulate the application process.
+    *   **API:** `POST /api/auto-apply/<job_id>`
+        *   `<job_id>`: The ID of the job in the database.
+        *   Returns: JSON with a success or error message.
+    *   **Note:** This feature uses Selenium to automate browser interaction.
+        *   The current form-filling capability is a **simulation/placeholder**. It navigates to the job page and waits but does not fill out actual application forms. Real-world application forms are complex and vary greatly.
+        *   Requires `chromedriver` (or another compatible WebDriver for your browser) to be installed and accessible in your system's PATH.
+
 ## Technology Stack
 *   **Backend:** Python, Flask
 *   **AI Integration:** Google Gemini API (via google-genai package)

@@ -1,9 +1,10 @@
-python-dotenv
-PyPDF2
-python-docx
-google-genai
 Flask
+google-genai
 jobspy
-reportlab
+PyPDF2
 pytest
 pytest-mock
+python-docx
+python-dotenv
+reportlab
+selenium

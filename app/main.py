@@ -5,6 +5,14 @@ import json # For get_cv_content_from_file if handling JSON CVs directly
 import secrets # For generating a fallback SECRET_KEY
 from flask import Flask, request, jsonify, send_file, render_template
 from werkzeug.utils import secure_filename
+
+# Selenium imports for AutoApply
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By # Though not used in placeholder, good for future
+from selenium.webdriver.chrome.options import Options
+import time
+
 from dotenv import load_dotenv
 
 # --- Import refactored utility functions ---
@@ -18,9 +26,9 @@ from .cv_utils import (
     get_cv_from_json_file # Used in helper
 )
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
-# analyze_cv_with_gemini removed
+# analyze_cv_with_gemini removed #TODO: remove this comment
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, toggle_applied_status # Added toggle_applied_status
+from .database import init_db, save_job, get_jobs, toggle_applied_status, get_job_by_id # Added get_job_by_id
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -461,6 +469,62 @@ def create_app(test_config=None):
         else:
             print(f"Download request for non-existent file: {safe_path}")
             return jsonify({"error": "File not found"}), 404
+
+    @app.route('/api/auto-apply/<int:job_id>', methods=['POST'])
+    def auto_apply_to_job(job_id):
+        """
+        Placeholder endpoint for auto-applying to a job.
+        Uses Selenium to (simulate) navigating to the job URL and then updates the job status.
+        """
+        job_details = get_job_by_id(job_id) # from app.database
+
+        if job_details is None:
+            return jsonify({"error": "Job not found"}), 404
+
+        if not job_details.get('url'):
+            return jsonify({"error": "Job URL not available. Cannot AutoApply."}), 400
+
+        driver = None # Initialize driver to None for finally block
+        try:
+            print(f"Attempting to auto-apply to: {job_details['title']} at {job_details['url']}")
+
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            # Assuming chromedriver is in PATH or service is configured elsewhere if needed
+            # For this subtask, direct instantiation is fine.
+            driver = webdriver.Chrome(options=chrome_options)
+
+            driver.get(job_details['url'])
+            print(f"Navigated to job page: {job_details['title']}")
+
+            # Simulate time taken for form filling or page interaction
+            time.sleep(5)
+
+            print(f"Simulated form filling complete for job: {job_details['title']}")
+
+            # After simulated interaction, update the job's applied status
+            # toggle_applied_status is already imported
+            status_update_result = toggle_applied_status(job_id)
+
+            if status_update_result and status_update_result.get("applied") is not None:
+                new_status = status_update_result["applied"]
+                return jsonify({
+                    "message": f"Successfully attempted AutoApply for job: {job_details['title']}. Status updated.",
+                    "job_id": job_id,
+                    "applied_status": new_status
+                }), 200
+            else:
+                # This case might indicate an issue with toggle_applied_status or job disappearing
+                return jsonify({"error": "AutoApply simulated but failed to update job status."}), 500
+
+        except Exception as e:
+            print(f"Error during AutoApply process for job ID {job_id}: {e}")
+            return jsonify({"error": "AutoApply process failed.", "details": str(e)}), 500
+        finally:
+            if driver:
+                driver.quit()
 
     return app
 

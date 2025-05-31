@@ -114,6 +114,32 @@ def save_job(job_data):
     finally:
         conn.close()
 
+def get_job_by_id(job_id: int) -> dict | None:
+    """Fetches a single job by its ID from the database.
+
+    Args:
+        job_id: The ID of the job to fetch.
+
+    Returns:
+        A dictionary containing the job details if found, otherwise None.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Ensure all relevant columns are selected, including 'url'
+    query = "SELECT id, title, company, location, description, url, source, date_scraped, applied, raw_job_data FROM jobs WHERE id = ?"
+    try:
+        cursor.execute(query, (job_id,))
+        job = cursor.fetchone() # fetchone() returns a single Row object or None
+        if job:
+            return dict(job) # Convert Row object to dictionary
+        return None
+    except sqlite3.Error as e:
+        print(f"Database error while fetching job by ID {job_id}: {e}")
+        return None # Return None on error
+    finally:
+        if conn:
+            conn.close()
+
 def toggle_applied_status(job_id: int) -> dict | None:
     """Toggles the 'applied' status of a job (0 to 1 or 1 to 0).
 

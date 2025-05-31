@@ -478,3 +478,119 @@ class TestApiEndpoints:
         # Restore original path (monkeypatch should do this, but good practice if not using setitem)
         # app.config['CV_FORMAT_FILE_PATH'] = original_path
         # For setitem, monkeypatch handles restoration.
+
+
+@pytest.mark.usefixtures("test_db", "mock_google_api_key") # Ensure DB is clean for each test method
+class TestAutoApplyAPI:
+    SAMPLE_JOB_ID = 1
+    SAMPLE_JOB_DETAILS = {
+        'id': SAMPLE_JOB_ID,
+        'title': 'Software Engineer',
+        'url': 'http://example.com/job/123',
+        'company': 'TestCorp',
+        'location': 'Remote',
+        'description': 'A job posting.',
+        'source': 'TestSource',
+        'applied': 0 # Initially not applied
+    }
+
+    @patch('app.main.get_job_by_id')
+    @patch('app.main.webdriver.Chrome')
+    @patch('app.main.time.sleep')
+    @patch('app.main.toggle_applied_status')
+    def test_auto_apply_success(self, mock_toggle_status, mock_sleep, MockWebDriver, mock_get_job, client):
+        mock_get_job.return_value = self.SAMPLE_JOB_DETAILS.copy()
+
+        mock_driver_instance = MockWebDriver.return_value
+        mock_driver_instance.get.return_value = None # Simulate successful navigation
+
+        mock_toggle_status.return_value = {'id': self.SAMPLE_JOB_ID, 'applied': 1}
+
+        response = client.post(f'/api/auto-apply/{self.SAMPLE_JOB_ID}')
+
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert json_data['message'].startswith("Successfully attempted AutoApply")
+        assert json_data['job_id'] == self.SAMPLE_JOB_ID
+        assert json_data['applied_status'] == 1
+
+        mock_get_job.assert_called_once_with(self.SAMPLE_JOB_ID)
+        MockWebDriver.assert_called_once() # Check if Chrome was initialized
+        mock_driver_instance.get.assert_called_once_with(self.SAMPLE_JOB_DETAILS['url'])
+        mock_sleep.assert_called_once_with(5) # Check if time.sleep(5) was called
+        mock_driver_instance.quit.assert_called_once() # Check if browser was closed
+        mock_toggle_status.assert_called_once_with(self.SAMPLE_JOB_ID)
+
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_job_not_found(self, mock_get_job, client):
+        mock_get_job.return_value = None
+
+        response = client.post(f'/api/auto-apply/{self.SAMPLE_JOB_ID}')
+
+        assert response.status_code == 404
+        json_data = response.get_json()
+        assert "Job not found" in json_data['error']
+        mock_get_job.assert_called_once_with(self.SAMPLE_JOB_ID)
+
+    @patch('app.main.get_job_by_id')
+    @patch('app.main.webdriver.Chrome')
+    @patch('app.main.time.sleep') # Still mock sleep to avoid actual delay
+    def test_auto_apply_selenium_failure(self, mock_sleep, MockWebDriver, mock_get_job, client):
+        mock_get_job.return_value = self.SAMPLE_JOB_DETAILS.copy()
+
+        mock_driver_instance = MockWebDriver.return_value
+        # Simulate an error during driver.get()
+        mock_driver_instance.get.side_effect = Exception("Selenium WebDriverException: Page load error")
+
+        response = client.post(f'/api/auto-apply/{self.SAMPLE_JOB_ID}')
+
+        assert response.status_code == 500
+        json_data = response.get_json()
+        assert "AutoApply process failed" in json_data['error']
+        assert "Selenium WebDriverException: Page load error" in json_data['details']
+
+        mock_get_job.assert_called_once_with(self.SAMPLE_JOB_ID)
+        MockWebDriver.assert_called_once()
+        mock_driver_instance.get.assert_called_once_with(self.SAMPLE_JOB_DETAILS['url'])
+        mock_driver_instance.quit.assert_called_once() # Ensure quit is called even on error
+
+    @patch('app.main.get_job_by_id')
+    @patch('app.main.webdriver.Chrome')
+    @patch('app.main.time.sleep')
+    @patch('app.main.toggle_applied_status')
+    def test_auto_apply_db_update_failure(self, mock_toggle_status, mock_sleep, MockWebDriver, mock_get_job, client):
+        mock_get_job.return_value = self.SAMPLE_JOB_DETAILS.copy()
+
+        mock_driver_instance = MockWebDriver.return_value
+        mock_driver_instance.get.return_value = None
+
+        # Simulate failure in toggle_applied_status (e.g., returns None or raises an error that the endpoint handles)
+        # The endpoint's code: `if status_update_result and status_update_result.get("applied") is not None:`
+        # So, returning None from toggle_applied_status will trigger the error path.
+        mock_toggle_status.return_value = None
+
+        response = client.post(f'/api/auto-apply/{self.SAMPLE_JOB_ID}')
+
+        assert response.status_code == 500
+        json_data = response.get_json()
+        assert "AutoApply simulated but failed to update job status" in json_data['error']
+
+        mock_get_job.assert_called_once_with(self.SAMPLE_JOB_ID)
+        MockWebDriver.assert_called_once()
+        mock_driver_instance.get.assert_called_once_with(self.SAMPLE_JOB_DETAILS['url'])
+        mock_sleep.assert_called_once_with(5)
+        mock_driver_instance.quit.assert_called_once()
+        mock_toggle_status.assert_called_once_with(self.SAMPLE_JOB_ID)
+
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_job_missing_url(self, mock_get_job, client):
+        job_details_no_url = self.SAMPLE_JOB_DETAILS.copy()
+        job_details_no_url['url'] = None # Simulate job with no URL
+        mock_get_job.return_value = job_details_no_url
+
+        response = client.post(f'/api/auto-apply/{self.SAMPLE_JOB_ID}')
+
+        assert response.status_code == 400 # Bad request, as URL is essential
+        json_data = response.get_json()
+        assert "Job URL not available" in json_data['error']
+        mock_get_job.assert_called_once_with(self.SAMPLE_JOB_ID)

@@ -1,5 +1,7 @@
 // app/static/js/main.js
 document.addEventListener('DOMContentLoaded', () => {
+    let cvReadyForAutoApply = false; // Global flag for AutoApply readiness
+
     const cvTailorForm = document.getElementById('cvTailorForm');
     const cvFileInput = document.getElementById('cvFile');
     const tailorResultDiv = document.getElementById('tailorResult');
@@ -106,6 +108,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (result.pdf_download_url && pdfDownloadLinkDiv) {
                         pdfDownloadLinkDiv.innerHTML = `<a href="${escapeHtml(result.pdf_download_url)}" target="_blank" class="inline-block mt-3 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Download Tailored CV (PDF)</a>`;
+                        // CV tailoring successful, enable AutoApply buttons
+                        cvReadyForAutoApply = true;
+                        document.querySelectorAll('.auto-apply-button').forEach(button => {
+                            // Only enable if the job is not already marked as applied
+                            const card = button.closest('.job-card');
+                            if (card) {
+                                const statusTextElement = card.querySelector('.job-applied-status');
+                                if (statusTextElement && !statusTextElement.textContent.includes('Applied')) {
+                                    button.disabled = false;
+                                }
+                            }
+                        });
                     } else if (result.error_pdf && pdfDownloadLinkDiv) {
                          pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">Note: ${escapeHtml(result.error_pdf)}</p>`;
                     } else if (pdfDownloadLinkDiv) {
@@ -152,6 +166,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const jobId = job.id;
             const isApplied = job.applied === 1 || job.applied === true;
 
+            // Determine AutoApply button state
+            let autoApplyButtonDisabled = true;
+            let autoApplyButtonText = "AutoApply";
+
+            if (isApplied) {
+                autoApplyButtonText = "Applied";
+                autoApplyButtonDisabled = true;
+            } else if (cvReadyForAutoApply) {
+                autoApplyButtonDisabled = false;
+            }
+
             html += `
                 <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id-card="${escapeHtml(jobId)}">
                     <div class="flex items-start">
@@ -159,7 +184,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="flex-grow">
                             <div class="flex justify-between items-center">
                                 <h4 class="text-lg font-bold text-blue-600">${escapeHtml(job.title || 'N/A')}</h4>
-                                <button class="text-xs py-1 px-2 rounded border toggle-applied-btn ${isApplied ? 'bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}" data-job-id="${escapeHtml(jobId)}">${isApplied ? 'Mark Unapplied' : 'Mark Applied'}</button>
+                                <div>
+                                    <button class="text-xs py-1 px-2 rounded border toggle-applied-btn ${isApplied ? 'bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}" data-job-id="${escapeHtml(jobId)}">${isApplied ? 'Mark Unapplied' : 'Mark Applied'}</button>
+                                    <button id="autoApplyBtn-${escapeHtml(jobId)}" class="auto-apply-button bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs ml-2" ${autoApplyButtonDisabled ? 'disabled' : ''}>${autoApplyButtonText}</button>
+                                </div>
                             </div>
                             <p class="text-sm text-gray-700">${escapeHtml(company)} - ${escapeHtml(location)}</p>
                             <p class="text-xs text-gray-500">Source: ${escapeHtml(source)} | Scraped: ${escapeHtml(formatted_date_scraped)} | DB ID: ${jobId}</p>
@@ -190,59 +218,100 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Add event listeners for toggle applied buttons
-        const toggleButtons = jobResultsDiv.querySelectorAll('.toggle-applied-btn');
-        toggleButtons.forEach(button => {
-            button.addEventListener('click', async (event) => {
-                const jobId = event.target.dataset.jobId;
-                if (!jobId) return;
-
-                showLoading('Updating status...');
-
-                try {
-                    const response = await fetch(`/api/jobs/${jobId}/toggle-applied`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
+        // Add event listeners for toggle applied buttons and auto-apply buttons
+        jobResultsDiv.querySelectorAll('.job-card button').forEach(button => {
+            if (button.classList.contains('toggle-applied-btn')) {
+                button.addEventListener('click', async (event) => {
+                    const jobId = event.target.dataset.jobId;
+                    if (!jobId) return;
+                    showLoading('Updating status...');
+                    try {
+                        const response = await fetch(`/api/jobs/${jobId}/toggle-applied`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        const result = await response.json();
+                        hideLoading();
+                        if (response.ok && result.new_status !== undefined) {
+                            updateJobCardUIAfterApply(jobId, result.new_status === 1 || result.new_status === true);
+                        } else {
+                            alert(`Error updating status: ${result.error || 'Unknown error'}`);
                         }
-                    });
-                    const result = await response.json();
-                    hideLoading();
-
-                    if (response.ok && result.new_status !== undefined) {
-                        // Dynamically update the specific job card's UI
-                        const card = event.target.closest('.job-card');
-                        if (card) {
-                            const statusTextElement = card.querySelector('.job-applied-status');
-                            const toggleButton = event.target; // or card.querySelector('.toggle-applied-btn')
-
-                            const newAppliedStatusBool = result.new_status === 1 || result.new_status === true;
-
-                            if (statusTextElement) {
-                                statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
-                            }
-                            if (toggleButton) {
-                                toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
-                                if (newAppliedStatusBool) {
-                                    toggleButton.classList.add('bg-yellow-500', 'text-white');
-                                    toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
-                                } else {
-                                    toggleButton.classList.remove('bg-yellow-500', 'text-white');
-                                    toggleButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
-                                }
-                            }
-                        }
-                    } else {
-                        alert(`Error updating status: ${result.error || 'Unknown error'}`);
+                    } catch (error) {
+                        hideLoading();
+                        console.error('Toggle Applied Status Error:', error);
+                        alert('An unexpected error occurred while updating status.');
                     }
-                } catch (error) {
-                    hideLoading();
-                    console.error('Toggle Applied Status Error:', error);
-                    alert('An unexpected error occurred while updating status.');
-                }
-            });
+                });
+            } else if (button.classList.contains('auto-apply-button')) {
+                button.addEventListener('click', async (event) => {
+                    const autoApplyButton = event.target;
+                    const jobId = autoApplyButton.id.replace('autoApplyBtn-', '');
+                    if (!jobId || autoApplyButton.disabled || autoApplyButton.textContent === 'Applied') {
+                        return;
+                    }
+                    showLoading('Attempting AutoApply...');
+                    try {
+                        const response = await fetch(`/api/auto-apply/${jobId}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        const result = await response.json();
+                        hideLoading();
+                        if (response.ok && result.applied_status !== undefined) {
+                            alert(result.message || `Successfully AutoApplied to job ${jobId}!`);
+                            updateJobCardUIAfterApply(jobId, result.applied_status === 1 || result.applied_status === true);
+                        } else {
+                            alert(`AutoApply failed: ${result.error || 'Unknown error'}. Details: ${result.details || 'N/A'}`);
+                        }
+                    } catch (error) {
+                        hideLoading();
+                        console.error('AutoApply Error:', error);
+                        alert('An unexpected error occurred during AutoApply.');
+                    }
+                });
+            }
         });
         updateBatchButtonState(); // Update batch button state after rendering jobs and attaching listeners
+    }
+
+    // --- Helper function to update job card UI after status change ---
+    function updateJobCardUIAfterApply(jobId, newAppliedStatusBool) {
+        const card = jobResultsDiv.querySelector(`.job-card[data-job-id-card="${escapeHtml(jobId)}"]`);
+        if (!card) return;
+
+        const statusTextElement = card.querySelector('.job-applied-status');
+        const toggleButton = card.querySelector('.toggle-applied-btn');
+        const autoApplyButton = card.querySelector(`#autoApplyBtn-${escapeHtml(jobId)}`);
+
+        if (statusTextElement) {
+            statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
+        }
+        if (toggleButton) {
+            toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
+            if (newAppliedStatusBool) {
+                toggleButton.classList.add('bg-yellow-500', 'text-white');
+                toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+            } else {
+                toggleButton.classList.remove('bg-yellow-500', 'text-white');
+                toggleButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
+            }
+        }
+        if (autoApplyButton) {
+            if (newAppliedStatusBool) {
+                autoApplyButton.textContent = 'Applied';
+                autoApplyButton.disabled = true;
+                // Optional: Change style to indicate it's applied via auto-apply or just generally applied
+                autoApplyButton.classList.remove('bg-green-500', 'hover:bg-green-700');
+                autoApplyButton.classList.add('bg-gray-400'); // Example: Dimmer color
+            } else {
+                // This case might be less common if toggle unapplies, but good for consistency
+                autoApplyButton.textContent = 'AutoApply';
+                autoApplyButton.disabled = !cvReadyForAutoApply; // Re-check CV readiness
+                autoApplyButton.classList.add('bg-green-500', 'hover:bg-green-700');
+                autoApplyButton.classList.remove('bg-gray-400');
+            }
+        }
     }
 
     // --- Fetch and Display Jobs (Filtered or All) ---
