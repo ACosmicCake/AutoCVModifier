@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!cvFileInput || !jobResultsDiv) {
             // console.warn("CV file input or job results div not found for batch button state update.");
             batchGenerateCVsButton.disabled = true;
+            batchGenerateCVsButton.classList.add('hidden'); // Explicitly hide
             batchCvHelpText.classList.remove('hidden');
             return;
         }
@@ -67,10 +68,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (cvFileSelected && selectedJobsCount > 0) {
             batchGenerateCVsButton.disabled = false;
-            batchCvHelpText.classList.add('hidden');
+            batchGenerateCVsButton.classList.remove('hidden'); // Show button
+            batchCvHelpText.classList.add('hidden');    // Hide help text
         } else {
             batchGenerateCVsButton.disabled = true;
-            batchCvHelpText.classList.remove('hidden');
+            batchGenerateCVsButton.classList.add('hidden'); // Hide button
+            batchCvHelpText.classList.remove('hidden');   // Show help text
         }
     }
 
