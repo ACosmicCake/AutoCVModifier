@@ -129,7 +129,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         downloadLink.textContent = 'Download Tailored CV (PDF)';
                         pdfDownloadLinkDiv.prepend(downloadLink); // Prepend to appear before the button
 
-                        if (autoApplyButton) autoApplyButton.style.display = 'inline-block'; // Show button
+                        if (autoApplyButton) {
+                            autoApplyButton.style.display = 'inline-block'; // Show button
+                            if (result.pdf_filename) {
+                                autoApplyButton.dataset.pdfFilename = result.pdf_filename; // Store filename
+                            } else {
+                                delete autoApplyButton.dataset.pdfFilename; // Clear if not present
+                            }
+                        }
                     } else if (result.error_pdf && pdfDownloadLinkDiv) {
                         const errorMsg = document.createElement('p');
                         errorMsg.className = "text-orange-500 mt-2";
@@ -351,6 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tailorResultDiv) tailorResultDiv.innerHTML = '';
 
             let requestBody = {};
+            // Attempt to get tailored_cv JSON
             if (tailorResultDiv) {
                 const preElement = tailorResultDiv.querySelector('pre');
                 if (preElement && preElement.textContent) {
@@ -370,6 +378,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Should not happen if tailorResultDiv is essential for other messages too
                 console.warn('tailorResultDiv itself not found. Sending empty object for AutoApply.');
                 requestBody = {};
+            }
+
+            // Attempt to get pdf_filename from button's data attribute
+            if (autoApplyButton && autoApplyButton.dataset.pdfFilename) {
+                requestBody.pdf_filename = autoApplyButton.dataset.pdfFilename;
+            } else {
+                console.warn('PDF filename not found on autoApplyButton dataset. Will send request without it.');
+                // requestBody.pdf_filename = null; // Or omit, backend should handle absence
             }
 
             showLoading('Attempting AutoApply...');

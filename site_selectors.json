@@ -1,0 +1,23 @@
+{
+  "default": {
+    "name": { "type": "id", "value": "full_name" },
+    "email": { "type": "id", "value": "email" },
+    "phone": { "type": "id", "value": "phone" },
+    "cv_upload": { "type": "css", "value": "input[type='file']" },
+    "submit_button": { "type": "id", "value": "submit_application" }
+  },
+  "linkedin.com": {
+    "name": { "type": "css", "value": "input[id*='fullName' i]" },
+    "email": { "type": "css", "value": "input[id*='emailAddress' i]" },
+    "phone": { "type": "css", "value": "input[id*='phoneNumber' i]" },
+    "cv_upload": { "type": "css", "value": "input[type='file'][aria-label*='resume' i]" },
+    "submit_button": { "type": "css", "value": "button[aria-label*='Submit application' i]" }
+  },
+  "indeed.com": {
+    "name": { "type": "id", "value": "candidate-name" },
+    "email": { "type": "id", "value": "candidate-email" },
+    "phone": { "type": "id", "value": "candidate-phone" },
+    "cv_upload": { "type": "css", "value": "input[type='file'][aria-label*='resume' i]" },
+    "submit_button": { "type": "id", "value": "indeed-apply-button" }
+  }
+}

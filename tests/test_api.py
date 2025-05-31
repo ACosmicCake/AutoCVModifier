@@ -481,81 +481,151 @@ class TestApiEndpoints:
 
     # --- Tests for /api/auto-apply/<job_id> ---
 
-    @patch('app.main.time.sleep')
-    @patch('app.main.os.path.exists')
-    @patch('app.main.webdriver.Chrome')
+    @patch('app.main.time.sleep') # Mock time.sleep to prevent actual sleeps
+    @patch('app.main.os.path.exists') # Mock os.path.exists for CV file check
+    @patch('app.main._find_element_dynamically') # Mock the helper function
+    @patch('app.main.webdriver.Chrome') # Still need to mock Chrome to get driver instance
     @patch('app.main.get_job_by_id')
-    def test_auto_apply_success(self, mock_get_job_by_id, mock_webdriver_chrome, mock_os_path_exists, mock_time_sleep, client):
-        """Test successful auto-apply with Selenium interactions mocked."""
+    @patch('app.main.SITE_SELECTORS', new_callable=dict) # Mock the global SITE_SELECTORS
+    def test_auto_apply_success(
+        self,
+        mock_site_selectors,
+        mock_get_job_by_id,
+        mock_webdriver_chrome,
+        mock_find_element_dynamically,
+        mock_os_path_exists,
+        mock_time_sleep,
+        client,
+        app # Add app fixture to access app.config
+    ):
+        """Test successful auto-apply with dynamic selectors and PDF path."""
         sample_job_id = 1
-        sample_job_url = f'http://example.com/job/{sample_job_id}'
+        sample_job_url = 'http://example.com/job/1' # Domain must match a key in test_selectors
+        sample_pdf_filename = "test_cv.pdf"
 
+        # --- Arrange Mocks ---
         mock_get_job_by_id.return_value = {
-            'id': sample_job_id,
-            'url': sample_job_url,
-            'title': 'Test Job for AutoApply'
+            'id': sample_job_id, 'url': sample_job_url, 'title': 'Test Job'
         }
 
         mock_driver_instance = MagicMock()
         mock_webdriver_chrome.return_value = mock_driver_instance
-        mock_element = MagicMock() # Mock for element returned by find_element
-        mock_driver_instance.find_element.return_value = mock_element
 
-        mock_os_path_exists.return_value = True # Assume dummy CV file exists
+        # _find_element_dynamically returns a MagicMock that can have .send_keys or .click called
+        mock_found_element = MagicMock()
+        mock_find_element_dynamically.return_value = mock_found_element
 
-        # Sample CV data to be sent in the request
-        cv_data_payload = {
-            "tailored_cv": {
-                "PersonalInformation": {
-                    "Name": "Test User",
-                    "EmailAddress": "test@example.com",
-                    "PhoneNumber": "1234567890"
-                }
-                # Other CV sections can be added if needed for more detailed tests
+        # Configure SITE_SELECTORS for this test
+        test_selectors = {
+            "default": {"name": {"type": "id", "value": "default_name"}}, # Fallback
+            "example.com": {
+                "name": {"type": "css", "value": ".example-name-css"},
+                "email": {"type": "id", "value": "example_email_id"},
+                "phone": {"type": "name", "value": "example_phone_name"},
+                "cv_upload": {"type": "xpath", "value": "//input[@type='file']"},
+                "submit_button": {"type": "class_name", "value": "submit-btn-class"}
             }
         }
+        mock_site_selectors.update(test_selectors) # Update the mocked dict
 
+        # Mock os.path.exists for the CV PDF path
+        # Construct the expected path similar to how it's done in main.py
+        expected_cv_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], sample_pdf_filename)
+        mock_os_path_exists.return_value = True # Assume the PDF file exists
+
+        cv_data_payload = {
+            "tailored_cv": {"PersonalInformation": {"Name": "Test User", "EmailAddress": "test@example.com", "PhoneNumber": "1234567890"}},
+            "pdf_filename": sample_pdf_filename # Include pdf_filename
+        }
+
+        # --- Act ---
         response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
 
+        # --- Assert ---
         assert response.status_code == 200
         json_data = response.get_json()
         assert "Navigated to job URL and attempted basic form filling" in json_data['message']
-        assert json_data['job_url'] == sample_job_url
         assert json_data['cv_data_received'] is True
 
         mock_get_job_by_id.assert_called_once_with(sample_job_id)
-        mock_webdriver_chrome.assert_called_once() # Check driver was initialized
+        mock_os_path_exists.assert_called_once_with(expected_cv_pdf_path)
+        mock_webdriver_chrome.assert_called_once()
         mock_driver_instance.get.assert_called_once_with(sample_job_url)
 
-        # Check find_element calls (at least a few)
-        # Exact By.ID/NAME might be too brittle, check call count or specific important ones
-        assert mock_driver_instance.find_element.call_count >= 4 # Name, Email, Phone, File
-        # Example check for a specific call if needed (requires importing By from app.main or selenium)
-        # from app.main import By # Or from selenium.webdriver.common.by import By
-        # mock_driver_instance.find_element.assert_any_call(By.ID, "full_name")
-        # mock_driver_instance.find_element.assert_any_call(By.CSS_SELECTOR, "input[type='file']")
+        # Assert calls to _find_element_dynamically
+        # There should be 5 calls: name, email, phone, cv_upload, submit_button
+        assert mock_find_element_dynamically.call_count == 5
 
-        # Check that send_keys was called on the mock element for CV upload
-        # This assumes the file upload field was found and send_keys was attempted
-        # Need to ensure that the path used in send_keys is correct.
-        # The path is constructed using app.instance_path.
-        # For testing, app.instance_path is a temporary directory.
-        # We can assert that send_keys was called with a path ending in 'dummy_cv_for_upload.pdf'.
-        upload_path_found = False
-        for call_args in mock_element.send_keys.call_args_list:
-            args, _ = call_args
-            if isinstance(args[0], str) and args[0].endswith('dummy_cv_for_upload.pdf'):
-                upload_path_found = True
+        # Example: Check the 'name' field call in detail
+        # The order of calls might not be guaranteed if using dict.get then iterating,
+        # but for this structure, it should be predictable.
+        # We can check if a call with the 'name' selector was made.
+        name_selector_call = None
+        for call in mock_find_element_dynamically.call_args_list:
+            args, _ = call
+            if args[1] == test_selectors["example.com"]["name"]: # args[0] is driver, args[1] is selector_config
+                name_selector_call = call
                 break
-        assert upload_path_found, "send_keys for CV upload path not called as expected"
+        assert name_selector_call is not None, "Call for 'name' selector not found"
+        assert name_selector_call[0][2] == "Name" # field_name_for_logging
 
+        # Assert that send_keys was called for the CV upload with the correct path
+        # This assumes _find_element_dynamically for 'cv_upload' returns mock_found_element
+        # and then send_keys is called on it.
+        # We need to find which call to _find_element_dynamically was for cv_upload
+        # and then check the send_keys on *that specific* mock_found_element if return_value varies per call.
+        # If _find_element_dynamically.return_value is always the same mock_found_element:
+        mock_found_element.send_keys.assert_any_call(expected_cv_pdf_path)
 
-        mock_time_sleep.assert_any_call(5) # Check the final sleep
+        # Assert submit_button.click() was called
+        mock_found_element.click.assert_called_once() # Assuming submit is the last element "clicked"
+
+        mock_time_sleep.assert_any_call(5) # Final sleep after submit (or if submit not found)
         mock_driver_instance.quit.assert_called_once()
-        mock_os_path_exists.assert_called() # Check that os.path.exists was called for dummy cv
+
+
+    def test_auto_apply_pdf_filename_missing(self, client):
+        """Test auto-apply when pdf_filename is missing from the request."""
+        sample_job_id = 10
+        # No mocks for get_job_by_id or os.path.exists needed as it should fail before them.
+
+        cv_data_payload = { # Missing pdf_filename
+            "tailored_cv": {"PersonalInformation": {"Name": "Test User"}}
+        }
+        response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
+        assert response.status_code == 400
+        json_data = response.get_json()
+        assert json_data['error'] == "CV PDF filename not provided for AutoApply."
+
+    @patch('app.main.os.path.exists')
+    @patch('app.main.get_job_by_id')
+    def test_auto_apply_pdf_file_not_found_on_server(self, mock_get_job_by_id, mock_os_path_exists, client, app):
+        """Test auto-apply when the specified PDF file does not exist on the server."""
+        sample_job_id = 11
+        sample_pdf_filename = "non_existent_cv.pdf"
+
+        mock_get_job_by_id.return_value = { # Job itself is found
+            'id': sample_job_id, 'url': 'http://example.com/job/11', 'title': 'Test Job PDF Missing'
+        }
+
+        expected_cv_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], sample_pdf_filename)
+        mock_os_path_exists.return_value = False # PDF file does not exist
+
+        cv_data_payload = {
+            "tailored_cv": {"PersonalInformation": {"Name": "Test User"}},
+            "pdf_filename": sample_pdf_filename
+        }
+        response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
+
+        assert response.status_code == 400
+        json_data = response.get_json()
+        assert json_data['error'] == "Specified CV PDF not found on server."
+        assert json_data['filename'] == sample_pdf_filename
+        mock_os_path_exists.assert_called_once_with(expected_cv_pdf_path)
+
 
     @patch('app.main.get_job_by_id')
-    def test_auto_apply_job_not_found(self, mock_get_job_by_id, client): # No selenium mocks needed here
+    def test_auto_apply_job_not_found(self, mock_get_job_by_id, client): # No selenium mocks needed here if it's before pdf filename check
         """Test auto-apply when the job_id does not exist."""
         non_existent_job_id = 999
         mock_get_job_by_id.return_value = None
@@ -584,19 +654,24 @@ class TestApiEndpoints:
         assert json_data['error'] == "Job found, but URL is missing"
         mock_get_job_by_id.assert_called_once_with(job_id_no_url)
 
+    @patch('app.main.os.path.exists') # Needs to mock os.path.exists as it's checked before WebDriver init
     @patch('app.main.webdriver.Chrome', side_effect=Exception("WebDriver init failed simulation"))
     @patch('app.main.get_job_by_id')
-    def test_auto_apply_webdriver_init_failure(self, mock_get_job_by_id, mock_webdriver_chrome, client):
+    def test_auto_apply_webdriver_init_failure(self, mock_get_job_by_id, mock_webdriver_chrome, mock_os_path_exists, client):
         """Test auto-apply when WebDriver initialization fails."""
         sample_job_id = 3
+        sample_pdf_filename = "cv_for_webdriver_fail.pdf"
         mock_get_job_by_id.return_value = {
             'id': sample_job_id,
             'url': 'http://example.com/job/3',
             'title': 'Job for WebDriver Fail Test'
         }
-        # CV data is optional here as it should fail before using it
-        cv_data_payload = {"tailored_cv": {"PersonalInformation": {"Name": "Test"}}}
+        mock_os_path_exists.return_value = True # Assume PDF file check passes
 
+        cv_data_payload = {
+            "tailored_cv": {"PersonalInformation": {"Name": "Test"}},
+            "pdf_filename": sample_pdf_filename
+        }
         response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
 
         assert response.status_code == 500
@@ -606,25 +681,44 @@ class TestApiEndpoints:
         mock_webdriver_chrome.assert_called_once() # Attempted to init driver
         mock_get_job_by_id.assert_called_once_with(sample_job_id)
 
-    @patch('app.main.time.sleep') # Mock sleep as it's called before quit
+    @patch('app.main.SITE_SELECTORS', new_callable=dict) # Mock SITE_SELECTORS
+    @patch('app.main.os.path.exists') # Mock os.path.exists
+    @patch('app.main.time.sleep') # Mock sleep
     @patch('app.main.webdriver.Chrome')
     @patch('app.main.get_job_by_id')
-    def test_auto_apply_navigation_failure(self, mock_get_job_by_id, mock_webdriver_chrome, mock_time_sleep, client):
+    def test_auto_apply_navigation_failure(
+        self,
+        mock_get_job_by_id,
+        mock_webdriver_chrome,
+        mock_time_sleep,
+        mock_os_path_exists,
+        mock_site_selectors,
+        client
+    ):
         """Test auto-apply when WebDriver navigation (driver.get) fails."""
         sample_job_id = 4
-        sample_job_url = 'http://example.com/job/4/navfail'
+        sample_job_url = 'http://example.com/job/4/navfail' # example.com domain
+        sample_pdf_filename = "cv_for_nav_fail.pdf"
+
         mock_get_job_by_id.return_value = {
-            'id': sample_job_id,
-            'url': sample_job_url,
-            'title': 'Job for Navigation Fail Test'
+            'id': sample_job_id, 'url': sample_job_url, 'title': 'Job for Navigation Fail Test'
         }
 
         mock_driver_instance = MagicMock()
         mock_webdriver_chrome.return_value = mock_driver_instance
         mock_driver_instance.get.side_effect = Exception("Navigation failed simulation")
 
-        cv_data_payload = {"tailored_cv": {"PersonalInformation": {"Name": "Test"}}}
+        mock_os_path_exists.return_value = True # PDF file check passes
 
+        # Configure SITE_SELECTORS for this test to ensure it gets past selector logic if needed
+        # (though failure is before selector usage in this specific test)
+        test_selectors = {"default": {"name": {"type": "id", "value": "default_name"}}, "example.com": {}}
+        mock_site_selectors.update(test_selectors)
+
+        cv_data_payload = {
+            "tailored_cv": {"PersonalInformation": {"Name": "Test"}},
+            "pdf_filename": sample_pdf_filename
+        }
         response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
 
         assert response.status_code == 500
