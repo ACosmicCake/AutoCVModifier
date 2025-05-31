@@ -48,16 +48,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Update Batch Generate Button State ---
     function updateBatchButtonState() {
-        if (!batchGenerateCVsButton) return;
-        const cvFile = cvFileInput ? cvFileInput.files[0] : null;
-        const selectedJobs = jobResultsDiv ? jobResultsDiv.querySelectorAll('.job-select-checkbox:checked') : [];
+        // Ensure button and help text elements exist before proceeding
+        if (!batchGenerateCVsButton || !batchCvHelpText) {
+            // console.warn("Batch CV button or help text element not found.");
+            return;
+        }
+        // Ensure CV file input and job results div exist for checks
+        // If these critical elements are missing, disable button and show help.
+        if (!cvFileInput || !jobResultsDiv) {
+            // console.warn("CV file input or job results div not found for batch button state update.");
+            batchGenerateCVsButton.disabled = true;
+            batchCvHelpText.classList.remove('hidden');
+            return;
+        }
 
-        if (cvFile && selectedJobs.length > 0) {
+        const cvFileSelected = cvFileInput.files && cvFileInput.files.length > 0;
+        const selectedJobsCount = jobResultsDiv.querySelectorAll('.job-select-checkbox:checked').length;
+
+        if (cvFileSelected && selectedJobsCount > 0) {
             batchGenerateCVsButton.disabled = false;
-            if(batchCvHelpText) batchCvHelpText.classList.add('hidden');
+            batchCvHelpText.classList.add('hidden');
         } else {
             batchGenerateCVsButton.disabled = true;
-            if(batchCvHelpText) batchCvHelpText.classList.remove('hidden');
+            batchCvHelpText.classList.remove('hidden');
         }
     }
 
