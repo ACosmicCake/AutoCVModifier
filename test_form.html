@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Form</title>
+    <meta charset="UTF-G">
+</head>
+<body>
+    <h1>Simple Test Form</h1>
+    <div>
+        <label for="test_name">Name:</label>
+        <input type="text" id="test_name" name="name_field" style="width: 200px; height: 20px; margin-bottom: 10px;">
+    </div>
+    <div>
+        <label for="test_email">Email:</label>
+        <input type="email" id="test_email" name="email_field" style="width: 200px; height: 20px; margin-bottom: 10px;">
+    </div>
+    <button type="button" id="test_button" onclick="document.getElementById('message').innerText = 'Button clicked successfully! Value in name field: ' + document.getElementById('test_name').value" style="padding: 10px; margin-bottom: 10px;">
+        Click Me
+    </button>
+    <div id="message" style="margin-top:10px; padding:10px; border:1px solid #ccc;"></div>
+</body>
+</html>
