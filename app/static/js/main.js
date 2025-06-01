@@ -622,26 +622,30 @@ document.addEventListener('DOMContentLoaded', () => {
                      html += `<p class="text-xs text-gray-500">Generated: ${generationTimestamp}</p>`;
                 }
                 // Link and button container
-                html += `<div class="mt-1 flex justify-between items-center">`;
+                html += `<div class="mt-1 flex justify-between items-center">`; // Parent flex container for link and button+span
                 html += `  <a href="${pdfUrl}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
 
-                // AutoApply button logic (similar to before, ensure data attributes are correct)
-                let autoApplyButtonHtml = '<button ';
-                autoApplyButtonHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs" ';
+                // New wrapper for button and its future status span
+                let autoApplyButtonContainerHtml = '<div class="flex items-center">';
+                autoApplyButtonContainerHtml += '<button ';
+                autoApplyButtonContainerHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs" ';
 
                 let canAutoApply = true;
-                if (jobId) autoApplyButtonHtml += `data-job-id="${escapeHtml(jobId)}" `; else canAutoApply = false;
-                if (pdfFilename) autoApplyButtonHtml += `data-pdf-filename="${escapeHtml(pdfFilename)}" `; else canAutoApply = false;
-                if (tailoredCvJson) autoApplyButtonHtml += `data-cv-json='${escapeHtml(JSON.stringify(tailoredCvJson))}' `; else canAutoApply = false;
+                if (jobId) autoApplyButtonContainerHtml += `data-job-id="${escapeHtml(jobId)}" `; else canAutoApply = false;
+                if (pdfFilename) autoApplyButtonContainerHtml += `data-pdf-filename="${escapeHtml(pdfFilename)}" `; else canAutoApply = false;
+                if (tailoredCvJson) autoApplyButtonContainerHtml += `data-cv-json='${escapeHtml(JSON.stringify(tailoredCvJson))}' `; else canAutoApply = false;
 
                 if (!canAutoApply) {
-                    autoApplyButtonHtml = autoApplyButtonHtml.replace('bg-green-500 hover:bg-green-700', 'bg-gray-400 cursor-not-allowed');
-                    autoApplyButtonHtml += 'disabled title="Missing data for AutoApply (Job ID, PDF name, or CV JSON)" ';
+                    autoApplyButtonContainerHtml = autoApplyButtonContainerHtml.replace('bg-green-500 hover:bg-green-700', 'bg-gray-400 cursor-not-allowed');
+                    autoApplyButtonContainerHtml += 'disabled title="Missing data for AutoApply (Job ID, PDF name, or CV JSON)" ';
                 }
-                autoApplyButtonHtml += '>AutoApply for this Job</button>';
-                html += autoApplyButtonHtml;
-                html += `</div>`; // Close flex container (link and button)
-                html += `</div>`; // Close item container
+                autoApplyButtonContainerHtml += '>AutoApply for this Job</button>';
+                // Status span will be appended here by the event listener
+                autoApplyButtonContainerHtml += '</div>'; // Close button container
+
+                html += autoApplyButtonContainerHtml; // Add button container to parent flex
+                html += `</div>`; // Close parent flex container (link and button+span wrapper)
+                html += `</div>`; // Close item container (the whole card for this batch result)
             } else { // Error case for live batch, or unexpected item from history (should ideally be filtered by backend)
                 html += `<div class="p-3 border rounded-md bg-red-50">`;
                 html += `<p class="font-semibold">${jobTitleSummary}${idText}: <span class="text-red-700">${statusText}</span></p>`;
@@ -720,12 +724,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // Create or find a status span next to the button
-                let statusSpan = button.parentNode.querySelector('.auto-apply-status-span');
+                // Create or find a status span inside the button's container div
+                const buttonContainer = button.parentNode; // This is the <div class="flex items-center">
+                let statusSpan = buttonContainer.querySelector('.auto-apply-status-span');
                 if (!statusSpan) {
                     statusSpan = document.createElement('span');
-                    statusSpan.classList.add('ml-2', 'text-sm', 'auto-apply-status-span');
-                    button.parentNode.insertBefore(statusSpan, button.nextSibling);
+                    statusSpan.classList.add('ml-2', 'text-sm', 'auto-apply-status-span'); // ml-2 for spacing from button
+                    buttonContainer.appendChild(statusSpan); // Append to the button's container
                 }
 
                 statusSpan.textContent = ' Applying...';
@@ -762,13 +767,24 @@ document.addEventListener('DOMContentLoaded', () => {
                         statusSpan.textContent = ` ${result.error || 'AutoApply failed.'}`;
                         statusSpan.classList.remove('text-blue-500', 'text-green-500');
                         statusSpan.classList.add('text-red-600');
+                        // Re-enable button on some types of errors
+                        if (response.status >= 400) { // e.g. 400, 404, 500
+                             button.disabled = false;
+                             button.textContent = 'Retry AutoApply';
+                             button.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                             button.classList.add('bg-green-500', 'hover:bg-green-700');
+                        }
                     }
                 } catch (error) {
-                    // if (loadingIndicator.classList.contains('hidden')) {} else { hideLoading(); }
                     console.error('AutoApply API call error (batch):', error);
-                    statusSpan.textContent = ' Network error during AutoApply.';
+                    statusSpan.textContent = ' Network error. Retry?';
                     statusSpan.classList.remove('text-blue-500', 'text-green-500');
                     statusSpan.classList.add('text-red-600');
+                    // Re-enable button on network error
+                    button.disabled = false;
+                    button.textContent = 'Retry AutoApply';
+                    button.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                    button.classList.add('bg-green-500', 'hover:bg-green-700');
                 }
             }
         });
