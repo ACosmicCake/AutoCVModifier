@@ -67,7 +67,10 @@ def load_selector_config():
         "email": { "type": "id", "value": "email" },
         "phone": { "type": "id", "value": "phone" },
         "cv_upload": { "type": "css", "value": "input[type='file']" },
-        "submit_button": { "type": "id", "value": "submit_application" }
+        "submit_button": { "type": "id", "value": "submit_application" },
+        "login_username": { "type": "css", "value": "input[name=\"username\"]" },
+        "login_password": { "type": "css", "value": "input[name=\"password\"]" },
+        "login_button": { "type": "css", "value": "button[type=\"submit\"]" }
     }
 
     try:

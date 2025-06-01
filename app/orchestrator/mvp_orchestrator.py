@@ -7,6 +7,7 @@ from datetime import datetime # For feedback logging timestamp
 # Integration Imports
 import logging # For more detailed logging in _call_ai_core
 from app.browser_automation.mvp_selenium_wrapper import MVPSeleniumWrapper
+from app.main import SITE_SELECTORS # Added import
 # from app.ai_core.mvp_visual_linker import extract_and_ground_page_elements # No longer used directly here
 from app.ai_core.mvp_field_filler import generate_text_fill_actions_for_mvp as mvp_generate_text_fill_actions # Keep for action gen
 from app.ai_core.live_visual_perception import get_llm_field_predictions, parse_llm_output_to_identified_elements
@@ -32,7 +33,11 @@ class OrchestratorState:
     IDLE = "IDLE"
     AWAITING_JOB_URL = "AWAITING_JOB_URL"
     LOADING_PAGE_DATA = "LOADING_PAGE_DATA"
+    AWAITING_LOGIN_APPROVAL = "AWAITING_LOGIN_APPROVAL" # New state
+    EXECUTING_LOGIN = "EXECUTING_LOGIN" # New state
     CALLING_AI_CORE = "CALLING_AI_CORE"
+    AWAITING_APPLY_BUTTON_APPROVAL = "AWAITING_APPLY_BUTTON_APPROVAL" # New state
+    EXECUTING_APPLY_BUTTON_CLICK = "EXECUTING_APPLY_BUTTON_CLICK" # New state
     AWAITING_USER_APPROVAL = "AWAITING_USER_APPROVAL"
     EXECUTING_AUTOMATION = "EXECUTING_AUTOMATION"
     COMPLETED_SUCCESS = "COMPLETED_SUCCESS"
@@ -69,6 +74,115 @@ class MVCOrchestrator:
             return None
 
         return {"url": current_url, "screenshot_bytes": screenshot_bytes, "dom_string": dom_string}
+
+    def _handle_login(self) -> bool:
+        """
+        Handles the automated login process.
+        Uses hardcoded credentials and selectors.
+        Returns True if login attempt was successful (all steps executed), False otherwise.
+        """
+        print("Orchestrator: Attempting auto-login...")
+        if not self.browser_wrapper or not self.browser_wrapper.driver:
+            print("Error: Browser wrapper not available for login.")
+            return False
+
+        username = "testuser"
+        password = "testpassword" # Hardcoded as per requirement
+
+        default_site_selectors = SITE_SELECTORS.get("default", {})
+        if not default_site_selectors:
+            print("Login Error: 'default' site selectors not found in SITE_SELECTORS.")
+            return False
+
+        username_selector_config = default_site_selectors.get("login_username")
+        password_selector_config = default_site_selectors.get("login_password")
+        login_button_selector_config = default_site_selectors.get("login_button")
+
+        # Validate selectors
+        if not (username_selector_config and \
+                isinstance(username_selector_config, dict) and \
+                'type' in username_selector_config and 'value' in username_selector_config):
+            print(f"Login Error: Invalid or missing selector configuration for 'login_username' in default selectors: {username_selector_config}")
+            return False
+
+        if not (password_selector_config and \
+                isinstance(password_selector_config, dict) and \
+                'type' in password_selector_config and 'value' in password_selector_config):
+            print(f"Login Error: Invalid or missing selector configuration for 'login_password' in default selectors: {password_selector_config}")
+            return False
+
+        if not (login_button_selector_config and \
+                isinstance(login_button_selector_config, dict) and \
+                'type' in login_button_selector_config and 'value' in login_button_selector_config):
+            print(f"Login Error: Invalid or missing selector configuration for 'login_button' in default selectors: {login_button_selector_config}")
+            return False
+
+        # Fill username
+        print(f"Attempting to fill username with selector: {username_selector_config}")
+        if not self.browser_wrapper.fill_text_field(
+            selector=username_selector_config['value'],
+            text=username,
+            find_by=username_selector_config['type']
+        ):
+            print(f"Login Error: Could not find or fill username field using config: {username_selector_config}")
+            return False
+        print("Filled username field.")
+        time.sleep(0.2) # Small delay
+
+        # Fill password
+        print(f"Attempting to fill password with selector: {password_selector_config}")
+        if not self.browser_wrapper.fill_text_field(
+            selector=password_selector_config['value'],
+            text=password,
+            find_by=password_selector_config['type']
+        ):
+            print(f"Login Error: Could not find or fill password field using config: {password_selector_config}")
+            return False
+        print("Filled password field.")
+        time.sleep(0.2) # Small delay
+
+        # Click login button
+        print(f"Attempting to click login button with selector: {login_button_selector_config}")
+        if not self.browser_wrapper.click_element(
+            selector=login_button_selector_config['value'],
+            find_by=login_button_selector_config['type']
+        ):
+            print(f"Login Error: Could not find or click login button using config: {login_button_selector_config}")
+            return False
+        print("Clicked login button.")
+
+        # Assuming login leads to a new page or state, wait a bit for it to settle.
+        # More robust check would be to verify if login was successful (e.g. new URL, element present/absent)
+        time.sleep(2) # Wait for page to potentially reload or redirect
+
+        # For now, success means all actions were attempted.
+        # A more robust check would involve verifying the page content or URL after login.
+        print("Orchestrator: Auto-login actions executed.")
+        # Potentially refresh page_data_cache here if login changes the page significantly
+        # current_url, screenshot_bytes, dom_string = self.browser_wrapper.get_page_state()
+        # self.page_data_cache = {"url": current_url, "screenshot_bytes": screenshot_bytes, "dom_string": dom_string}
+        # print("Refreshed page data after login attempt.")
+        return True
+
+    def _handle_auto_click_apply(self) -> bool:
+        """
+        Attempts to find and click an "apply" button using a specific CSS selector.
+        Returns True if the button is found and clicked successfully, False otherwise.
+        """
+        print("Orchestrator: Attempting to auto-click 'apply' button...")
+        if not self.browser_wrapper or not self.browser_wrapper.driver:
+            print("Error: Browser wrapper not available for auto-click apply.")
+            return False
+
+        apply_button_selector = 'button[aria-label*="Apply"]' # As per requirement
+
+        if self.browser_wrapper.click_element(xpath=apply_button_selector, find_by="css_selector"):
+            print(f"Successfully clicked 'apply' button (selector: {apply_button_selector}).")
+            time.sleep(2) # Wait for page to potentially reload or redirect
+            return True
+        else:
+            print(f"Could not find or click 'apply' button (selector: {apply_button_selector}).")
+            return False
 
     def _call_ai_core(self, page_state: Dict[str, Any], user_profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         logging.info(f"Orchestrator: Calling AI Core with page data for {page_state.get('url')}")
@@ -364,10 +478,49 @@ class MVCOrchestrator:
                         continue
                     self.page_data_cache = self._load_page_data(self.job_url)
                     if self.page_data_cache:
-                        self.current_state = OrchestratorState.CALLING_AI_CORE
+                        # Successfully loaded page, now ask about login
+                        self.current_state = OrchestratorState.AWAITING_LOGIN_APPROVAL
                     else:
                         print("Error: Failed to load page data.")
                         self.current_state = OrchestratorState.FAILED_ERROR
+                    print(f"State: {self.current_state}")
+
+                elif self.current_state == OrchestratorState.AWAITING_LOGIN_APPROVAL:
+                    login_choice = input("Attempt auto-login? (y/n/quit): ").lower()
+                    if login_choice == 'y':
+                        self.current_state = OrchestratorState.EXECUTING_LOGIN
+                    elif login_choice == 'n':
+                        print("Skipping auto-login. Proceeding to apply button check.")
+                        self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL # Changed
+                    elif login_choice == 'quit':
+                        self.current_state = OrchestratorState.IDLE
+                    else:
+                        print("Invalid input. Please enter 'y', 'n', or 'quit'.")
+                    print(f"State: {self.current_state}")
+
+                elif self.current_state == OrchestratorState.EXECUTING_LOGIN:
+                    print("Executing auto-login...")
+                    login_success = self._handle_login()
+                    if login_success:
+                        print("Auto-login successful (actions performed). Proceeding to AI Core.")
+                        # IMPORTANT: After login, the page content has likely changed.
+                        # We should refresh the page data cache.
+                        print("Refreshing page data after login...")
+                        # Use current URL from browser after login attempt
+                        current_url_after_login, _, _ = self.browser_wrapper.get_page_state(get_screenshot=False, get_dom=False)
+                        if not current_url_after_login: # Fallback if get_page_state fails
+                            current_url_after_login = self.job_url
+
+                        self.page_data_cache = self._load_page_data(current_url_after_login)
+                        if self.page_data_cache:
+                             print("Page data refreshed after login. Proceeding to apply button check.")
+                             self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL # Changed
+                        else:
+                             print("Error: Failed to reload page data after login attempt.")
+                             self.current_state = OrchestratorState.FAILED_ERROR
+                    else:
+                        print("Auto-login failed. Check selectors or page structure.")
+                        self.current_state = OrchestratorState.FAILED_ERROR # Or perhaps back to AWAITING_LOGIN_APPROVAL or CALLING_AI_CORE
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.CALLING_AI_CORE:
@@ -378,15 +531,52 @@ class MVCOrchestrator:
                     self.ai_recommendations_cache = self._call_ai_core(self.page_data_cache, self.user_profile)
                     if self.ai_recommendations_cache: # Check if cache is not None
                         # Further check if actions exist, or if it's a "nothing to do" summary
+                        # If AI core provides recommendations, move to user approval
                         if self.ai_recommendations_cache.get("actions") or \
                            (self.ai_recommendations_cache.get("summary") and "Nothing to ground" in self.ai_recommendations_cache.get("summary", "")):
-                            self.current_state = OrchestratorState.AWAITING_USER_APPROVAL
+                            print("AI Core processing complete. Proceeding to user approval.")
+                            self.current_state = OrchestratorState.AWAITING_USER_APPROVAL # Changed
                         else: # No actions and not a 'nothing to do' summary, implies an issue
-                            print("Error: Failed to get valid AI recommendations or no actionable items proposed.")
+                            print("Error: Failed to get valid AI recommendations or no actionable items proposed by AI Core.")
                             self.current_state = OrchestratorState.FAILED_ERROR
                     else: # ai_recommendations_cache is None
                         print("Error: AI Core processing failed to return any recommendations.")
                         self.current_state = OrchestratorState.FAILED_ERROR
+                    print(f"State: {self.current_state}")
+
+                elif self.current_state == OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL:
+                    apply_choice = input("Attempt to auto-click an 'apply' button on this page? (y/n/quit): ").lower()
+                    if apply_choice == 'y':
+                        self.current_state = OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK
+                    elif apply_choice == 'n':
+                        print("Skipping auto-click of 'apply' button. Proceeding to AI Core analysis for form filling.")
+                        self.current_state = OrchestratorState.CALLING_AI_CORE # Changed: Ensure AI Core runs if apply is skipped
+                    elif apply_choice == 'quit':
+                        self.current_state = OrchestratorState.IDLE
+                    else:
+                        print("Invalid input. Please enter 'y', 'n', or 'quit'.")
+                    print(f"State: {self.current_state}")
+
+                elif self.current_state == OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK:
+                    print("Executing auto-click 'apply' button...")
+                    apply_clicked_successfully = self._handle_auto_click_apply()
+                    if apply_clicked_successfully:
+                        print("Auto-click 'apply' successful. Refreshing page data and re-running AI Core...")
+                        # Refresh page data cache as the page likely changed
+                        current_url_after_apply, _, _ = self.browser_wrapper.get_page_state(get_screenshot=False, get_dom=False)
+                        if not current_url_after_apply:
+                             current_url_after_apply = self.job_url # Fallback
+
+                        self.page_data_cache = self._load_page_data(current_url_after_apply)
+                        if self.page_data_cache:
+                            self.current_state = OrchestratorState.CALLING_AI_CORE # Re-analyze the new page
+                        else:
+                            print("Error: Failed to reload page data after 'apply' click.")
+                            self.current_state = OrchestratorState.FAILED_ERROR
+                    else:
+                        print("Auto-click 'apply' button failed or button not found. Proceeding to AI Core analysis of current page.")
+                        # If apply click fails, the page hasn't changed. We need to run AI core on this page.
+                        self.current_state = OrchestratorState.CALLING_AI_CORE # Changed
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.AWAITING_USER_APPROVAL:
@@ -504,6 +694,26 @@ class MVCOrchestrator:
             print(f"LogFeedback: Error writing to log file {LOG_FILE_PATH}: {e}")
         except Exception as e:
             print(f"LogFeedback: An unexpected error occurred during logging: {e}")
+
+    def _log_user_approval_of_qa_only(self):
+        # Placeholder for logging when user approves only QA items and no browser actions
+        # This method was referenced in the previous turn's code but not defined.
+        # For now, just a print statement.
+        feedback_entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "job_url": self.job_url,
+            "reason": "User approved QA-only recommendations.",
+            "ai_recommendations": self.ai_recommendations_cache # Log the full cache for context
+        }
+        try:
+            with open(LOG_FILE_PATH, 'a') as f:
+                f.write(json.dumps(feedback_entry) + "\n")
+            print(f"LogFeedback: User QA-only approval logged to {LOG_FILE_PATH}")
+        except IOError as e:
+            print(f"LogFeedback: Error writing to log file {LOG_FILE_PATH}: {e}")
+        except Exception as e: # pylint: disable=broad-except
+            print(f"LogFeedback: An unexpected error occurred during QA-only logging: {e}")
+
 
 if __name__ == "__main__":
     orchestrator = MVCOrchestrator()
