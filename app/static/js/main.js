@@ -207,11 +207,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="flex-grow">
                             <div class="flex justify-between items-center">
                                 <h4 class="text-lg font-bold text-blue-600">${escapeHtml(job.title || 'N/A')}</h4>
-                                <button class="text-xs py-1 px-2 rounded border toggle-applied-btn ${isApplied ? 'bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}" data-job-id="${escapeHtml(jobId)}">${isApplied ? 'Mark Unapplied' : 'Mark Applied'}</button>
+                                <button class="text-xs py-1 px-2 rounded border toggle-applied-btn ${isApplied ? 'bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}" data-job-id="${escapeHtml(jobId)}">${isApplied ? 'Mark CV Not Generated' : 'Mark CV Generated'}</button>
                             </div>
                             <p class="text-sm text-gray-700">${escapeHtml(company)} - ${escapeHtml(location)}</p>
                             <p class="text-xs text-gray-500">Source: ${escapeHtml(source)} | Scraped: ${escapeHtml(formatted_date_scraped)} | DB ID: ${jobId}</p>
-                            <p class="text-xs text-gray-500 job-applied-status">Status: ${isApplied ? 'Applied' : 'Not Applied'}</p>
+                            <p class="text-xs text-gray-500 job-applied-status">Status: ${isApplied ? 'CV Generated' : 'CV Not Generated'}</p>
                             ${job_url ? `<a href="${escapeHtml(job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm mr-2">View Original Job</a>` : ''}
                             <details class="mt-2 text-sm">
                                 <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Full Description (for reference)</summary>
@@ -267,10 +267,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             const newAppliedStatusBool = result.new_status === 1 || result.new_status === true;
 
                             if (statusTextElement) {
-                                statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
+                                statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'CV Generated' : 'CV Not Generated'}`;
                             }
                             if (toggleButton) {
-                                toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
+                                toggleButton.textContent = newAppliedStatusBool ? 'Mark CV Not Generated' : 'Mark CV Generated';
                                 if (newAppliedStatusBool) {
                                     toggleButton.classList.add('bg-yellow-500', 'text-white');
                                     toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');

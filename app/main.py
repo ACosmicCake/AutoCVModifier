@@ -154,7 +154,7 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, toggle_applied_status, get_job_by_id # Added get_job_by_id
+from .database import init_db, save_job, get_jobs, get_job_by_id, save_generated_cv, set_job_cv_generated_status, toggle_cv_generated_status # Updated import
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -327,6 +327,12 @@ def create_app(test_config=None):
             time.sleep(2) # Allow page to load a bit, can be replaced by explicit waits
 
             # --- Manual Login Pause ---
+            # This section pauses script execution to allow the user to manually
+            # log in to the target website in the Selenium-controlled browser window.
+            # This is necessary for sites requiring authentication before application submission.
+            # Clear instructions are printed to the server console.
+            # `manual_login_pause_seconds` determines the pause duration.
+            # Automation resumes after the pause, regardless of login success at this stage.
             manual_login_pause_seconds = 120
             # The 'domain' variable is derived from job_url a few lines above for selector logic.
             print(f"--- MANUAL LOGIN REQUIRED FOR: {domain} ---")
@@ -434,6 +440,8 @@ def create_app(test_config=None):
 
             # The manual_login_pause_seconds variable was defined earlier in this 'try' block.
             # The domain variable was also defined earlier based on job_url.
+            # The 'manual_login_prompt_details' field in the response informs the client
+            # that a pause for manual login was initiated.
             return jsonify({
                 "message": f"Navigated to job URL and attempted basic form filling for {job_url}. " +
                            "Please verify the application on the site. See server logs for field-specific status.",
@@ -644,28 +652,29 @@ def create_app(test_config=None):
 
         return jsonify({"jobs": retrieved_jobs})
 
-    @app.route('/api/jobs/<int:job_id>/toggle-applied', methods=['POST'])
-    def api_toggle_applied(job_id):
-        """API endpoint to toggle the 'applied' status of a job."""
+    @app.route('/api/jobs/<int:job_id>/toggle-applied', methods=['POST']) # URL path remains for client compatibility
+    def api_toggle_cv_generated_status_endpoint(job_id): # Function name updated
+        """API endpoint to toggle the 'CV generated' status of a job."""
         import sqlite3 # Import for specific exception handling
         try:
-            result = toggle_applied_status(job_id)
+            result = toggle_cv_generated_status(job_id) # Call updated DB function
             if result is None:
                 return jsonify({"error": "Job not found"}), 404
 
             # 'result' is expected to be {"id": job_id, "applied": new_status}
+            # The key "applied" in the result dict refers to the database column name.
             return jsonify({
-                "message": "Applied status updated successfully",
+                "message": "CV generated status updated successfully", # Updated message
                 "job_id": result["id"],
                 "new_status": result["applied"]
             }), 200
         except sqlite3.Error as e:
             # Log the exception e if you have logging configured
-            print(f"Database error on toggle applied status for job_id {job_id}: {e}")
+            print(f"Database error on toggle CV generated status for job_id {job_id}: {e}")
             return jsonify({"error": "Database operation failed"}), 500
         except Exception as e:
             # Catch any other unexpected errors
-            print(f"Unexpected error on toggle applied status for job_id {job_id}: {e}")
+            print(f"Unexpected error on toggle CV generated status for job_id {job_id}: {e}")
             return jsonify({"error": "An unexpected server error occurred"}), 500
 
 
@@ -771,13 +780,41 @@ def create_app(test_config=None):
                 pdf_generation_success = generate_cv_pdf_from_json_string(tailored_cv_json_str, full_pdf_path)
 
                 if pdf_generation_success:
+                    # Save to generated_cvs table
+                    if tailored_cv_json_str and unique_pdf_filename: # Ensure we have data to save
+                        generated_cv_db_id = save_generated_cv(
+                            job_id=current_job_id, # This variable should be defined from job_ids[index]
+                            pdf_filename=unique_pdf_filename,
+                            tailored_cv_json_string=tailored_cv_json_str
+                        )
+                        if generated_cv_db_id:
+                            print(f"Batch: Saved generated CV metadata for job_id {current_job_id}, pdf {unique_pdf_filename}. DB ID: {generated_cv_db_id}")
+                        else:
+                            print(f"Batch: WARNING - Failed to save generated CV metadata for job_id {current_job_id}, pdf {unique_pdf_filename} to DB.")
+                    else:
+                        print(f"Batch: WARNING - Missing tailored_cv_json_str or unique_pdf_filename for job_id {current_job_id}. Cannot save to DB.")
+
+                    # After saving CV metadata, update the job's 'applied' status (meaning CV generated)
+                    if generated_cv_db_id and current_job_id is not None:
+                        status_updated = set_job_cv_generated_status(
+                            job_id=current_job_id,
+                            status=True
+                        )
+                        if status_updated:
+                            print(f"Batch: Marked job_id {current_job_id} as 'CV generated' (applied=1).")
+                        else:
+                            print(f"Batch: WARNING - Failed to mark job_id {current_job_id} as 'CV generated'.")
+                    elif current_job_id is None and generated_cv_db_id:
+                        print(f"Batch: CV metadata saved (DB ID: {generated_cv_db_id}), but no job_id was associated with this batch item. Cannot mark 'CV generated'.")
+
                     results.append({
                         "job_id": current_job_id,
                         "job_title_summary": job_title_summary,
                         "status": "success",
                         "pdf_url": f"/api/download-cv/{unique_pdf_filename}",
                         "pdf_filename": unique_pdf_filename,
-                        "tailored_cv_json": json.loads(tailored_cv_json_str)
+                        "tailored_cv_json": json.loads(tailored_cv_json_str),
+                        "generated_cv_db_id": generated_cv_db_id # New field
                     })
                 else:
                     results.append({

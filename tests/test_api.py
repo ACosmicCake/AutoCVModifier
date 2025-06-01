@@ -1,7 +1,7 @@
 import pytest
 import json
 import os
-from unittest.mock import patch, MagicMock # For mocking
+from unittest.mock import patch, MagicMock, call # For mocking, call added
 from datetime import date, datetime # Import date and datetime
 
 # Sample data for mocking jobspy
@@ -493,9 +493,9 @@ class TestApiEndpoints:
     ):
         """Test successful auto-apply with dynamic selectors (e.g., 'example.com' or default)."""
         sample_job_id = 1
-        # This URL will use 'example.com' selectors if defined in test_selectors, otherwise 'default'
         sample_job_url = 'http://example.com/job/1'
         sample_pdf_filename = "test_cv.pdf"
+        manual_login_pause_seconds_value = 120 # Value from app/main.py
 
         mock_get_job_by_id.return_value = {'id': sample_job_id, 'url': sample_job_url, 'title': 'Test Job'}
         mock_driver_instance = MagicMock()
@@ -503,8 +503,6 @@ class TestApiEndpoints:
         mock_found_element = MagicMock()
         mock_find_element_dynamically.return_value = mock_found_element
 
-        # Define selectors that will be used (either 'example.com' or 'default')
-        # For this test, let's assume 'example.com' is NOT in SITE_SELECTORS, so 'default' is used.
         default_selectors_config = {
             "name": {"type": "id", "value": "default_name_id"},
             "email": {"type": "id", "value": "default_email_id"},
@@ -512,8 +510,8 @@ class TestApiEndpoints:
             "cv_upload": {"type": "css", "value": "input[type='file'].default-cv"},
             "submit_button": {"type": "id", "value": "default_submit_btn"}
         }
+        # Simulate 'example.com' selectors are not present, forcing use of 'default'
         mock_site_selectors.update({"default": default_selectors_config})
-        # mock_site_selectors.pop("example.com", None) # Ensure example.com is not used
 
         expected_cv_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], sample_pdf_filename)
         mock_os_path_exists.return_value = True
@@ -528,27 +526,30 @@ class TestApiEndpoints:
         json_data = response.get_json()
         assert "Navigated to job URL and attempted basic form filling" in json_data['message']
         assert json_data['cv_data_received'] is True
+        assert "manual_login_prompt_details" in json_data
+        assert f"'{sample_job_url.split('//')[1].split('/')[0].replace('www.','')}'" in json_data["manual_login_prompt_details"] # Check domain
+        assert str(manual_login_pause_seconds_value) in json_data["manual_login_prompt_details"] # Check pause duration
 
         mock_webdriver_chrome.assert_called_once()
         mock_driver_instance.get.assert_called_once_with(sample_job_url)
 
-        # Verify that _find_element_dynamically was called with default selectors
-        expected_calls = [
+        # Check time.sleep calls
+        mock_time_sleep.assert_any_call(2) # Initial page load sleep
+        mock_time_sleep.assert_any_call(manual_login_pause_seconds_value) # Manual login pause
+
+        expected_calls_args = [
             (mock_driver_instance, default_selectors_config['name'], "Name"),
             (mock_driver_instance, default_selectors_config['email'], "Email"),
             (mock_driver_instance, default_selectors_config['phone'], "Phone"),
             (mock_driver_instance, default_selectors_config['cv_upload'], "CV Upload"),
             (mock_driver_instance, default_selectors_config['submit_button'], "Submit Button"),
         ]
-        assert mock_find_element_dynamically.call_count == len(expected_calls)
-        for expected_call_args in expected_calls:
-            found_match = False
-            for actual_call in mock_find_element_dynamically.call_args_list:
-                # Comparing mock driver instance directly might be tricky, compare by type or skip driver assertion in loop
-                if actual_call[0][1] == expected_call_args[1] and actual_call[0][2] == expected_call_args[2]:
-                    found_match = True
-                    break
-            assert found_match, f"Expected call with selector {expected_call_args[1]} for {expected_call_args[2]} not found"
+        # Verify calls to _find_element_dynamically based on the (driver, selector_config, field_name)
+        actual_calls = [ (c[0][0], c[0][1], c[0][2]) for c in mock_find_element_dynamically.call_args_list]
+        for expected_call in expected_calls_args:
+            assert expected_call in actual_calls, f"Expected call {expected_call} not found in actual calls {actual_calls}"
+        assert mock_find_element_dynamically.call_count == len(expected_calls_args)
+
 
         mock_found_element.send_keys.assert_any_call(expected_cv_pdf_path)
         mock_found_element.click.assert_called_once()
@@ -651,6 +652,134 @@ class TestApiEndpoints:
         assert "WebDriver init failed simulation" in json_data['details']
         mock_webdriver_chrome.assert_called_once() # Attempted to init driver
         mock_get_job_by_id.assert_called_once_with(sample_job_id)
+
+
+    @patch('app.main.time.sleep')
+    @patch('app.main.os.path.exists')
+    @patch('app.main._find_element_dynamically')
+    @patch('app.main.webdriver.Chrome')
+    @patch('app.main.get_job_by_id')
+    @patch('app.main.SITE_SELECTORS', new_callable=dict)
+    def test_auto_apply_linkedin_selectors(
+        self, mock_site_selectors, mock_get_job_by_id, mock_webdriver_chrome,
+        mock_find_element_dynamically, mock_os_path_exists, mock_time_sleep, client, app
+    ):
+        """Test that LinkedIn specific selectors are used for a LinkedIn job URL."""
+        sample_job_id = 5
+        linkedin_job_url = 'https://www.linkedin.com/jobs/view/12345'
+        sample_pdf_filename = "linkedin_cv.pdf"
+        manual_login_pause_seconds_value = 120
+
+        mock_get_job_by_id.return_value = {'id': sample_job_id, 'url': linkedin_job_url, 'title': 'LinkedIn Job'}
+        mock_driver_instance = MagicMock()
+        mock_webdriver_chrome.return_value = mock_driver_instance
+        mock_found_element = MagicMock()
+        mock_find_element_dynamically.return_value = mock_found_element
+
+        expected_cv_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], sample_pdf_filename)
+        mock_os_path_exists.return_value = True
+
+        linkedin_selectors = {
+            "name": { "type": "css", "value": "input[id*='UNUSED-FOR-NOW-linkedin-name']" },
+            "email": { "type": "css", "value": "input[id*='emailAddress'], input[id*='text-input-email'], input[name*='email']" },
+            "phone": { "type": "css", "value": "input[id*='phoneNumber'], input[id*='text-input-phoneNumber'], input[name*='phone']" },
+            "cv_upload": { "type": "css", "value": "input[type='file'][id*='resume-upload'], input[type='file'][aria-label*='upload resume' i], input[type='file'][name*='resume']" },
+            "submit_button": { "type": "css", "value": "button[aria-label*='submit' i][aria-label*='application' i], button[data-control-name*='submit'], button[aria-label*='continue' i]" }
+        }
+        mock_site_selectors.update({
+            "default": {"name": {"type": "id", "value": "default_name_id"}},
+            "linkedin.com": linkedin_selectors
+        })
+
+        cv_data_payload = {
+            "tailored_cv": {"PersonalInformation": {"Name": "LinkedIn User"}},
+            "pdf_filename": sample_pdf_filename
+        }
+        response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
+
+        assert response.status_code == 200 # Assuming success if selectors are just passed
+        json_data = response.get_json()
+        assert "manual_login_prompt_details" in json_data
+        assert "linkedin.com" in json_data["manual_login_prompt_details"]
+        assert str(manual_login_pause_seconds_value) in json_data["manual_login_prompt_details"]
+
+        # Assert that _find_element_dynamically was called with LinkedIn selectors
+        expected_calls_args = [
+            (mock_driver_instance, linkedin_selectors['name'], "Name"),
+            (mock_driver_instance, linkedin_selectors['email'], "Email"),
+            (mock_driver_instance, linkedin_selectors['phone'], "Phone"),
+            (mock_driver_instance, linkedin_selectors['cv_upload'], "CV Upload"),
+            (mock_driver_instance, linkedin_selectors['submit_button'], "Submit Button"),
+        ]
+        actual_calls = [ (c[0][0], c[0][1], c[0][2]) for c in mock_find_element_dynamically.call_args_list]
+        for expected_call in expected_calls_args:
+            assert expected_call in actual_calls, f"Expected call {expected_call} for LinkedIn not found in actual calls {actual_calls}"
+        assert mock_find_element_dynamically.call_count == len(expected_calls_args)
+        mock_found_element.send_keys.assert_any_call(expected_cv_pdf_path) # Check CV upload
+        mock_found_element.click.assert_called_once() # Check submit click
+
+
+    @patch('app.main.time.sleep')
+    @patch('app.main.os.path.exists')
+    @patch('app.main._find_element_dynamically')
+    @patch('app.main.webdriver.Chrome')
+    @patch('app.main.get_job_by_id')
+    @patch('app.main.SITE_SELECTORS', new_callable=dict)
+    def test_auto_apply_indeed_selectors(
+        self, mock_site_selectors, mock_get_job_by_id, mock_webdriver_chrome,
+        mock_find_element_dynamically, mock_os_path_exists, mock_time_sleep, client, app
+    ):
+        """Test that Indeed specific selectors are used for an Indeed job URL."""
+        sample_job_id = 6
+        indeed_job_url = 'https://www.indeed.com/viewjob?jk=67890'
+        sample_pdf_filename = "indeed_cv.pdf"
+        manual_login_pause_seconds_value = 120
+
+        mock_get_job_by_id.return_value = {'id': sample_job_id, 'url': indeed_job_url, 'title': 'Indeed Job'}
+        mock_driver_instance = MagicMock()
+        mock_webdriver_chrome.return_value = mock_driver_instance
+        mock_found_element = MagicMock()
+        mock_find_element_dynamically.return_value = mock_found_element
+        expected_cv_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], sample_pdf_filename)
+        mock_os_path_exists.return_value = True
+
+        indeed_selectors = {
+            "name": { "type": "id", "value": "ia-fullName" },
+            "email": { "type": "id", "value": "ia-email" },
+            "phone": { "type": "id", "value": "ia-phoneNumber" },
+            "cv_upload": { "type": "css", "value": "input[type='file'][id*='resume'], input[type='file'][name*='resume'], input[type='file'][aria-label*='resume' i], input#resumeupload_input[type='file']" },
+            "submit_button": { "type": "css", "value": "button[data-testid*='continue' i], button[data-testid*='submit' i], button[id*='form-action-continue'], button[class*='ia-continueButton']" }
+        }
+        mock_site_selectors.update({
+            "default": {"name": {"type": "id", "value": "default_name_id"}},
+            "indeed.com": indeed_selectors
+        })
+
+        cv_data_payload = {
+            "tailored_cv": {"PersonalInformation": {"Name": "Indeed User"}},
+            "pdf_filename": sample_pdf_filename
+        }
+        response = client.post(f'/api/auto-apply/{sample_job_id}', json=cv_data_payload)
+
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert "manual_login_prompt_details" in json_data
+        assert "indeed.com" in json_data["manual_login_prompt_details"]
+        assert str(manual_login_pause_seconds_value) in json_data["manual_login_prompt_details"]
+
+        expected_calls_args = [
+            (mock_driver_instance, indeed_selectors['name'], "Name"),
+            (mock_driver_instance, indeed_selectors['email'], "Email"),
+            (mock_driver_instance, indeed_selectors['phone'], "Phone"),
+            (mock_driver_instance, indeed_selectors['cv_upload'], "CV Upload"),
+            (mock_driver_instance, indeed_selectors['submit_button'], "Submit Button"),
+        ]
+        actual_calls = [ (c[0][0], c[0][1], c[0][2]) for c in mock_find_element_dynamically.call_args_list]
+        for expected_call in expected_calls_args:
+            assert expected_call in actual_calls, f"Expected call {expected_call} for Indeed not found in actual calls {actual_calls}"
+        assert mock_find_element_dynamically.call_count == len(expected_calls_args)
+        mock_found_element.send_keys.assert_any_call(expected_cv_pdf_path)
+        mock_found_element.click.assert_called_once()
 
     @patch('app.main.SITE_SELECTORS', new_callable=dict)
     @patch('app.main.os.path.exists')

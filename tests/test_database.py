@@ -2,7 +2,7 @@ import pytest
 import pytest
 import sqlite3
 import json
-from app.database import save_job, get_jobs, get_db_connection, toggle_applied_status # Import toggle_applied_status
+from app.database import save_job, get_jobs, get_db_connection, toggle_cv_generated_status, save_generated_cv, init_db, set_job_cv_generated_status # Updated imports
 from datetime import datetime, date
 
 # Sample job data for testing
@@ -433,3 +433,153 @@ def test_get_jobs_combined_filter_with_applied_status(test_db):
 #         jobs = get_jobs()
 #         assert len(jobs) == 1
 #         assert jobs[0]['title'] == SAMPLE_JOB_1['title']
+
+
+# --- Tests for save_generated_cv ---
+# Note: The test_db fixture from conftest.py calls init_db(), so tables should exist.
+class TestGeneratedCvsFunctions:
+    def test_save_generated_cv_success(self, test_db):
+        """Test successfully saving a generated CV record."""
+        # init_db() # Called by test_db fixture via app_context in conftest
+
+        test_job_id = 1 # Example job ID
+        test_filename = "cv_for_job_1.pdf"
+        test_cv_data = {"summary": "This is a tailored CV.", "experience": ["Job A", "Job B"]}
+        test_json_string = json.dumps(test_cv_data)
+
+        new_id = save_generated_cv(test_job_id, test_filename, test_json_string)
+
+        assert new_id is not None
+        assert isinstance(new_id, int)
+
+        # Verify data in DB
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT job_id, generated_pdf_filename, tailored_cv_json_content FROM generated_cvs WHERE id = ?", (new_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        assert row is not None
+        assert row['job_id'] == test_job_id
+        assert row['generated_pdf_filename'] == test_filename
+        assert json.loads(row['tailored_cv_json_content']) == test_cv_data
+
+    def test_save_generated_cv_job_id_none(self, test_db):
+        """Test successfully saving a generated CV record with job_id as None."""
+        # init_db() # Called by test_db fixture
+
+        test_job_id = None
+        test_filename = "cv_no_job_id.pdf"
+        test_cv_data = {"summary": "CV not linked to a specific job in DB."}
+        test_json_string = json.dumps(test_cv_data)
+
+        new_id = save_generated_cv(test_job_id, test_filename, test_json_string)
+
+        assert new_id is not None
+        assert isinstance(new_id, int)
+
+        # Verify data in DB
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT job_id, generated_pdf_filename, tailored_cv_json_content FROM generated_cvs WHERE id = ?", (new_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        assert row is not None
+        assert row['job_id'] is None # Crucial check for this test case
+        assert row['generated_pdf_filename'] == test_filename
+        assert json.loads(row['tailored_cv_json_content']) == test_cv_data
+
+    # Tests for toggle_cv_generated_status (formerly toggle_applied_status)
+    def test_toggle_cv_generated_status(self, test_db):
+        # Save a job first (it will have applied = 0 by default)
+        save_job(SAMPLE_JOB_1, db_path=test_db) # Use db_path for consistency
+
+        conn = get_db_connection(db_path=test_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM jobs WHERE url = ?", (SAMPLE_JOB_1['url'],))
+        job_row = cursor.fetchone()
+        assert job_row is not None, "Job1 not found after saving"
+        job_id = job_row['id']
+
+        # Initial status check
+        cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+        initial_status = cursor.fetchone()['applied']
+        assert initial_status == 0, "Initial 'applied' status should be 0"
+        conn.close()
+
+        # Toggle 1: 0 -> 1
+        result1 = toggle_cv_generated_status(job_id, db_path=test_db)
+        assert result1 is not None
+        assert result1['id'] == job_id
+        assert result1['applied'] == 1
+
+        conn = get_db_connection(db_path=test_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+        status_in_db1 = cursor.fetchone()['applied']
+        conn.close()
+        assert status_in_db1 == 1
+
+        # Toggle 2: 1 -> 0
+        result2 = toggle_cv_generated_status(job_id, db_path=test_db)
+        assert result2 is not None
+        assert result2['id'] == job_id
+        assert result2['applied'] == 0
+
+        conn = get_db_connection(db_path=test_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+        status_in_db2 = cursor.fetchone()['applied']
+        conn.close()
+        assert status_in_db2 == 0
+
+    def test_toggle_cv_generated_status_non_existent_job(self, test_db):
+        result = toggle_cv_generated_status(99999, db_path=test_db) # Non-existent ID
+        assert result is None
+
+    # Tests for set_job_cv_generated_status
+    def test_set_job_cv_generated_status(self, test_db):
+        save_job(SAMPLE_JOB_2, db_path=test_db) # Default applied = 0
+
+        conn = get_db_connection(db_path=test_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM jobs WHERE url = ?", (SAMPLE_JOB_2['url'],))
+        job_row = cursor.fetchone()
+        assert job_row is not None, "Job2 not found after saving"
+        job_id = job_row['id']
+        conn.close()
+
+        # Set to True (1)
+        update1_success = set_job_cv_generated_status(job_id, True, db_path=test_db)
+        assert update1_success is True
+        conn = get_db_connection(db_path=test_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+        status_db1 = cursor.fetchone()['applied']
+        conn.close()
+        assert status_db1 == 1
+
+        # Set to False (0)
+        update2_success = set_job_cv_generated_status(job_id, False, db_path=test_db)
+        assert update2_success is True
+        conn = get_db_connection(db_path=test_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+        status_db2 = cursor.fetchone()['applied']
+        conn.close()
+        assert status_db2 == 0
+
+        # Set to True again
+        update3_success = set_job_cv_generated_status(job_id, True, db_path=test_db)
+        assert update3_success is True
+        conn = get_db_connection(db_path=test_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT applied FROM jobs WHERE id = ?", (job_id,))
+        status_db3 = cursor.fetchone()['applied']
+        conn.close()
+        assert status_db3 == 1
+
+    def test_set_job_cv_generated_status_non_existent_job(self, test_db):
+        update_success = set_job_cv_generated_status(88888, True, db_path=test_db) # Non-existent ID
+        assert update_success is False
