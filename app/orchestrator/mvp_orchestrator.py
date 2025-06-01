@@ -144,14 +144,23 @@ class MVCOrchestrator:
 
         # Re-attempt to click login button
         print(f"Attempting to click login button (after {trigger_button_name}) with selector: {login_button_selector_config}")
-        if not self.browser_wrapper.click_element(
+        if self.browser_wrapper.click_element(
             selector=login_button_selector_config['value'], find_by=login_button_selector_config['type']
         ):
-            print(f"Login Error (after {trigger_button_name}): Could not click login button.")
-            return False
-        print(f"Login successful after clicking {trigger_button_name}.")
-        time.sleep(2)  # Wait for page to potentially reload or redirect
-        return True
+            print(f"Login button (configured, after {trigger_button_name}) clicked successfully.")
+            time.sleep(2)  # Wait for page to potentially reload or redirect
+            return True
+        else:
+            # Configured login button click failed after trigger
+            print(f"Login Warning (after {trigger_button_name}): Configured login button (selector: {login_button_selector_config}) not found or failed to click. Attempting dynamic search...")
+            if self._find_and_click_login_button_dynamically():
+                print(f"Dynamic login button click successful (after {trigger_button_name}).")
+                time.sleep(2) # Wait for page to potentially reload or redirect
+                return True
+            else:
+                print(f"Login Error (after {trigger_button_name}): Dynamic login button search also failed. Login button click after trigger failed.")
+                return False
+        # The original print success and return True is now part of the if/else logic above.
 
     def _handle_login(self) -> bool:
         print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting auto-login...")
@@ -205,16 +214,28 @@ class MVCOrchestrator:
             time.sleep(0.2)
 
             print(f"Attempting to click login button with selector: {login_btn_sel_conf_typed}")
-            if not self.browser_wrapper.click_element(
+            if self.browser_wrapper.click_element(
                 selector=login_btn_sel_conf_typed['value'], # type: ignore
                 find_by=login_btn_sel_conf_typed['type'] # type: ignore
             ):
-                print("Login Error: Could not find or click login button.")
-                return False
-            print("Primary login successful.")
-            time.sleep(2)  # Wait for page to potentially reload or redirect
-            return True
-        else:
+                print("Primary login button (configured) clicked successfully.")
+                time.sleep(2)  # Wait for page to potentially reload or redirect
+                return True
+            else:
+                # Configured login button click failed
+                print(f"Login Warning: Configured login button (selector: {login_btn_sel_conf_typed}) not found or failed to click. Attempting dynamic search...")
+                if self._find_and_click_login_button_dynamically():
+                    print("Dynamic login button click successful.")
+                    time.sleep(2) # Wait for page to potentially reload or redirect
+                    return True
+                else:
+                    print("Login Error: Dynamic login button search also failed. Primary login path exhausted for button click.")
+                    # This will naturally fall through to the "else" block below if username was indeed filled.
+                    # If username was NOT filled, this path wouldn't be reached.
+                    # The structure implies if we are here, username and password WERE filled.
+                    return False # Explicitly return False as both configured and dynamic button clicks failed.
+
+        else: # This 'else' corresponds to "if self.browser_wrapper.fill_text_field (username)"
             # Username fill failed, proceed to secondary login triggers
             print("Primary login: Username field not found or could not be filled. Proceeding to Secondary Login Triggers.")
 
@@ -248,6 +269,94 @@ class MVCOrchestrator:
             print("Auto-login failed. All primary and secondary attempts exhausted. Check selectors or page structure.")
             return False
 
+    def _find_and_click_login_button_dynamically(self) -> bool:
+        """
+        Dynamically finds and clicks a login-related button on the page.
+        """
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting to find and click login button dynamically...")
+        if not self.browser_wrapper:
+            print("DynamicLoginClick: Browser wrapper not available.")
+            return False
+
+        interactable_elements = self.browser_wrapper.get_all_interactable_elements_details()
+        if not interactable_elements:
+            print("DynamicLoginClick: No interactable elements found on the page.")
+            return False
+
+        login_keywords = ["log in", "login", "sign in", "signin", "submit", "continue", "next"] # Case-insensitive search
+
+        candidate_buttons = []
+
+        for element in interactable_elements:
+            text_content = element.get('text_content', '').lower()
+            tag_name = element.get('tag_name', '').lower()
+            attributes = element.get('attributes', {})
+            el_xpath = element.get('xpath')
+
+            if not el_xpath: # Skip if no xpath
+                continue
+
+            # Check attributes for keywords
+            attribute_texts = []
+            for attr_key in ['id', 'name', 'class', 'value', 'aria-label', 'type', 'data-testid']: # Added data-testid
+                attr_val = attributes.get(attr_key) # Get raw value first
+                if isinstance(attr_val, str):
+                    attribute_texts.append(attr_val.lower())
+                elif isinstance(attr_val, list): # e.g. class can be a list of strings
+                    attribute_texts.extend([str(v).lower() for v in attr_val])
+                # Non-string, non-list attributes are ignored for keyword search for simplicity
+
+            found_keyword = False
+            for keyword in login_keywords:
+                if keyword in text_content:
+                    found_keyword = True
+                    break
+                for attr_text_val in attribute_texts: # These are already lowercased
+                    if keyword in attr_text_val:
+                        found_keyword = True
+                        break
+                if found_keyword:
+                    break
+
+            if found_keyword:
+                priority = 0
+                # Prioritize specific tags and types
+                if tag_name == 'button':
+                    priority = 2 # Higher priority for explicit buttons
+                elif tag_name == 'input' and attributes.get('type', '').lower() == 'submit':
+                    priority = 1 # Next priority for submit inputs
+
+                if priority > 0:
+                    candidate_buttons.append({'element_details': element, 'priority': priority, 'xpath': el_xpath})
+
+        # Sort candidates by priority (higher priority first)
+        sorted_candidates = sorted(candidate_buttons, key=lambda x: x['priority'], reverse=True)
+
+        if not sorted_candidates:
+            print("DynamicLoginClick: No promising login button candidates (button or input type=submit) found based on keywords.")
+            return False
+
+        print(f"DynamicLoginClick: Found {len(sorted_candidates)} potential login button(s). Attempting to click the most promising ones...")
+
+        for candidate in sorted_candidates:
+            element_info = candidate['element_details']
+            xpath_to_click = candidate['xpath']
+            # Provide more context for the element being clicked
+            click_context = f"Tag='{element_info.get('tag_name')}', Text='{element_info.get('text_content', '')[:50]}'"
+            if element_info.get('attributes'):
+                click_context += f", Attributes='{str(element_info.get('attributes', {}))[:100]}...'"
+            click_context += f", XPath='{xpath_to_click}'"
+
+            print(f"  Trying to click: {click_context}")
+
+            if self.browser_wrapper.click_element(selector=xpath_to_click, find_by='xpath'):
+                print(f"DynamicLoginClick: Successfully clicked element via dynamic search: {click_context}")
+                return True
+            else:
+                print(f"DynamicLoginClick: Failed to click element via dynamic search: {click_context}. Trying next candidate if any.")
+
+        print("DynamicLoginClick: All dynamic login button candidates failed to be clicked or none were suitable.")
+        return False
 
     def _handle_auto_click_apply(self) -> bool:
         """
