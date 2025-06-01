@@ -52,7 +52,7 @@ class MVCOrchestrator:
         self.user_profile = MVP_USER_PROFILE
         self.auto_apply_mode = False # Add this line
 
-        self.browser_wrapper = MVPSeleniumWrapper(webdriver_path=webdriver_path)
+        self.browser_wrapper = MVPSeleniumWrapper(webdriver_path=webdriver_path, headless=False)
         if not self.browser_wrapper.driver:
             print("CRITICAL: Browser wrapper failed to initialize. Orchestrator cannot function.")
             self.current_state = OrchestratorState.FAILED_ERROR
