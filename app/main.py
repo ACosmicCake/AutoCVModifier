@@ -236,6 +236,7 @@ def create_app(test_config=None):
             # Initialize orchestrator
             # Assuming MVPSeleniumWrapper can find the webdriver
             orchestrator = MVCOrchestrator()
+            orchestrator.auto_apply_mode = True # Add this line
 
             if orchestrator.current_state == OrchestratorState.FAILED_ERROR and not orchestrator.browser_wrapper.driver:
                 print("Orchestrator's browser component failed to initialize. Cannot proceed with AutoApply via orchestrator.")

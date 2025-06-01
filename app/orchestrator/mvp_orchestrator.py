@@ -50,29 +50,35 @@ class MVCOrchestrator:
         self.page_data_cache: Optional[Dict[str, Any]] = None
         self.ai_recommendations_cache: Optional[Dict[str, Any]] = None
         self.user_profile = MVP_USER_PROFILE
+        self.auto_apply_mode = False # Add this line
 
         self.browser_wrapper = MVPSeleniumWrapper(webdriver_path=webdriver_path)
         if not self.browser_wrapper.driver:
             print("CRITICAL: Browser wrapper failed to initialize. Orchestrator cannot function.")
             self.current_state = OrchestratorState.FAILED_ERROR
-        print("MVP Orchestrator initialized.")
+        # print("MVP Orchestrator initialized.") # Original print
+        print(f"Orchestrator initialized. AutoApply Mode: {self.auto_apply_mode}")
 
     def _load_page_data(self, url: str) -> Optional[Dict[str, Any]]:
-        print(f"Orchestrator: Loading page data for {url}...")
+        # print(f"Orchestrator: Loading page data for {url}...")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Loading page data for {url}...")
         if not self.browser_wrapper or not self.browser_wrapper.driver:
             print("Error: Browser wrapper not available.")
             return None
 
         if not self.browser_wrapper.navigate_to_url(url):
-            print(f"Error: Failed to navigate to URL: {url}")
+            # print(f"Error: Failed to navigate to URL: {url}")
+            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Navigation failed for {url}.")
             return None
 
         current_url, screenshot_bytes, dom_string = self.browser_wrapper.get_page_state()
 
         if not current_url or not dom_string:
-            print("Error: Failed to get essential page state (URL or DOM).")
+            # print("Error: Failed to get essential page state (URL or DOM).")
+            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Essential page state (URL or DOM) missing after loading {url}.")
             return None
 
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Page data loaded successfully for {url}.")
         return {"url": current_url, "screenshot_bytes": screenshot_bytes, "dom_string": dom_string}
 
     def _handle_login(self) -> bool:
@@ -81,7 +87,8 @@ class MVCOrchestrator:
         Uses hardcoded credentials and selectors.
         Returns True if login attempt was successful (all steps executed), False otherwise.
         """
-        print("Orchestrator: Attempting auto-login...")
+        # print("Orchestrator: Attempting auto-login...")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting auto-login...")
         if not self.browser_wrapper or not self.browser_wrapper.driver:
             print("Error: Browser wrapper not available for login.")
             return False
@@ -157,7 +164,8 @@ class MVCOrchestrator:
 
         # For now, success means all actions were attempted.
         # A more robust check would involve verifying the page content or URL after login.
-        print("Orchestrator: Auto-login actions executed.")
+        # print("Orchestrator: Auto-login actions executed.")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Auto-login actions executed.")
         # Potentially refresh page_data_cache here if login changes the page significantly
         # current_url, screenshot_bytes, dom_string = self.browser_wrapper.get_page_state()
         # self.page_data_cache = {"url": current_url, "screenshot_bytes": screenshot_bytes, "dom_string": dom_string}
@@ -169,7 +177,8 @@ class MVCOrchestrator:
         Attempts to find and click an "apply" button using a specific CSS selector.
         Returns True if the button is found and clicked successfully, False otherwise.
         """
-        print("Orchestrator: Attempting to auto-click 'apply' button...")
+        # print("Orchestrator: Attempting to auto-click 'apply' button...")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting to auto-click 'apply' button...")
         if not self.browser_wrapper or not self.browser_wrapper.driver:
             print("Error: Browser wrapper not available for auto-click apply.")
             return False
@@ -177,15 +186,18 @@ class MVCOrchestrator:
         apply_button_selector = 'button[aria-label*="Apply"]' # As per requirement
 
         if self.browser_wrapper.click_element(xpath=apply_button_selector, find_by="css_selector"):
-            print(f"Successfully clicked 'apply' button (selector: {apply_button_selector}).")
+            # print(f"Successfully clicked 'apply' button (selector: {apply_button_selector}).")
+            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Successfully clicked 'apply' button (selector: {apply_button_selector}).")
             time.sleep(2) # Wait for page to potentially reload or redirect
             return True
         else:
-            print(f"Could not find or click 'apply' button (selector: {apply_button_selector}).")
+            # print(f"Could not find or click 'apply' button (selector: {apply_button_selector}).")
+            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Could not find or click 'apply' button (selector: {apply_button_selector}).")
             return False
 
     def _call_ai_core(self, page_state: Dict[str, Any], user_profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        logging.info(f"Orchestrator: Calling AI Core with page data for {page_state.get('url')}")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing started for {page_state.get('url')}.")
+        # logging.info(f"Orchestrator: Calling AI Core with page data for {page_state.get('url')}") # Original
         logging.debug(f"Page state received (screenshot type): { {k: (type(v) if k=='screenshot_bytes' else v) for k,v in page_state.items()} }")
 
         screenshot_bytes = page_state.get("screenshot_bytes")
@@ -193,18 +205,25 @@ class MVCOrchestrator:
 
         if not screenshot_bytes:
             logging.error("AI Core: Screenshot bytes are missing in page_state. Cannot proceed.")
+            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing stopped early due to missing screenshot bytes.")
             return None
         if not dom_string:
             logging.warning("AI Core: DOM string is missing in page_state. Grounding quality may be affected.")
+            # Potentially add: print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing stopped early due to missing DOM string.")
+            # For now, it's a warning, so processing continues.
 
         # 1. Get All Interactable DOM Element Details from the live page
         logging.info("AI Core: Fetching all interactable DOM element details from browser...")
         if not self.browser_wrapper or not self.browser_wrapper.driver:
             logging.error("AI Core: Browser wrapper not available for fetching DOM element details.")
+            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing stopped early due to unavailable browser wrapper for DOM details.")
             return None
         actual_dom_elements_details = self.browser_wrapper.get_all_interactable_elements_details()
         if not actual_dom_elements_details:
             logging.warning("AI Core: No interactable DOM elements found by browser_wrapper. Grounding will likely fail.")
+            # This case might not be a full stop, but a warning. If it should stop:
+            # print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing stopped early due to no interactable DOM elements found.")
+            # return None
         logging.info(f"AI Core: Found {len(actual_dom_elements_details)} interactable DOM elements on the page.")
         logging.debug(f"First few DOM elements: {actual_dom_elements_details[:2]}")
 
@@ -228,6 +247,7 @@ class MVCOrchestrator:
         all_visual_elements_to_ground = identified_elements_visual_only + navigation_elements_visual_only
         if not all_visual_elements_to_ground:
             logging.warning("AI Core: No visual elements identified by LLM to ground.")
+            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing stopped early due to no visual elements identified by LLM to ground.")
             return {
                 "summary": "No visual elements identified by LLM. Nothing to ground or process further.",
                 "fields_to_fill": [], "actions": [], "navigation_element_text": "N/A"
@@ -393,10 +413,12 @@ class MVCOrchestrator:
             "question_answers_to_review": [qa.to_dict() for qa in question_answers_generated]
         }
         logging.debug(f"Final AI recommendations (with QA): {final_recommendations}")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing finished, returning recommendations.")
         return final_recommendations
 
     def _execute_browser_automation(self, actions: List[Dict[str, Any]]) -> bool:
-        logging.info("Orchestrator: Executing browser automation actions...")
+        # logging.info("Orchestrator: Executing browser automation actions...")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Executing browser automation actions...")
         if not self.browser_wrapper or not self.browser_wrapper.driver:
             print("Error: Browser wrapper not available for executing actions.")
             return False
@@ -424,12 +446,14 @@ class MVCOrchestrator:
                 continue
 
             if not success:
-                print(f"  Action failed: {action_type} on {dom_path}")
+                # print(f"  Action failed: {action_type} on {dom_path}")
+                print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Browser automation action failed: {action_type} on {dom_path}.")
                 return False
 
             time.sleep(0.5)
 
-        print("Orchestrator: All browser automation actions completed successfully.")
+        # print("Orchestrator: All browser automation actions completed successfully.")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): All browser automation actions completed successfully.")
         return True
 
     def run(self):
@@ -441,9 +465,19 @@ class MVCOrchestrator:
              self.current_state = OrchestratorState.AWAITING_JOB_URL
 
         print(f"State: {self.current_state}")
+        # Added print statement here for overall run status
+        if self.job_url : # Only print if job_url is set (e.g. not first run of interactive or if set by API)
+             print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Starting run. Current state: {self.current_state}, Job URL: {self.job_url}")
+
 
         try:
             while True:
+                # Moved the general print inside the loop to reflect current state accurately each iteration,
+                # but only if job_url is set, to avoid spamming in AWAITING_JOB_URL if user is typing.
+                if self.job_url and self.current_state != OrchestratorState.AWAITING_JOB_URL : # More specific condition
+                    print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Processing. Current state: {self.current_state}, Job URL: {self.job_url}")
+
+
                 if self.current_state == OrchestratorState.AWAITING_JOB_URL:
                     use_predefined_url = input(f"Use predefined target URL ({MVP_USER_PROFILE.get('automation_test_target_url', 'N/A')})? (y/n/quit): ").lower()
                     if use_predefined_url == 'y':
@@ -486,16 +520,20 @@ class MVCOrchestrator:
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.AWAITING_LOGIN_APPROVAL:
-                    login_choice = input("Attempt auto-login? (y/n/quit): ").lower()
-                    if login_choice == 'y':
+                    if self.auto_apply_mode:
+                        print("AutoApply Mode: Attempting auto-login...")
                         self.current_state = OrchestratorState.EXECUTING_LOGIN
-                    elif login_choice == 'n':
-                        print("Skipping auto-login. Proceeding to apply button check.")
-                        self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL # Changed
-                    elif login_choice == 'quit':
-                        self.current_state = OrchestratorState.IDLE
                     else:
-                        print("Invalid input. Please enter 'y', 'n', or 'quit'.")
+                        login_choice = input("Attempt auto-login? (y/n/quit): ").lower()
+                        if login_choice == 'y':
+                            self.current_state = OrchestratorState.EXECUTING_LOGIN
+                        elif login_choice == 'n':
+                            print("Skipping auto-login. Proceeding to apply button check.")
+                            self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL
+                        elif login_choice == 'quit':
+                            self.current_state = OrchestratorState.IDLE
+                        else:
+                            print("Invalid input. Please enter 'y', 'n', or 'quit'.")
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.EXECUTING_LOGIN:
@@ -545,16 +583,20 @@ class MVCOrchestrator:
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL:
-                    apply_choice = input("Attempt to auto-click an 'apply' button on this page? (y/n/quit): ").lower()
-                    if apply_choice == 'y':
+                    if self.auto_apply_mode:
+                        print("AutoApply Mode: Attempting to auto-click 'apply' button...")
                         self.current_state = OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK
-                    elif apply_choice == 'n':
-                        print("Skipping auto-click of 'apply' button. Proceeding to AI Core analysis for form filling.")
-                        self.current_state = OrchestratorState.CALLING_AI_CORE # Changed: Ensure AI Core runs if apply is skipped
-                    elif apply_choice == 'quit':
-                        self.current_state = OrchestratorState.IDLE
                     else:
-                        print("Invalid input. Please enter 'y', 'n', or 'quit'.")
+                        apply_choice = input("Attempt to auto-click an 'apply' button on this page? (y/n/quit): ").lower()
+                        if apply_choice == 'y':
+                            self.current_state = OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK
+                        elif apply_choice == 'n':
+                            print("Skipping auto-click of 'apply' button. Proceeding to AI Core analysis for form filling.")
+                            self.current_state = OrchestratorState.CALLING_AI_CORE
+                        elif apply_choice == 'quit':
+                            self.current_state = OrchestratorState.IDLE
+                        else:
+                            print("Invalid input. Please enter 'y', 'n', or 'quit'.")
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK:
@@ -583,7 +625,8 @@ class MVCOrchestrator:
                     if not self.ai_recommendations_cache:
                         print("Error: No AI recommendations to approve. Resetting.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
-                        continue
+                        continue # Use continue to re-evaluate loop from AWAITING_JOB_URL
+
                     print("\n--- AI Recommendations ---")
                     print(f"Summary: {self.ai_recommendations_cache.get('summary', 'N/A')}")
                     print("Fields to fill/identified:") # Changed from "Fields to fill"
@@ -618,23 +661,40 @@ class MVCOrchestrator:
                         # Potentially, they might want to manually use these answers.
                         # For now, we'll just let them decide to 'quit' or implicitly 'n' by not approving.
 
-
-                    approval = input("Approve and apply (this includes all fields and QA answers)? (y/n/quit): ").lower()
-                    if approval == 'y':
-                        if not self.ai_recommendations_cache.get("actions") and qa_answers_review:
-                            print("Approved QA answers. No direct browser actions to execute. Resetting for next URL.")
-                            self._log_user_approval_of_qa_only() # Optional: log this specific scenario
-                            self.current_state = OrchestratorState.AWAITING_JOB_URL
-                            continue
-                        self.current_state = OrchestratorState.EXECUTING_AUTOMATION
-                    elif approval == 'n':
-                        print("Application not approved by user. Logging feedback and resetting.")
-                        self._log_user_disapproval() # This will log the full cache including QA
-                        self.current_state = OrchestratorState.AWAITING_JOB_URL
-                    elif approval == 'quit':
-                        self.current_state = OrchestratorState.IDLE
+                    if self.auto_apply_mode:
+                        print("AutoApply Mode: Auto-approving AI recommendations.")
+                        if self.ai_recommendations_cache.get("actions"):
+                            self.current_state = OrchestratorState.EXECUTING_AUTOMATION
+                        elif self.ai_recommendations_cache.get('question_answers_to_review'):
+                            print("AutoApply Mode: Only QA answers to review. Logging them and completing this cycle.")
+                            self._log_user_approval_of_qa_only() # Log that QA was 'approved'
+                            # Decide if COMPLETED_SUCCESS or AWAITING_JOB_URL is more appropriate
+                            # For auto-apply, if only QA, it implies the main task might be done or stuck before actions.
+                            # Let's treat it as a form of completion for this URL.
+                            self.current_state = OrchestratorState.COMPLETED_SUCCESS # Or AWAITING_JOB_URL if preferred
+                        else: # No actions and no QA
+                            print("AutoApply Mode: No actions and no QA to approve. Setting to FAILED_ERROR.") # Updated print message for clarity
+                            self.current_state = OrchestratorState.FAILED_ERROR # <<< CHANGED LINE
                     else:
-                        print("Invalid input. Please enter 'y', 'n', or 'quit'.")
+                        # (Keep existing input prompt for non-auto_apply_mode)
+                        # ... existing input logic ...
+                        approval = input("Approve and apply (this includes all fields and QA answers)? (y/n/quit): ").lower()
+                        if approval == 'y':
+                            if not self.ai_recommendations_cache.get("actions") and self.ai_recommendations_cache.get('question_answers_to_review'):
+                                print("Approved QA answers. No direct browser actions to execute. Resetting for next URL.")
+                                self._log_user_approval_of_qa_only()
+                                self.current_state = OrchestratorState.AWAITING_JOB_URL
+                                continue # This was missing, good to have to re-evaluate loop
+                            else:
+                                self.current_state = OrchestratorState.EXECUTING_AUTOMATION
+                        elif approval == 'n':
+                            print("Application not approved by user. Logging feedback and resetting.")
+                            self._log_user_disapproval()
+                            self.current_state = OrchestratorState.AWAITING_JOB_URL
+                        elif approval == 'quit':
+                            self.current_state = OrchestratorState.IDLE
+                        else:
+                            print("Invalid input. Please enter 'y', 'n', or 'quit'.")
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.EXECUTING_AUTOMATION:
@@ -653,15 +713,17 @@ class MVCOrchestrator:
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.COMPLETED_SUCCESS:
+                    print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Entering COMPLETED_SUCCESS state for job URL: {self.job_url}.")
                     print(f"\nApplication process for {self.job_url} completed successfully!")
-                    self.job_url = None
-                    self.current_state = OrchestratorState.AWAITING_JOB_URL
+                    self.job_url = None # Reset for next potential run
+                    self.current_state = OrchestratorState.AWAITING_JOB_URL # Loop back
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.FAILED_ERROR:
+                    print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Entering FAILED_ERROR state for job URL: {self.job_url}.")
                     print(f"\nApplication process for {self.job_url} failed or encountered an error.")
-                    self.job_url = None
-                    self.current_state = OrchestratorState.AWAITING_JOB_URL
+                    self.job_url = None # Reset for next potential run
+                    self.current_state = OrchestratorState.AWAITING_JOB_URL # Loop back
                     print(f"State: {self.current_state}")
 
                 if self.current_state == OrchestratorState.IDLE:
