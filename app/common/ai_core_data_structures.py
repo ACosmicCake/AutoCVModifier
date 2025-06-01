@@ -47,11 +47,11 @@ class PreviousActionStatus(Enum):
 
 @dataclass
 class PreviousAction:
-    action_type: str # e.g., "fill_field", "click_button"
-    field_label_guessed: Optional[str] = None
-    value_used: Optional[Any] = None
-    status: PreviousActionStatus
-    description: Optional[str] = None # e.g., error message if failure
+    action_type: str  # Non-default
+    status: PreviousActionStatus  # Non-default - Moved up
+    field_label_guessed: Optional[str] = None  # Default
+    value_used: Optional[Any] = None  # Default
+    description: Optional[str] = None  # Default
 
 @dataclass
 class AICoreInput:
