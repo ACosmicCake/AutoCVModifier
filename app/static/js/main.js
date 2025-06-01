@@ -534,12 +534,16 @@ document.addEventListener('DOMContentLoaded', () => {
                         const statusText = escapeHtml(res.status);
 
                         if (res.status === 'success' && res.pdf_url) {
-                            html += `<div class="p-3 border rounded-md bg-green-50">`;
+                            html += `<div class="p-3 border rounded-md bg-green-50">`; // Main container for the item
                             html += `<p class="font-semibold">${jobTitleSummary}${jobIdText}: <span class="text-green-700">${statusText}</span></p>`;
-                            html += `<a href="${escapeHtml(res.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
+
+                            // Flex container for Download link and AutoApply button
+                            html += `<div class="mt-1 flex justify-between items-center">`;
+                            html += `  <a href="${escapeHtml(res.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
 
                             let autoApplyButtonHtml = '<button ';
-                            autoApplyButtonHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs ml-2" ';
+                            // Removed ml-2, flex justify-between will handle spacing. Added specific styling for this button.
+                            autoApplyButtonHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs" ';
 
                             let canAutoApply = true;
                             if (res.job_id) {
@@ -561,8 +565,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                 autoApplyButtonHtml += 'disabled title="Missing data for AutoApply" ';
                             }
                             autoApplyButtonHtml += '>AutoApply for this Job</button>';
-                            html += autoApplyButtonHtml;
-                            html += `</div>`; // Close item container
+                            html += autoApplyButtonHtml; // Add button to flex container
+                            html += `</div>`; // Close flex container
+                            html += `</div>`; // Close main item container
                         } else { // Error case or success without PDF URL (should not happen for full success)
                             html += `<div class="p-3 border rounded-md bg-red-50">`;
                             html += `<p class="font-semibold">${jobTitleSummary}${jobIdText}: <span class="text-red-700">${statusText}</span></p>`;
@@ -574,6 +579,35 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     html += '</div>';
                     if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = html;
+
+                    // --- Automatically update UI for successful CV generations in the main job list ---
+                    if (jobResultsDiv) { // Ensure the main job list container exists
+                        resultsData.results.forEach(res => {
+                            if (res.status === 'success' && res.job_id) {
+                                const card = jobResultsDiv.querySelector(`.job-card[data-job-id-card='${escapeHtml(res.job_id.toString())}']`);
+                                if (card) {
+                                    const statusTextElement = card.querySelector('.job-applied-status');
+                                    if (statusTextElement) {
+                                        statusTextElement.textContent = "Status: CV Generated";
+                                    }
+
+                                    const toggleButton = card.querySelector('.toggle-applied-btn');
+                                    if (toggleButton) {
+                                        toggleButton.textContent = "Mark CV Not Generated";
+                                        // Update classes for "CV Generated" state
+                                        toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                                        toggleButton.classList.add('bg-yellow-500', 'text-white');
+                                        // The button's data-job-id should already be correct.
+                                        // The event listener for this button handles toggling back if needed.
+                                    }
+                                } else {
+                                    console.warn(`Job card not found in main list for ID: ${res.job_id} after batch generation.`);
+                                }
+                            }
+                        });
+                    }
+                    // --- End of UI update ---
+
                 } else {
                      if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(resultsData.error || 'Failed to generate batch CVs.')}</p>`;
                 }

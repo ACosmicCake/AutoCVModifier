@@ -438,6 +438,93 @@ def create_app(test_config=None):
             if not submit_button_element:
                  time.sleep(5) # For visual inspection during dev; remove for production/tests.
 
+            # --- Automated Screening Questions ---
+            screening_questions_config = current_selectors.get("screening_questions", [])
+            if screening_questions_config:
+                print(f"Processing {len(screening_questions_config)} screening questions...")
+                for q_config in screening_questions_config:
+                    question_found_on_page = False
+                    question_text_fragments = q_config.get("question_text_fragments", [])
+                    target_answer_key = q_config.get("target_answer")
+                    answer_selectors = q_config.get("answer_selectors", {})
+
+                    if not question_text_fragments or not target_answer_key or not answer_selectors:
+                        print(f"Skipping question due to incomplete configuration: {q_config.get('question_text_fragments', ['Unknown Question'])}")
+                        continue
+
+                    print(f"Attempting to find question containing any of: {question_text_fragments}")
+
+                    # Try to find the question text on the page
+                    # This is a generic approach. Robustness depends on site structure.
+                    # We'll search for common text-holding elements.
+                    possible_text_elements_xpaths = []
+                    for fragment in question_text_fragments:
+                        # Escaping quotes within the XPath string for `contains`
+                        escaped_fragment = fragment.replace("'", "\\'").replace('"', '\\"')
+                        possible_text_elements_xpaths.append(f"//*[self::p or self::label or self::span or self::div or self::legend or self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6][contains(normalize-space(.), \"{escaped_fragment}\")]")
+
+                    question_element = None
+                    # Check a few common parent elements for the question text
+                    # This is a simplified approach. A more robust solution might involve
+                    # checking all elements or using more specific selectors if questions are in known containers.
+                    for xpath_query in possible_text_elements_xpaths:
+                        try:
+                            # Use a shorter timeout for finding the question text itself
+                            question_elements_found = WebDriverWait(driver, 5).until(
+                                EC.presence_of_all_elements_located((By.XPATH, xpath_query))
+                            )
+                            if question_elements_found:
+                                # For simplicity, assume the first visible one is the target.
+                                # Real applications might need more logic to disambiguate.
+                                for el in question_elements_found:
+                                    if el.is_displayed(): # Check if element is visible
+                                        question_element = el
+                                        question_found_on_page = True
+                                        print(f"Found question text element for fragments {question_text_fragments} using XPath: {xpath_query}")
+                                        break
+                                if question_found_on_page:
+                                    break
+                        except TimeoutException:
+                            # This fragment didn't find a visible element, try next fragment's XPath
+                            continue
+                        except Exception as e_find_q_text:
+                            print(f"Error while searching for question text with XPath {xpath_query}: {e_find_q_text}")
+                            continue # Try next XPath
+
+                    if question_found_on_page and question_element:
+                        print(f"Question containing '{question_text_fragments}' found. Attempting to answer '{target_answer_key}'.")
+
+                        answer_selector_config = answer_selectors.get(target_answer_key)
+                        if not answer_selector_config:
+                            print(f"No selector found for target answer '{target_answer_key}' for question '{question_text_fragments}'.")
+                            continue
+
+                        # Use _find_element_dynamically to find the answer choice
+                        # Pass a more descriptive name for logging
+                        answer_element_name = f"Answer '{target_answer_key}' for question '{question_text_fragments[0]}...'"
+                        answer_element = _find_element_dynamically(driver, answer_selector_config, answer_element_name)
+
+                        if answer_element:
+                            try:
+                                # Scroll into view if necessary, then click
+                                driver.execute_script("arguments[0].scrollIntoView(true);", answer_element)
+                                time.sleep(0.5) # Brief pause after scroll before click
+
+                                # For radio buttons or checkboxes, a direct click is usually what's needed.
+                                # If it's a dropdown, _find_element_dynamically would get the dropdown,
+                                # and then further Select logic would be needed. Assuming clickable inputs for now.
+                                answer_element.click()
+                                print(f"Successfully clicked answer '{target_answer_key}' for question '{question_text_fragments}'.")
+                            except Exception as e_click_answer:
+                                print(f"Error clicking answer '{target_answer_key}' for question '{question_text_fragments}': {e_click_answer}")
+                        else:
+                            print(f"Could not find answer element for '{target_answer_key}' for question '{question_text_fragments}'.")
+                    else:
+                        print(f"Question containing any of '{question_text_fragments}' not found or not visible on the page.")
+                print("Finished processing screening questions.")
+            else:
+                print("No screening questions configured for this site or in default.")
+
             # The manual_login_pause_seconds variable was defined earlier in this 'try' block.
             # The domain variable was also defined earlier based on job_url.
             # The 'manual_login_prompt_details' field in the response informs the client
