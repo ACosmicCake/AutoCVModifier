@@ -33,16 +33,21 @@ from selenium import webdriver
 # from selenium.webdriver.chrome.service import Service as ChromeService # Example for explicit path
 # from webdriver_manager.chrome import ChromeDriverManager # Example for webdriver-manager
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException # Added TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import time
 
 from urllib.parse import urlparse
 
 # --- Global Variables ---
-# SITE_SELECTORS will store the configurations for website-specific element locators,
-# loaded from `site_selectors.json`. This allows the AutoApply feature to adapt
-# its Selenium interactions (finding form fields, buttons, etc.) to different
-# job application websites. Refer to `site_selectors.json` for structure details.
+# SITE_SELECTORS stores configurations for website-specific element locators,
+# loaded from `site_selectors.json` at application startup.
+# This allows the AutoApply Selenium logic to adapt to different job site structures
+# by using predefined selectors (ID, CSS, XPath, etc.) for common form fields
+# (name, email, phone, CV upload) and the submit button.
+# The `load_selector_config()` function below handles the loading.
+# Refer to `site_selectors.json` for the expected structure and examples.
 SITE_SELECTORS = {}
 
 # --- Load Site Selector Configuration ---
@@ -96,7 +101,9 @@ def _find_element_dynamically(driver, selector_config, field_name_for_logging="U
     selector_type_str = selector_config['type'].lower()
     selector_value = selector_config['value']
     by_type = None
+    timeout = 10 # seconds
 
+    # Map string selector type to Selenium By object
     if selector_type_str == 'id':
         by_type = By.ID
     elif selector_type_str == 'css':
@@ -112,18 +119,26 @@ def _find_element_dynamically(driver, selector_config, field_name_for_logging="U
     elif selector_type_str == 'partial_link_text':
         by_type = By.PARTIAL_LINK_TEXT
     else:
-        print(f"Unsupported selector type '{selector_type_str}' for '{field_name_for_logging}' field.")
+        print(f"Unsupported selector type '{selector_type_str}' for '{field_name_for_logging}'.")
         return None
 
     try:
-        element = driver.find_element(by_type, selector_value)
-        print(f"Found '{field_name_for_logging}' field using {selector_type_str}: {selector_value}")
+        wait = WebDriverWait(driver, timeout)
+        if field_name_for_logging == 'Submit Button': # Specific handling for submit button
+            element = wait.until(
+                EC.element_to_be_clickable((by_type, selector_value))
+            )
+        else: # For all other elements, check for presence
+            element = wait.until(
+                EC.presence_of_element_located((by_type, selector_value))
+            )
+        print(f"Found '{field_name_for_logging}' using {selector_type_str}: {selector_value}")
         return element
-    except NoSuchElementException:
-        print(f"'{field_name_for_logging}' field not found using {selector_type_str}: {selector_value}")
+    except TimeoutException:
+        print(f"'{field_name_for_logging}' not found within {timeout}s using {selector_type_str}: {selector_value}")
         return None
-    except Exception as e:
-        print(f"Error finding '{field_name_for_logging}' field using {selector_type_str}: {selector_value} - {e}")
+    except Exception as e: # Catch other potential errors during find or wait
+        print(f"An unexpected error occurred while finding '{field_name_for_logging}' using {selector_type_str}: {selector_value}. Error: {e}")
         return None
 
 # --- Import refactored utility functions ---
@@ -224,6 +239,22 @@ def create_app(test_config=None):
 
     @app.route('/api/auto-apply/<int:job_id>', methods=['POST'])
     def auto_apply(job_id):
+        """
+        Attempts to auto-apply to a job by navigating to its URL and filling
+        form fields using Selenium.
+
+        Limitations:
+        - On-Platform Focus: Primarily designed for on-platform application forms
+          (e.g., LinkedIn Easy Apply, Indeed Apply). May not work if the 'Apply'
+          button redirects to an external company career portal (ATS).
+        - CAPTCHAs: Automation will likely fail if CAPTCHAs are encountered.
+          The script does not include CAPTCHA solving capabilities.
+        - Complex Forms: Highly complex or multi-page forms (beyond a single
+          'continue' or 'submit' action) might not be fully completed. The current
+          submit logic is basic.
+        - Selector Maintenance: Selectors in `site_selectors.json` are based on
+          observed HTML structures and may need frequent updates as websites change.
+        """
         job = get_job_by_id(job_id)
         if job is None:
             return jsonify({"error": "Job not found"}), 404
@@ -238,17 +269,17 @@ def create_app(test_config=None):
 
         if request_data:
             tailored_cv_data = request_data.get('tailored_cv')
-            # pdf_filename is expected from the client, corresponding to a PDF
-            # generated by the /api/tailor-cv endpoint and stored on the server.
+            # The `pdf_filename` is expected in the request body, provided by the client.
+            # This filename should correspond to a PDF previously generated by the
+            # `tailor_cv_endpoint` and stored in `app.config['GENERATED_PDFS_FOLDER']`.
             pdf_filename = request_data.get('pdf_filename')
 
-        # Validate presence of pdf_filename
+        # --- CV PDF Path Validation ---
+        # Ensure pdf_filename is provided and the corresponding file exists.
         if not pdf_filename:
             return jsonify({"error": "CV PDF filename not provided for AutoApply."}), 400
 
-        # Construct and validate the full path to the CV PDF.
-        # The filename is secured, and its existence in the GENERATED_PDFS_FOLDER is checked.
-        safe_pdf_filename = secure_filename(pdf_filename)
+        safe_pdf_filename = secure_filename(pdf_filename) # Sanitize filename
         cv_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], safe_pdf_filename)
 
         if not os.path.exists(cv_pdf_path):
@@ -259,11 +290,10 @@ def create_app(test_config=None):
             print(f"Warning: No tailored CV data (JSON) received for job ID {job_id}, but PDF filename '{safe_pdf_filename}' was provided and found. Proceeding.")
             # In a real scenario, might return an error or use a default CV from user profile if JSON is also needed.
 
-        # Determine which selectors to use based on job_url domain.
-        # This allows adapting Selenium interactions to different website structures.
-        # It parses the job_url to extract the domain (e.g., "linkedin.com")
-        # and then retrieves the corresponding selectors from the pre-loaded SITE_SELECTORS configuration.
-        # If domain-specific selectors aren't found, it falls back to "default" selectors.
+        # --- Selector Configuration Loading ---
+        # Determine which set of selectors (domain-specific from site_selectors.json
+        # or default) to use based on the job_url's domain. This allows the Selenium
+        # logic to adapt to different website HTML structures.
         try:
             parsed_url = urlparse(job_url)
             domain = parsed_url.netloc.replace('www.', '') # Simple domain extraction
@@ -382,7 +412,8 @@ def create_app(test_config=None):
                  time.sleep(5) # For visual inspection during dev; remove for production/tests.
 
             return jsonify({
-                "message": f"Navigated to job URL and attempted basic form filling for {job_url}. Please verify.",
+                "message": f"Navigated to job URL and attempted basic form filling for {job_url}. " +
+                           "Please verify the application on the site. See server logs for field-specific status.",
                 "job_url": job_url,
                 "cv_data_received": bool(tailored_cv_data)
             }), 200

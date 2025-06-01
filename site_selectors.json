@@ -7,17 +7,17 @@
     "submit_button": { "type": "id", "value": "submit_application" }
   },
   "linkedin.com": {
-    "name": { "type": "css", "value": "input[id*='fullName' i]" },
-    "email": { "type": "css", "value": "input[id*='emailAddress' i]" },
-    "phone": { "type": "css", "value": "input[id*='phoneNumber' i]" },
-    "cv_upload": { "type": "css", "value": "input[type='file'][aria-label*='resume' i]" },
-    "submit_button": { "type": "css", "value": "button[aria-label*='Submit application' i]" }
+    "name": { "type": "css", "value": "input[id*='UNUSED-FOR-NOW-linkedin-name']" },
+    "email": { "type": "css", "value": "input[id*='emailAddress'], input[id*='text-input-email'], input[name*='email']" },
+    "phone": { "type": "css", "value": "input[id*='phoneNumber'], input[id*='text-input-phoneNumber'], input[name*='phone']" },
+    "cv_upload": { "type": "css", "value": "input[type='file'][id*='resume-upload'], input[type='file'][aria-label*='upload resume' i], input[type='file'][name*='resume']" },
+    "submit_button": { "type": "css", "value": "button[aria-label*='submit' i][aria-label*='application' i], button[data-control-name*='submit'], button[aria-label*='continue' i]" }
   },
   "indeed.com": {
-    "name": { "type": "id", "value": "candidate-name" },
-    "email": { "type": "id", "value": "candidate-email" },
-    "phone": { "type": "id", "value": "candidate-phone" },
-    "cv_upload": { "type": "css", "value": "input[type='file'][aria-label*='resume' i]" },
-    "submit_button": { "type": "id", "value": "indeed-apply-button" }
+    "name": { "type": "id", "value": "ia-fullName" },
+    "email": { "type": "id", "value": "ia-email" },
+    "phone": { "type": "id", "value": "ia-phoneNumber" },
+    "cv_upload": { "type": "css", "value": "input[type='file'][id*='resume'], input[type='file'][name*='resume'], input[type='file'][aria-label*='resume' i], input#resumeupload_input[type='file']" },
+    "submit_button": { "type": "css", "value": "button[data-testid*='continue' i], button[data-testid*='submit' i], button[id*='form-action-continue'], button[class*='ia-continueButton']" }
   }
 }
