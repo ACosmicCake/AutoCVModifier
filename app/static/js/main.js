@@ -626,7 +626,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 html += `  <a href="${pdfUrl}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
 
                 // New wrapper for button and its future status span
-                let autoApplyButtonContainerHtml = '<div class="flex items-center">';
+                let autoApplyButtonContainerHtml = '<div class="flex items-start">';
                 autoApplyButtonContainerHtml += '<button ';
                 autoApplyButtonContainerHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs" ';
 
@@ -756,13 +756,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
                     if (response.ok) {
+                        // Display success message
                         statusSpan.textContent = ` ${result.message || 'AutoApply initiated.'}`;
                         statusSpan.classList.remove('text-blue-500', 'text-red-500');
                         statusSpan.classList.add('text-green-600');
-                        button.disabled = true;
-                        button.textContent = 'Applied (Attempted)';
-                        button.classList.remove('bg-green-500', 'hover:bg-green-700');
-                        button.classList.add('bg-gray-400', 'cursor-not-allowed');
+
+                        // Change button to "Apply Again" and re-enable it
+                        button.disabled = false;
+                        button.textContent = 'Apply Again';
+                        button.classList.remove('bg-gray-400', 'cursor-not-allowed'); // Ensure active styles if previously failed
+                        button.classList.add('bg-green-500', 'hover:bg-green-700');
                     } else {
                         statusSpan.textContent = ` ${result.error || 'AutoApply failed.'}`;
                         statusSpan.classList.remove('text-blue-500', 'text-green-500');
