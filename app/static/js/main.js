@@ -529,14 +529,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok && resultsData.results) {
                     let html = '<h3 class="text-xl font-semibold mb-3">Batch CV Generation Results:</h3><div class="space-y-3">';
                     resultsData.results.forEach(res => {
-                        html += `<div class="p-3 border rounded-md ${res.status === 'success' ? 'bg-green-50' : 'bg-red-50'}">`;
-                        html += `<p class="font-semibold">${escapeHtml(res.job_title_summary || 'Job')}: <span class="${res.status === 'success' ? 'text-green-700' : 'text-red-700'}">${escapeHtml(res.status)}</span></p>`;
+                        const jobIdText = res.job_id ? ` (Job ID: ${escapeHtml(res.job_id)})` : '';
+                        const jobTitleSummary = escapeHtml(res.job_title_summary || 'Job');
+                        const statusText = escapeHtml(res.status);
+
                         if (res.status === 'success' && res.pdf_url) {
+                            html += `<div class="p-3 border rounded-md bg-green-50">`;
+                            html += `<p class="font-semibold">${jobTitleSummary}${jobIdText}: <span class="text-green-700">${statusText}</span></p>`;
                             html += `<a href="${escapeHtml(res.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
-                        } else if (res.message) {
-                            html += `<p class="text-sm text-red-600">${escapeHtml(res.message)}</p>`;
+
+                            let autoApplyButtonHtml = '<button ';
+                            autoApplyButtonHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs ml-2" ';
+
+                            let canAutoApply = true;
+                            if (res.job_id) {
+                                autoApplyButtonHtml += `data-job-id="${escapeHtml(res.job_id)}" `;
+                            } else { canAutoApply = false; }
+
+                            if (res.pdf_filename) {
+                                autoApplyButtonHtml += `data-pdf-filename="${escapeHtml(res.pdf_filename)}" `;
+                            } else { canAutoApply = false; }
+
+                            if (res.tailored_cv_json) {
+                                // Ensure single quotes within JSON are handled if escapeHtml doesn't cover it for attributes
+                                const cvJsonString = JSON.stringify(res.tailored_cv_json);
+                                autoApplyButtonHtml += `data-cv-json='${escapeHtml(cvJsonString)}' `;
+                            } else { canAutoApply = false; }
+
+                            if (!canAutoApply) {
+                                autoApplyButtonHtml = autoApplyButtonHtml.replace('bg-green-500 hover:bg-green-700', 'bg-gray-400 cursor-not-allowed');
+                                autoApplyButtonHtml += 'disabled title="Missing data for AutoApply" ';
+                            }
+                            autoApplyButtonHtml += '>AutoApply for this Job</button>';
+                            html += autoApplyButtonHtml;
+                            html += `</div>`; // Close item container
+                        } else { // Error case or success without PDF URL (should not happen for full success)
+                            html += `<div class="p-3 border rounded-md bg-red-50">`;
+                            html += `<p class="font-semibold">${jobTitleSummary}${jobIdText}: <span class="text-red-700">${statusText}</span></p>`;
+                            if (res.message) {
+                                html += `<p class="text-sm text-red-600">${escapeHtml(res.message)}</p>`;
+                            }
+                            html += `</div>`;
                         }
-                        html += `</div>`;
                     });
                     html += '</div>';
                     if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = html;
@@ -558,4 +592,87 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn("jobResultsDiv not found on page load. Initial job fetch skipped.");
     }
     updateBatchButtonState(); // Initial state for the batch button
+
+    // --- Delegated Event Listener for AutoApply buttons in Batch Results ---
+    if (batchCvResultsDiv) {
+        batchCvResultsDiv.addEventListener('click', async (event) => {
+            if (event.target.classList.contains('batch-auto-apply-btn')) {
+                const button = event.target;
+                if (button.disabled) {
+                    alert('AutoApply button is disabled, likely due to missing data.');
+                    return;
+                }
+
+                const jobId = button.dataset.jobId;
+                const pdfFilename = button.dataset.pdfFilename;
+                const cvJsonString = button.dataset.cvJson;
+
+                if (!jobId || !pdfFilename || !cvJsonString) {
+                    alert('Error: Missing necessary data from button for AutoApply. Cannot proceed.');
+                    console.error('Missing data for batch AutoApply:', { jobId, pdfFilename, cvJsonString: cvJsonString ? "Exists (not shown)" : "Missing" });
+                    return;
+                }
+
+                let tailoredCvJson;
+                try {
+                    tailoredCvJson = JSON.parse(cvJsonString);
+                } catch (e) {
+                    alert('Error: Could not parse CV JSON data from button.');
+                    console.error('CV JSON parsing error from button data:', e);
+                    return;
+                }
+
+                // Create or find a status span next to the button
+                let statusSpan = button.parentNode.querySelector('.auto-apply-status-span');
+                if (!statusSpan) {
+                    statusSpan = document.createElement('span');
+                    statusSpan.classList.add('ml-2', 'text-sm', 'auto-apply-status-span');
+                    button.parentNode.insertBefore(statusSpan, button.nextSibling);
+                }
+
+                statusSpan.textContent = ' Applying...';
+                statusSpan.className = 'ml-2 text-sm text-blue-500 auto-apply-status-span'; // Reset classes
+
+                // Optional: Use global loader, but per-item status is primary here
+                // showLoading(`AutoApplying to Job ID: ${jobId}...`);
+
+                try {
+                    const response = await fetch(`/api/auto-apply/${jobId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pdf_filename: pdfFilename,
+                            tailored_cv: tailoredCvJson // This is the parsed JSON object
+                        }),
+                    });
+
+                    const result = await response.json();
+                    // if (loadingIndicator.classList.contains('hidden')) {} else { hideLoading(); }
+
+
+                    if (response.ok) {
+                        statusSpan.textContent = ` ${result.message || 'AutoApply initiated.'}`;
+                        statusSpan.classList.remove('text-blue-500', 'text-red-500');
+                        statusSpan.classList.add('text-green-600');
+                        button.disabled = true;
+                        button.textContent = 'Applied (Attempted)';
+                        button.classList.remove('bg-green-500', 'hover:bg-green-700');
+                        button.classList.add('bg-gray-400', 'cursor-not-allowed');
+                    } else {
+                        statusSpan.textContent = ` ${result.error || 'AutoApply failed.'}`;
+                        statusSpan.classList.remove('text-blue-500', 'text-green-500');
+                        statusSpan.classList.add('text-red-600');
+                    }
+                } catch (error) {
+                    // if (loadingIndicator.classList.contains('hidden')) {} else { hideLoading(); }
+                    console.error('AutoApply API call error (batch):', error);
+                    statusSpan.textContent = ' Network error during AutoApply.';
+                    statusSpan.classList.remove('text-blue-500', 'text-green-500');
+                    statusSpan.classList.add('text-red-600');
+                }
+            }
+        });
+    }
 });
