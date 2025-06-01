@@ -7,7 +7,7 @@ from datetime import datetime # For feedback logging timestamp
 # Integration Imports
 import logging # For more detailed logging in _call_ai_core
 from app.browser_automation.mvp_selenium_wrapper import MVPSeleniumWrapper
-from app.main import SITE_SELECTORS # Added import
+from app.config_loader import SITE_SELECTORS # Changed import
 # from app.ai_core.mvp_visual_linker import extract_and_ground_page_elements # No longer used directly here
 from app.ai_core.mvp_field_filler import generate_text_fill_actions_for_mvp as mvp_generate_text_fill_actions # Keep for action gen
 from app.ai_core.live_visual_perception import get_llm_field_predictions, parse_llm_output_to_identified_elements
