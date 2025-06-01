@@ -154,7 +154,11 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, get_job_by_id, save_generated_cv, set_job_cv_generated_status, toggle_cv_generated_status # Updated import
+from .database import (
+    init_db, save_job, get_jobs, get_job_by_id,
+    save_generated_cv, set_job_cv_generated_status,
+    toggle_cv_generated_status, get_generated_cvs_history # Added get_generated_cvs_history
+)
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -955,6 +959,42 @@ def create_app(test_config=None):
         else:
             print(f"Download request for non-existent file: {safe_path}")
             return jsonify({"error": "File not found"}), 404
+
+    @app.route('/api/batch-cv-history', methods=['GET'])
+    def api_get_batch_cv_history():
+        limit = request.args.get('limit', 50, type=int)
+        if limit <= 0 or limit > 500: # Max limit to prevent abuse
+            limit = 50
+
+        try:
+            history_data = get_generated_cvs_history(limit=limit)
+            processed_history = []
+            for item in history_data:
+                tailored_cv_json = None
+                try:
+                    if item['tailored_cv_json_content']:
+                        tailored_cv_json = json.loads(item['tailored_cv_json_content'])
+                except json.JSONDecodeError:
+                    print(f"Error decoding tailored_cv_json_content for generated_cv_id {item['generated_cv_id']}")
+                    # Keep tailored_cv_json as None or add an error marker if preferred
+
+                processed_history.append({
+                    "generated_cv_db_id": item['generated_cv_id'],
+                    "job_id": item['job_id'],
+                    "pdf_filename": item['generated_pdf_filename'],
+                    "pdf_url": f"/api/download-cv/{item['generated_pdf_filename']}" if item['generated_pdf_filename'] else None,
+                    "tailored_cv_json": tailored_cv_json,
+                    "generation_timestamp": item['generation_timestamp'],
+                    "job_title_summary": item['job_title'], # Using job_title directly
+                    "job_company": item['job_company'],
+                    "job_url": item['job_url']
+                })
+
+            return jsonify({"history": processed_history}), 200
+
+        except Exception as e:
+            print(f"Error fetching batch CV history: {e}")
+            return jsonify({"error": "Failed to fetch batch CV history"}), 500
 
     return app
 

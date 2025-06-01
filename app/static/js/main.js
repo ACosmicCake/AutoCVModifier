@@ -527,58 +527,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideLoading();
 
                 if (response.ok && resultsData.results) {
-                    let html = '<h3 class="text-xl font-semibold mb-3">Batch CV Generation Results:</h3><div class="space-y-3">';
-                    resultsData.results.forEach(res => {
-                        const jobIdText = res.job_id ? ` (Job ID: ${escapeHtml(res.job_id)})` : '';
-                        const jobTitleSummary = escapeHtml(res.job_title_summary || 'Job');
-                        const statusText = escapeHtml(res.status);
-
-                        if (res.status === 'success' && res.pdf_url) {
-                            html += `<div class="p-3 border rounded-md bg-green-50">`; // Main container for the item
-                            html += `<p class="font-semibold">${jobTitleSummary}${jobIdText}: <span class="text-green-700">${statusText}</span></p>`;
-
-                            // Flex container for Download link and AutoApply button
-                            html += `<div class="mt-1 flex justify-between items-center">`;
-                            html += `  <a href="${escapeHtml(res.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
-
-                            let autoApplyButtonHtml = '<button ';
-                            // Removed ml-2, flex justify-between will handle spacing. Added specific styling for this button.
-                            autoApplyButtonHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs" ';
-
-                            let canAutoApply = true;
-                            if (res.job_id) {
-                                autoApplyButtonHtml += `data-job-id="${escapeHtml(res.job_id)}" `;
-                            } else { canAutoApply = false; }
-
-                            if (res.pdf_filename) {
-                                autoApplyButtonHtml += `data-pdf-filename="${escapeHtml(res.pdf_filename)}" `;
-                            } else { canAutoApply = false; }
-
-                            if (res.tailored_cv_json) {
-                                // Ensure single quotes within JSON are handled if escapeHtml doesn't cover it for attributes
-                                const cvJsonString = JSON.stringify(res.tailored_cv_json);
-                                autoApplyButtonHtml += `data-cv-json='${escapeHtml(cvJsonString)}' `;
-                            } else { canAutoApply = false; }
-
-                            if (!canAutoApply) {
-                                autoApplyButtonHtml = autoApplyButtonHtml.replace('bg-green-500 hover:bg-green-700', 'bg-gray-400 cursor-not-allowed');
-                                autoApplyButtonHtml += 'disabled title="Missing data for AutoApply" ';
-                            }
-                            autoApplyButtonHtml += '>AutoApply for this Job</button>';
-                            html += autoApplyButtonHtml; // Add button to flex container
-                            html += `</div>`; // Close flex container
-                            html += `</div>`; // Close main item container
-                        } else { // Error case or success without PDF URL (should not happen for full success)
-                            html += `<div class="p-3 border rounded-md bg-red-50">`;
-                            html += `<p class="font-semibold">${jobTitleSummary}${jobIdText}: <span class="text-red-700">${statusText}</span></p>`;
-                            if (res.message) {
-                                html += `<p class="text-sm text-red-600">${escapeHtml(res.message)}</p>`;
-                            }
-                            html += `</div>`;
-                        }
-                    });
-                    html += '</div>';
-                    if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = html;
+                    // Display results of the live batch operation
+                    displayBatchResults(resultsData.results, 'batchCvResults');
 
                     // --- Automatically update UI for successful CV generations in the main job list ---
                     if (jobResultsDiv) { // Ensure the main job list container exists
@@ -597,8 +547,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                         // Update classes for "CV Generated" state
                                         toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
                                         toggleButton.classList.add('bg-yellow-500', 'text-white');
-                                        // The button's data-job-id should already be correct.
-                                        // The event listener for this button handles toggling back if needed.
                                     }
                                 } else {
                                     console.warn(`Job card not found in main list for ID: ${res.job_id} after batch generation.`);
@@ -609,6 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // --- End of UI update ---
 
                 } else {
+                     // Use displayBatchResults to show error message as well, or handle here
                      if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(resultsData.error || 'Failed to generate batch CVs.')}</p>`;
                 }
             } catch (error) {
@@ -619,13 +568,128 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- Function to Display Batch Results or History ---
+    function displayBatchResults(resultsArray, targetDivId) {
+        const targetDiv = document.getElementById(targetDivId);
+        if (!targetDiv) {
+            console.error(`Target div with ID ${targetDivId} not found for displaying batch results.`);
+            return;
+        }
+
+        // The title is now static in HTML, so we don't add it here.
+        // let html = '<h3 class="text-xl font-semibold mb-3">Batch CV Generation Results:</h3>'; // Title removed
+        let html = '';
+
+        if (!resultsArray || resultsArray.length === 0) {
+            html += '<p class="text-gray-600">No batch CV generation history or results found.</p>';
+            targetDiv.innerHTML = html;
+            return;
+        }
+
+        html += '<div class="space-y-3">'; // Wrapper for items
+
+        resultsArray.forEach(res => {
+            // Determine job_id and job_title_summary based on source (live batch vs history)
+            // History provides: generated_cv_db_id, job_id, pdf_filename, tailored_cv_json, generation_timestamp, job_title_summary, job_company, job_url
+            // Live batch provides: job_id, job_title_summary, status, pdf_url, pdf_filename, tailored_cv_json, generated_cv_db_id
+            const jobId = res.job_id;
+            const jobTitleSummary = escapeHtml(res.job_title_summary || 'N/A');
+            const statusText = escapeHtml(res.status || 'N/A'); // status might not be present in history items directly
+            const pdfUrl = escapeHtml(res.pdf_url);
+            const pdfFilename = escapeHtml(res.pdf_filename);
+            const tailoredCvJson = res.tailored_cv_json; // Already an object from history, or from live batch
+            const generationTimestamp = escapeHtml(res.generation_timestamp); // Specific to history
+
+            // Common identifier text
+            let idText = '';
+            if (res.generated_cv_db_id) { // Prefer history's own ID if available
+                idText += ` (History ID: ${escapeHtml(res.generated_cv_db_id)})`;
+            }
+            if (jobId) {
+                 idText += ` (Job ID: ${escapeHtml(jobId)})`;
+            }
+
+
+            // Check if it's a successful result (for styling and AutoApply button)
+            // For history, we assume all displayed items were successful generations.
+            // For live results, 'status' field is key.
+            const isSuccess = res.status === 'success' || (res.generation_timestamp && !res.status); // History items are implicitly successful
+
+            if (isSuccess && pdfUrl) {
+                html += `<div class="p-3 border rounded-md bg-green-50">`;
+                html += `<p class="font-semibold">${jobTitleSummary}${idText}: <span class="text-green-700">${statusText === 'N/A' ? 'Generated' : statusText}</span></p>`;
+                if (generationTimestamp && generationTimestamp !== 'undefined') { // Display timestamp if available (from history)
+                     html += `<p class="text-xs text-gray-500">Generated: ${generationTimestamp}</p>`;
+                }
+                // Link and button container
+                html += `<div class="mt-1 flex justify-between items-center">`;
+                html += `  <a href="${pdfUrl}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
+
+                // AutoApply button logic (similar to before, ensure data attributes are correct)
+                let autoApplyButtonHtml = '<button ';
+                autoApplyButtonHtml += 'class="batch-auto-apply-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs" ';
+
+                let canAutoApply = true;
+                if (jobId) autoApplyButtonHtml += `data-job-id="${escapeHtml(jobId)}" `; else canAutoApply = false;
+                if (pdfFilename) autoApplyButtonHtml += `data-pdf-filename="${escapeHtml(pdfFilename)}" `; else canAutoApply = false;
+                if (tailoredCvJson) autoApplyButtonHtml += `data-cv-json='${escapeHtml(JSON.stringify(tailoredCvJson))}' `; else canAutoApply = false;
+
+                if (!canAutoApply) {
+                    autoApplyButtonHtml = autoApplyButtonHtml.replace('bg-green-500 hover:bg-green-700', 'bg-gray-400 cursor-not-allowed');
+                    autoApplyButtonHtml += 'disabled title="Missing data for AutoApply (Job ID, PDF name, or CV JSON)" ';
+                }
+                autoApplyButtonHtml += '>AutoApply for this Job</button>';
+                html += autoApplyButtonHtml;
+                html += `</div>`; // Close flex container (link and button)
+                html += `</div>`; // Close item container
+            } else { // Error case for live batch, or unexpected item from history (should ideally be filtered by backend)
+                html += `<div class="p-3 border rounded-md bg-red-50">`;
+                html += `<p class="font-semibold">${jobTitleSummary}${idText}: <span class="text-red-700">${statusText}</span></p>`;
+                if (res.message) { // For live batch errors
+                    html += `<p class="text-sm text-red-600">${escapeHtml(res.message)}</p>`;
+                }
+                if (generationTimestamp && generationTimestamp !== 'undefined') {
+                     html += `<p class="text-xs text-gray-500">Attempted: ${generationTimestamp}</p>`;
+                }
+                html += `</div>`;
+            }
+        });
+        html += '</div>'; // Close space-y-3 wrapper
+        targetDiv.innerHTML = html;
+    }
+
+    // --- Fetch and Display Batch CV History on Page Load ---
+    async function fetchAndDisplayBatchHistory() {
+        if (!batchCvResultsDiv) return; // Ensure the target div exists
+        showLoading('Fetching batch history...');
+        try {
+            const response = await fetch('/api/batch-cv-history?limit=50'); // Fetch history
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: "Failed to parse error response from history API." }));
+                throw new Error(errorData.error || `Failed to fetch batch history: ${response.status} ${response.statusText}`);
+            }
+            const responseData = await response.json();
+            displayBatchResults(responseData.history, 'batchCvResults'); // Use the refactored display function
+        } catch (error) {
+            console.error('Fetch Batch History Error:', error);
+            if (batchCvResultsDiv) { // Display error in the history div
+                batchCvResultsDiv.innerHTML = `<p class="text-red-600">Error fetching batch history: ${escapeHtml(error.message)}</p>`;
+            }
+        } finally {
+            hideLoading();
+        }
+    }
+
     // --- Initial Load ---
-    if (jobResultsDiv) { // Basic check, specific elements for filters/batch are checked inside their setup.
+    if (jobResultsDiv) {
         fetchAndDisplayJobs();
     } else {
         console.warn("jobResultsDiv not found on page load. Initial job fetch skipped.");
     }
-    updateBatchButtonState(); // Initial state for the batch button
+    if (batchCvResultsDiv) { // Check if the batch results div exists before fetching history
+        fetchAndDisplayBatchHistory(); // Fetch and display history on load
+    }
+    updateBatchButtonState();
 
     // --- Delegated Event Listener for AutoApply buttons in Batch Results ---
     if (batchCvResultsDiv) {

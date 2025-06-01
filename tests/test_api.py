@@ -695,6 +695,157 @@ class TestApiEndpoints:
 
         mock_driver_instance.quit.assert_called_once()
 
+    # --- Tests for /api/batch-cv-history ---
+
+    def test_get_batch_cv_history_empty(self, client):
+        """Test fetching batch CV history when it's empty."""
+        response = client.get('/api/batch-cv-history')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert 'history' in json_data
+        assert len(json_data['history']) == 0
+
+    def test_get_batch_cv_history_with_records(self, client, app):
+        """Test fetching batch CV history with various records."""
+        from app.database import save_job, save_generated_cv
+        from datetime import datetime, timedelta
+
+        # Setup: Create some jobs
+        job1_data = {**DB_JOB_1, 'url': 'http://example.com/job_hist/1'}
+        job2_data = {**DB_JOB_2, 'url': 'http://example.com/job_hist/2'}
+        job1_id = save_job(job1_data)
+        job2_id = save_job(job2_data)
+        assert job1_id is not None
+        assert job2_id is not None
+
+        # Setup: Create some generated_cvs records
+        cv_content1 = {"detail": "cv content for job 1"}
+        cv_content2 = {"detail": "cv content for job 2"}
+        cv_content_no_job = {"detail": "cv content for no specific job"}
+
+        # Timestamps for ordering
+        ts1 = datetime.now() - timedelta(days=2)
+        ts2 = datetime.now() - timedelta(days=1)
+        ts3 = datetime.now()
+
+        # Use a direct DB connection to set specific timestamps, as save_generated_cv uses default CURRENT_TIMESTAMP
+        conn = app.extensions['sqlite3_conn'] # Assuming using test_db fixture correctly setup this
+        cursor = conn.cursor()
+
+        # Record 1 (linked to job1)
+        cursor.execute("INSERT INTO generated_cvs (job_id, generated_pdf_filename, tailored_cv_json_content, generation_timestamp) VALUES (?, ?, ?, ?)",
+                       (job1_id, "cv1.pdf", json.dumps(cv_content1), ts1.isoformat()))
+        gen_cv1_id = cursor.lastrowid
+
+        # Record 2 (linked to job2, more recent)
+        cursor.execute("INSERT INTO generated_cvs (job_id, generated_pdf_filename, tailored_cv_json_content, generation_timestamp) VALUES (?, ?, ?, ?)",
+                       (job2_id, "cv2.pdf", json.dumps(cv_content2), ts2.isoformat()))
+        gen_cv2_id = cursor.lastrowid
+
+        # Record 3 (unlinked, most recent)
+        cursor.execute("INSERT INTO generated_cvs (job_id, generated_pdf_filename, tailored_cv_json_content, generation_timestamp) VALUES (?, ?, ?, ?)",
+                       (None, "cv3_no_job.pdf", json.dumps(cv_content_no_job), ts3.isoformat()))
+        gen_cv3_id = cursor.lastrowid
+        conn.commit()
+
+
+        response = client.get('/api/batch-cv-history')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert 'history' in json_data
+        history = json_data['history']
+        assert len(history) == 3
+
+        # Records should be in reverse chronological order (ts3, ts2, ts1)
+        assert history[0]['generated_cv_db_id'] == gen_cv3_id
+        assert history[0]['job_id'] is None
+        assert history[0]['job_title_summary'] is None # As job_id is NULL
+        assert history[0]['job_company'] is None
+        assert history[0]['job_url'] is None
+        assert history[0]['pdf_filename'] == "cv3_no_job.pdf"
+        assert history[0]['pdf_url'] == f"/api/download-cv/cv3_no_job.pdf"
+        assert history[0]['tailored_cv_json'] == cv_content_no_job
+        assert datetime.fromisoformat(history[0]['generation_timestamp']).replace(tzinfo=None) == ts3.replace(tzinfo=None)
+
+
+        assert history[1]['generated_cv_db_id'] == gen_cv2_id
+        assert history[1]['job_id'] == job2_id
+        assert history[1]['job_title_summary'] == job2_data['title']
+        assert history[1]['job_company'] == job2_data['company']
+        assert history[1]['job_url'] == job2_data['url']
+        assert history[1]['pdf_filename'] == "cv2.pdf"
+        assert history[1]['tailored_cv_json'] == cv_content2
+        assert datetime.fromisoformat(history[1]['generation_timestamp']).replace(tzinfo=None) == ts2.replace(tzinfo=None)
+
+
+        assert history[2]['generated_cv_db_id'] == gen_cv1_id
+        assert history[2]['job_id'] == job1_id
+        assert history[2]['job_title_summary'] == job1_data['title']
+        assert history[2]['pdf_filename'] == "cv1.pdf"
+        assert history[2]['tailored_cv_json'] == cv_content1
+        assert datetime.fromisoformat(history[2]['generation_timestamp']).replace(tzinfo=None) == ts1.replace(tzinfo=None)
+
+
+    def test_get_batch_cv_history_with_limit(self, client, app):
+        from app.database import save_generated_cv # save_job not needed if job_id is None
+        from datetime import datetime, timedelta
+        conn = app.extensions['sqlite3_conn']
+        cursor = conn.cursor()
+
+        for i in range(5):
+            # Insert with slightly different timestamps to ensure order
+            ts = datetime.now() - timedelta(minutes=i*10)
+            cursor.execute("INSERT INTO generated_cvs (generated_pdf_filename, tailored_cv_json_content, generation_timestamp) VALUES (?, ?, ?)",
+                           (f"cv_limit_test_{i}.pdf", json.dumps({"count": i}), ts.isoformat()))
+        conn.commit()
+
+        response = client.get('/api/batch-cv-history?limit=3')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert 'history' in json_data
+        assert len(json_data['history']) == 3
+        # Check that the first item (most recent) corresponds to i=0
+        assert json_data['history'][0]['pdf_filename'] == "cv_limit_test_0.pdf"
+        assert json_data['history'][1]['pdf_filename'] == "cv_limit_test_1.pdf"
+        assert json_data['history'][2]['pdf_filename'] == "cv_limit_test_2.pdf"
+
+    def test_get_batch_cv_history_json_parsing(self, client, app):
+        from app.database import save_generated_cv
+        conn = app.extensions['sqlite3_conn']
+        cursor = conn.cursor()
+
+        valid_json_content = {"key": "value", "nested": {"num": 1}}
+        invalid_json_string = '{"key": "value", "broken_json": True, }' # Invalid trailing comma, True not string
+
+        # Record with valid JSON
+        cursor.execute("INSERT INTO generated_cvs (generated_pdf_filename, tailored_cv_json_content) VALUES (?, ?)",
+                       ("valid_json.pdf", json.dumps(valid_json_content)))
+        valid_id = cursor.lastrowid
+
+        # Record with invalid JSON
+        cursor.execute("INSERT INTO generated_cvs (generated_pdf_filename, tailored_cv_json_content) VALUES (?, ?)",
+                       ("invalid_json.pdf", invalid_json_string))
+        invalid_id = cursor.lastrowid
+        conn.commit()
+
+        response = client.get('/api/batch-cv-history')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        history = json_data['history']
+
+        found_valid = False
+        found_invalid = False
+        for item in history:
+            if item['generated_cv_db_id'] == valid_id:
+                assert item['tailored_cv_json'] == valid_json_content
+                found_valid = True
+            elif item['generated_cv_db_id'] == invalid_id:
+                assert item['tailored_cv_json'] is None # Should be None due to parsing error
+                found_invalid = True
+
+        assert found_valid
+        assert found_invalid
+
     @patch('app.main.time.sleep')
     @patch('app.main.os.path.exists')
     @patch('app.main._find_element_dynamically')

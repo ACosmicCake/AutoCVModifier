@@ -361,3 +361,47 @@ def get_jobs(filters=None, db_path=None):
         return [] # Return empty list on error
     finally:
         conn.close()
+
+def get_generated_cvs_history(limit=50, db_path=None):
+    """Fetches the history of generated CVs, joined with job details.
+
+    Args:
+        limit (int, optional): The maximum number of records to fetch. Defaults to 50.
+        db_path (str, optional): Path to the SQLite database file.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary represents a generated CV record
+              joined with its corresponding job details. Returns an empty list on error or if no history.
+    """
+    conn = get_db_connection(db_path=db_path)
+    cursor = conn.cursor()
+
+    query = """
+        SELECT
+            gc.id AS generated_cv_id,
+            gc.job_id,
+            gc.generated_pdf_filename,
+            gc.tailored_cv_json_content,
+            gc.generation_timestamp,
+            j.title AS job_title,
+            j.company AS job_company,
+            j.url AS job_url
+        FROM
+            generated_cvs gc
+        LEFT JOIN
+            jobs j ON gc.job_id = j.id
+        ORDER BY
+            gc.generation_timestamp DESC
+        LIMIT ?;
+    """
+    try:
+        cursor.execute(query, (limit,))
+        history_rows = cursor.fetchall()
+        history_list = [dict(row) for row in history_rows]
+        return history_list
+    except sqlite3.Error as e:
+        print(f"Database error while fetching generated CVs history: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
