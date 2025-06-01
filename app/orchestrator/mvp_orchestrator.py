@@ -1,17 +1,17 @@
 # app/orchestrator/mvp_orchestrator.py
 import time
 import json
-from typing import Dict, Any, List, Tuple, Optional # Added for type hinting
+from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime # For feedback logging timestamp
 
 # Integration Imports
 import logging # For more detailed logging in _call_ai_core
 from app.browser_automation.mvp_selenium_wrapper import MVPSeleniumWrapper
 # from app.ai_core.mvp_visual_linker import extract_and_ground_page_elements # No longer used directly here
-from app.ai_core.mvp_field_filler import perform_semantic_matching_for_mvp as mvp_perform_semantic_matching, \
-                                         generate_text_fill_actions_for_mvp as mvp_generate_text_fill_actions
+from app.ai_core.mvp_field_filler import generate_text_fill_actions_for_mvp as mvp_generate_text_fill_actions # Keep for action gen
 from app.ai_core.live_visual_perception import get_llm_field_predictions, parse_llm_output_to_identified_elements
 from app.ai_core.live_visual_grounder import ground_visual_elements
+from app.ai_core.live_semantic_matcher import annotate_fields_with_semantic_meaning # New integration
 from app.common.ai_core_data_structures import IdentifiedFormField, NavigationElement, NavigationActionType # For isinstance and nav logic
 
 # (Simulated) User Profile for MVP
@@ -36,7 +36,7 @@ class OrchestratorState:
     COMPLETED_SUCCESS = "COMPLETED_SUCCESS"
     FAILED_ERROR = "FAILED_ERROR"
 
-class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
+class MVCOrchestrator:
     def __init__(self, webdriver_path: Optional[str] = None):
         self.current_state = OrchestratorState.IDLE
         self.job_url = None
@@ -44,14 +44,10 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         self.ai_recommendations_cache: Optional[Dict[str, Any]] = None
         self.user_profile = MVP_USER_PROFILE
 
-        # Initialize Browser Wrapper
-        # For MVP, assume ChromeDriver is in PATH or handle webdriver_path if provided by config
         self.browser_wrapper = MVPSeleniumWrapper(webdriver_path=webdriver_path)
         if not self.browser_wrapper.driver:
             print("CRITICAL: Browser wrapper failed to initialize. Orchestrator cannot function.")
-            # In a real app, this might raise an exception or set state to a permanent error.
-            # For MVP CLI, we'll let it proceed but operations will fail.
-            self.current_state = OrchestratorState.FAILED_ERROR # Set error state
+            self.current_state = OrchestratorState.FAILED_ERROR
         print("MVP Orchestrator initialized.")
 
     def _load_page_data(self, url: str) -> Optional[Dict[str, Any]]:
@@ -66,7 +62,7 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
 
         current_url, screenshot_bytes, dom_string = self.browser_wrapper.get_page_state()
 
-        if not current_url or not dom_string: # Screenshot can be optional for some steps
+        if not current_url or not dom_string:
             print("Error: Failed to get essential page state (URL or DOM).")
             return None
 
@@ -77,14 +73,13 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         logging.debug(f"Page state received (screenshot type): { {k: (type(v) if k=='screenshot_bytes' else v) for k,v in page_state.items()} }")
 
         screenshot_bytes = page_state.get("screenshot_bytes")
-        dom_string = page_state.get("dom_string") # Full DOM string from Selenium
+        dom_string = page_state.get("dom_string")
 
         if not screenshot_bytes:
             logging.error("AI Core: Screenshot bytes are missing in page_state. Cannot proceed.")
             return None
         if not dom_string:
             logging.warning("AI Core: DOM string is missing in page_state. Grounding quality may be affected.")
-            # Proceeding, but grounder might be less effective or rely on LLM context more if it used DOM snippets
 
         # 1. Get All Interactable DOM Element Details from the live page
         logging.info("AI Core: Fetching all interactable DOM element details from browser...")
@@ -97,12 +92,11 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         logging.info(f"AI Core: Found {len(actual_dom_elements_details)} interactable DOM elements on the page.")
         logging.debug(f"First few DOM elements: {actual_dom_elements_details[:2]}")
 
-
         # 2. Live Visual Perception (LLM Call)
         logging.info("AI Core: Attempting live LLM field predictions...")
         raw_llm_output = get_llm_field_predictions(
             screenshot_bytes=screenshot_bytes,
-            page_dom_string=dom_string, # Pass limited DOM to LLM for context if desired by get_llm_field_predictions
+            page_dom_string=dom_string,
             live_llm_call=True
         )
         if not raw_llm_output:
@@ -118,7 +112,6 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         all_visual_elements_to_ground = identified_elements_visual_only + navigation_elements_visual_only
         if not all_visual_elements_to_ground:
             logging.warning("AI Core: No visual elements identified by LLM to ground.")
-            # Construct a minimal response or return None
             return {
                 "summary": "No visual elements identified by LLM. Nothing to ground or process further.",
                 "fields_to_fill": [], "actions": [], "navigation_element_text": "N/A"
@@ -140,40 +133,37 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         logging.info(f"AI Core: Grounding complete. {count_successfully_grounded_fields}/{len(grounded_form_fields)} form fields and "
                      f"{count_successfully_grounded_navs}/{len(grounded_navigation_elements)} navigation elements were grounded.")
 
-        # 4. MVP Semantic Matching (using live-grounded fields)
-        logging.info("AI Core: Performing MVP semantic matching on grounded fields...")
-        semantically_matched_fields = mvp_perform_semantic_matching(grounded_form_fields)
-        logging.info(f"AI Core: MVP Semantic matching complete. {len([f for f in semantically_matched_fields if f.semantic_meaning_predicted])} fields have semantic meaning.")
+        # 4. Live Semantic Matching (using live-grounded fields)
+        logging.info("AI Core: Performing LIVE semantic matching on grounded fields...")
+        semantically_matched_fields = annotate_fields_with_semantic_meaning(grounded_form_fields, live_llm_call=True)
+        count_successfully_semantic_matched = sum(1 for f in semantically_matched_fields if f.semantic_meaning_predicted and f.semantic_meaning_predicted != "system_internal.other_unspecified_field")
+        logging.info(f"AI Core: Live semantic matching complete. {count_successfully_semantic_matched}/{len(semantically_matched_fields)} fields have a specific semantic meaning assigned.")
 
-        # 5. MVP Generate Text Fill Actions (now potentially with DOM paths from live grounding)
+        # 5. MVP Generate Text Fill Actions (using live-semantically-matched fields)
         logging.info("AI Core: Generating MVP text fill actions...")
         fill_actions_details_obj_list = mvp_generate_text_fill_actions(semantically_matched_fields, user_profile)
         logging.info(f"AI Core: MVP text fill action generation complete. {len(fill_actions_details_obj_list)} fill actions proposed.")
+        if not fill_actions_details_obj_list and count_successfully_grounded_fields > 0 :
+            logging.warning("AI Core: No fill actions generated by MVP action generator. This might be due to semantic keys not matching user profile, no grounded paths, or no fillable types found.")
 
         # Construct ai_recommendations_cache
-        summary_message = (
-            f"LivePerception: {len(identified_elements_visual_only)} vis-fields, {len(navigation_elements_visual_only)} vis-navs. "
-            f"Grounder: {count_successfully_grounded_fields}/{len(grounded_form_fields)} fields, {count_successfully_grounded_navs}/{len(grounded_navigation_elements)} navs. "
-            f"MVP Semantics: {len(fill_actions_details_obj_list)} fill actions."
-        )
-
         fields_to_display = []
-        for field in semantically_matched_fields: # Display based on semantic match
-            value_to_fill_display = user_profile.get(field.semantic_meaning_predicted, "N/A_IN_PROFILE") if field.semantic_meaning_predicted else "NO_SEMANTIC_MATCH"
+        for field in semantically_matched_fields:
+            value_to_fill_display = user_profile.get(field.semantic_meaning_predicted, "N/A_IN_PROFILE") if field.semantic_meaning_predicted else "N/A_SEMANTIC_MATCH"
             fields_to_display.append({
                 "label": field.visual_label_text or "Unknown Label",
                 "value": value_to_fill_display,
                 "xpath": field.dom_path_primary if field.dom_path_primary else "NOT_GROUNDED",
-                "grounding_confidence": round(field.confidence_score, 3) if field.confidence_score else 0.0
+                "semantic_key_assigned": field.semantic_meaning_predicted if field.semantic_meaning_predicted else "NONE",
+                "overall_confidence": field.confidence_score # This score is now from semantic matching
             })
 
-        final_actions_list = [action.to_dict() for action in fill_actions_details_obj_list] # Convert ActionDetail objects to dicts
+        final_actions_list = [action.to_dict() for action in fill_actions_details_obj_list]
 
         chosen_navigation_text = "No usable navigation found."
         nav_target: Optional[NavigationElement] = None
 
         if grounded_navigation_elements:
-            # Prioritize submit, then next, then first grounded
             submit_navs = [n for n in grounded_navigation_elements if n.action_type_predicted == NavigationActionType.SUBMIT_FORM and n.dom_path_primary]
             if submit_navs: nav_target = submit_navs[0]
             else:
@@ -188,17 +178,24 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
                 final_actions_list.append({
                     "action_type": "CLICK_ELEMENT",
                     "dom_path_target": nav_target.dom_path_primary,
-                    "visual_label": chosen_navigation_text # For display/logging
+                    "visual_label": chosen_navigation_text
                 })
                 logging.info(f"AI Core: Selected navigation action: Click '{chosen_navigation_text}' (XPath: {nav_target.dom_path_primary})")
             elif any(n.dom_path_primary for n in grounded_navigation_elements):
-                 chosen_navigation_text = "Grounded navigation found, but no clear submit/next."
+                 chosen_navigation_text = "Grounded navigation found, but no clear submit/next/usable target."
                  logging.warning(f"AI Core: {chosen_navigation_text}")
             else:
-                 chosen_navigation_text = "Navigation elements visually found but none could be grounded."
+                 chosen_navigation_text = "Navigation elements visually found but none could be grounded with a DOM path."
                  logging.warning(f"AI Core: {chosen_navigation_text}")
         else:
-            logging.info("AI Core: No navigation elements identified by visual perception to begin with.")
+            logging.info("AI Core: No navigation elements were passed from visual perception to grounding.")
+
+        summary_message = (
+            f"LivePerception: {len(identified_elements_visual_only)} vis-fields, {len(navigation_elements_visual_only)} vis-navs. "
+            f"Grounder: {count_successfully_grounded_fields}/{len(grounded_form_fields)} fields, {count_successfully_grounded_navs}/{len(grounded_navigation_elements)} navs. "
+            f"LiveSemantics: {count_successfully_semantic_matched}/{len(semantically_matched_fields)} fields matched. "
+            f"MVPActions: {len(fill_actions_details_obj_list)} fill actions."
+        )
 
         final_recommendations = {
             "summary": summary_message,
@@ -218,30 +215,30 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         for i, action_dict in enumerate(actions):
             action_type = action_dict.get('action_type')
             dom_path = action_dict.get('dom_path_target')
-            value = action_dict.get('value_to_fill') # For FILL_TEXT
+            value = action_dict.get('value_to_fill')
 
             print(f"  Action {i+1}/{len(actions)}: Type: {action_type}, Path: {dom_path}" + (f", Value: '{str(value)[:30]}...'" if value else ""))
 
             success = False
-            if action_type == "FILL_TEXT": # Using string as per current ActionDetail conversion
-                if dom_path and value is not None:
+            if action_type == "FILL_TEXT":
+                if dom_path and value is not None and dom_path != "NOT_GROUNDED" and "MISSING" not in dom_path:
                     success = self.browser_wrapper.fill_text_field(xpath=dom_path, text=str(value))
                 else:
-                    print(f"    Skipping FILL_TEXT due to missing path or value.")
+                    print(f"    Skipping FILL_TEXT due to missing path ('{dom_path}') or value.")
             elif action_type == "CLICK_ELEMENT":
-                if dom_path:
+                if dom_path and dom_path != "NOT_GROUNDED" and "MISSING" not in dom_path:
                     success = self.browser_wrapper.click_element(xpath=dom_path)
                 else:
-                    print(f"    Skipping CLICK_ELEMENT due to missing path.")
+                    print(f"    Skipping CLICK_ELEMENT due to missing path ('{dom_path}').")
             else:
                 print(f"    Warning: Unknown action type '{action_type}' in action sequence.")
-                continue # Skip unknown action types
+                continue
 
             if not success:
                 print(f"  Action failed: {action_type} on {dom_path}")
-                return False # Stop on first failure
+                return False
 
-            time.sleep(0.5) # Small delay between actions
+            time.sleep(0.5)
 
         print("Orchestrator: All browser automation actions completed successfully.")
         return True
@@ -249,9 +246,9 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
     def run(self):
         if self.current_state == OrchestratorState.FAILED_ERROR and not self.browser_wrapper.driver:
             print("Orchestrator cannot start due to browser initialization failure.")
-            self.current_state = OrchestratorState.IDLE # Go to IDLE to allow shutdown
+            self.current_state = OrchestratorState.IDLE
 
-        if self.current_state == OrchestratorState.IDLE and self.browser_wrapper.driver: # Initial transition if browser is ok
+        if self.current_state == OrchestratorState.IDLE and self.browser_wrapper.driver:
              self.current_state = OrchestratorState.AWAITING_JOB_URL
 
         print(f"State: {self.current_state}")
@@ -259,7 +256,6 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         try:
             while True:
                 if self.current_state == OrchestratorState.AWAITING_JOB_URL:
-                    # For MVP, we can use a predefined target URL to simplify testing with mvp_visual_linker
                     use_predefined_url = input(f"Use predefined target URL ({MVP_USER_PROFILE.get('automation_test_target_url', 'N/A')})? (y/n/quit): ").lower()
                     if use_predefined_url == 'y':
                         self.job_url = MVP_USER_PROFILE.get('automation_test_target_url')
@@ -270,26 +266,24 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
                         self.job_url = input("Enter the job application URL (or 'quit'): ")
                     elif use_predefined_url == 'quit':
                         self.current_state = OrchestratorState.IDLE
-                        # No break here, let the loop condition handle exit
                     else:
                         print("Invalid input. Please enter 'y', 'n', or 'quit'.")
                         continue
 
-                    if self.job_url and self.job_url.lower() == 'quit': # Handles quit if 'n' was chosen then 'quit'
+                    if self.job_url and self.job_url.lower() == 'quit':
                         self.current_state = OrchestratorState.IDLE
 
-                    if self.current_state == OrchestratorState.IDLE: # check before http validation
-                        pass # will break at the end of the loop
+                    if self.current_state == OrchestratorState.IDLE:
+                        pass
                     elif not self.job_url or not self.job_url.startswith("http"):
                         print("Invalid or missing URL. Please include http:// or https:// or choose 'y' for predefined.")
-                        self.job_url = None # Reset job_url if invalid
-                        # Stay in AWAITING_JOB_URL state
+                        self.job_url = None
                     else:
                         self.current_state = OrchestratorState.LOADING_PAGE_DATA
                         print(f"State: {self.current_state} - URL: {self.job_url}")
 
                 elif self.current_state == OrchestratorState.LOADING_PAGE_DATA:
-                    if not self.job_url: # Should not happen if logic is correct
+                    if not self.job_url:
                         print("Error: No job URL to load. Resetting.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                         continue
@@ -302,37 +296,53 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.CALLING_AI_CORE:
-                    if not self.page_data_cache: # Should not happen
+                    if not self.page_data_cache:
                         print("Error: No page data to process. Resetting.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                         continue
                     self.ai_recommendations_cache = self._call_ai_core(self.page_data_cache, self.user_profile)
-                    if self.ai_recommendations_cache and self.ai_recommendations_cache.get("actions"):
-                        self.current_state = OrchestratorState.AWAITING_USER_APPROVAL
-                    else:
-                        print("Error: Failed to get valid AI recommendations or no actions proposed.")
+                    if self.ai_recommendations_cache: # Check if cache is not None
+                        # Further check if actions exist, or if it's a "nothing to do" summary
+                        if self.ai_recommendations_cache.get("actions") or \
+                           (self.ai_recommendations_cache.get("summary") and "Nothing to ground" in self.ai_recommendations_cache.get("summary", "")):
+                            self.current_state = OrchestratorState.AWAITING_USER_APPROVAL
+                        else: # No actions and not a 'nothing to do' summary, implies an issue
+                            print("Error: Failed to get valid AI recommendations or no actionable items proposed.")
+                            self.current_state = OrchestratorState.FAILED_ERROR
+                    else: # ai_recommendations_cache is None
+                        print("Error: AI Core processing failed to return any recommendations.")
                         self.current_state = OrchestratorState.FAILED_ERROR
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.AWAITING_USER_APPROVAL:
-                    if not self.ai_recommendations_cache: # Should not happen
+                    if not self.ai_recommendations_cache:
                         print("Error: No AI recommendations to approve. Resetting.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                         continue
                     print("\n--- AI Recommendations ---")
                     print(f"Summary: {self.ai_recommendations_cache.get('summary', 'N/A')}")
-                    print("Fields to fill:")
-                    for field in self.ai_recommendations_cache.get('fields_to_fill', []):
-                        print(f"  - Label: {field.get('label', 'N/A')}, Value: '{field.get('value', 'N/A')}', Target: {field.get('dom_path', 'N/A')}")
-                    print(f"Navigation: Click '{self.ai_recommendations_cache.get('navigation_element_text', 'N/A')}'")
+                    print("Fields to fill/identified:") # Changed from "Fields to fill"
+                    for field_info in self.ai_recommendations_cache.get('fields_to_fill', []): # fields_to_fill is now fields_to_display
+                        print(f"  - Label: {field_info.get('label', 'N/A')}, "
+                              f"Value to Fill: '{field_info.get('value', 'N/A')}', "
+                              f"XPath: {field_info.get('xpath', 'N/A')}, "
+                              f"Semantic Key: {field_info.get('semantic_key_assigned', 'N/A')}, "
+                              f"Confidence: {field_info.get('overall_confidence', 'N/A')}")
+                    print(f"Proposed Navigation: Click '{self.ai_recommendations_cache.get('navigation_element_text', 'N/A')}'")
                     print("--- End of AI Recommendations ---")
+
+                    if not self.ai_recommendations_cache.get("actions"):
+                        print("No actions proposed by AI. Resetting for new URL.")
+                        self.current_state = OrchestratorState.AWAITING_JOB_URL
+                        time.sleep(1) # Pause to allow user to read
+                        continue
 
                     approval = input("Approve and apply? (y/n/quit): ").lower()
                     if approval == 'y':
                         self.current_state = OrchestratorState.EXECUTING_AUTOMATION
                     elif approval == 'n':
-                    print("Application not approved by user. Logging feedback and resetting.")
-                    self._log_user_disapproval()
+                        print("Application not approved by user. Logging feedback and resetting.")
+                        self._log_user_disapproval()
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                     elif approval == 'quit':
                         self.current_state = OrchestratorState.IDLE
@@ -341,7 +351,7 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.EXECUTING_AUTOMATION:
-                    if not self.ai_recommendations_cache or not self.ai_recommendations_cache.get("actions"): # Should not happen
+                    if not self.ai_recommendations_cache or not self.ai_recommendations_cache.get("actions"):
                         print("Error: No actions to execute. Resetting.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                         continue
@@ -349,20 +359,19 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
                     if success:
                         self.current_state = OrchestratorState.COMPLETED_SUCCESS
                     else:
-                        # Note: _execute_browser_automation already prints detailed error
                         print("Orchestrator: Execution of browser automation failed.")
                         self.current_state = OrchestratorState.FAILED_ERROR
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.COMPLETED_SUCCESS:
                     print(f"\nApplication process for {self.job_url} completed successfully!")
-                    self.job_url = None # Reset for next run
+                    self.job_url = None
                     self.current_state = OrchestratorState.AWAITING_JOB_URL
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.FAILED_ERROR:
                     print(f"\nApplication process for {self.job_url} failed or encountered an error.")
-                    self.job_url = None # Reset for next run
+                    self.job_url = None
                     self.current_state = OrchestratorState.AWAITING_JOB_URL
                     print(f"State: {self.current_state}")
 
@@ -377,13 +386,12 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
             print("Orchestrator shut down.")
 
     def _log_user_disapproval(self):
-        """Logs user disapproval feedback to a file."""
         if not self.ai_recommendations_cache:
             print("LogFeedback: No AI recommendations to log.")
             return
 
         feedback_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z", # ISO 8601 format with Z for UTC
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             "job_url": self.job_url,
             "reason": "User disapproved AI recommendations.",
             "ai_recommendations": self.ai_recommendations_cache
@@ -398,9 +406,6 @@ class MVCOrchestrator: # Renamed from MVCOrchestrator for consistency
         except Exception as e:
             print(f"LogFeedback: An unexpected error occurred during logging: {e}")
 
-
 if __name__ == "__main__":
-    # You might need to provide a path to your chromedriver if it's not in PATH
-    # Example: orchestrator = MVCOrchestrator(webdriver_path="/path/to/chromedriver")
     orchestrator = MVCOrchestrator()
     orchestrator.run()

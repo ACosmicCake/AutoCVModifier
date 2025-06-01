@@ -1,0 +1,303 @@
+{
+  "semantic_schema_version": "1.0.0",
+  "description": "Defines a standardized set of semantic keys for user profiles and job application fields. The 'target_semantic_keys' list is intended for use in LLM prompts for classification tasks.",
+  "target_semantic_keys": [
+    "user.personal_info.first_name",
+    "user.personal_info.middle_name",
+    "user.personal_info.last_name",
+    "user.personal_info.full_name",
+    "user.personal_info.preferred_name",
+    "user.personal_info.date_of_birth",
+    "user.personal_info.gender",
+    "user.personal_info.pronouns",
+    "user.contact_info.email_primary",
+    "user.contact_info.email_secondary",
+    "user.contact_info.phone_mobile",
+    "user.contact_info.phone_home",
+    "user.contact_info.phone_work",
+    "user.contact_info.linkedin_url",
+    "user.contact_info.github_url",
+    "user.contact_info.portfolio_url",
+    "user.contact_info.website_url",
+    "user.address_primary.street_line1",
+    "user.address_primary.street_line2",
+    "user.address_primary.city",
+    "user.address_primary.state_province_region",
+    "user.address_primary.postal_code",
+    "user.address_primary.country",
+    "user.address_mailing.street_line1",
+    "user.address_mailing.street_line2",
+    "user.address_mailing.city",
+    "user.address_mailing.state_province_region",
+    "user.address_mailing.postal_code",
+    "user.address_mailing.country",
+    "user.education[].institution_name",
+    "user.education[].degree_name",
+    "user.education[].major_field_of_study",
+    "user.education[].graduation_date",
+    "user.education[].gpa",
+    "user.work_experience[].company_name",
+    "user.work_experience[].job_title",
+    "user.work_experience[].start_date",
+    "user.work_experience[].end_date",
+    "user.work_experience[].is_current_job",
+    "user.work_experience[].location_city",
+    "user.work_experience[].location_state_province_region",
+    "user.work_experience[].location_country",
+    "user.work_experience[].responsibilities_summary",
+    "user.skills[].skill_name",
+    "user.skills[].proficiency_level",
+    "user.skills.list_all",
+    "user.resume_url",
+    "user.cover_letter_template_url",
+    "user.preferences.job_type",
+    "user.preferences.work_location_type",
+    "application.job_details.job_id",
+    "application.job_details.job_title",
+    "application.job_details.company_name",
+    "application.date_of_application",
+    "application.work_authorization.is_us_citizen_or_permanent_resident",
+    "application.work_authorization.requires_visa_sponsorship",
+    "application.work_authorization.visa_status_type",
+    "application.availability.earliest_start_date",
+    "application.availability.notice_period_duration",
+    "application.salary_expectations.desired_amount",
+    "application.salary_expectations.currency",
+    "application.salary_expectations.frequency",
+    "application.references[].name",
+    "application.references[].contact_info",
+    "application.references[].relationship",
+    "application.cover_letter_text_final",
+    "application.eeo.race_ethnicity",
+    "application.eeo.gender_identity",
+    "application.eeo.veteran_status",
+    "application.eeo.disability_status",
+    "application.source.how_heard_about_job",
+    "application.custom_question.generic_response_1",
+    "application.custom_question.generic_response_2",
+    "application.custom_question.generic_response_3",
+    "application.legal.agreement_to_terms",
+    "application.legal.privacy_policy_consent",
+    "system_internal.other_unspecified_field",
+    "system_internal.generic_text_input",
+    "system_internal.generic_selection",
+    "system_internal.error_message_field"
+  ],
+  "schema_structure_description": {
+    "user_profile": {
+      "personal_info": {
+        "description": "Basic personal identification details.",
+        "keys": [
+          "user.personal_info.first_name",
+          "user.personal_info.middle_name",
+          "user.personal_info.last_name",
+          "user.personal_info.full_name",
+          "user.personal_info.preferred_name",
+          "user.personal_info.date_of_birth",
+          "user.personal_info.gender",
+          "user.personal_info.pronouns"
+        ]
+      },
+      "contact_info": {
+        "description": "Ways to contact the user.",
+        "keys": [
+          "user.contact_info.email_primary",
+          "user.contact_info.email_secondary",
+          "user.contact_info.phone_mobile",
+          "user.contact_info.phone_home",
+          "user.contact_info.phone_work",
+          "user.contact_info.linkedin_url",
+          "user.contact_info.github_url",
+          "user.contact_info.portfolio_url",
+          "user.contact_info.website_url"
+        ]
+      },
+      "address_primary": {
+        "description": "Primary residential address.",
+        "keys": [
+          "user.address_primary.street_line1",
+          "user.address_primary.street_line2",
+          "user.address_primary.city",
+          "user.address_primary.state_province_region",
+          "user.address_primary.postal_code",
+          "user.address_primary.country"
+        ]
+      },
+      "address_mailing": {
+        "description": "Mailing address, if different from primary.",
+        "keys": [
+          "user.address_mailing.street_line1",
+          "user.address_mailing.street_line2",
+          "user.address_mailing.city",
+          "user.address_mailing.state_province_region",
+          "user.address_mailing.postal_code",
+          "user.address_mailing.country"
+        ]
+      },
+      "education": {
+        "description": "List of educational qualifications. Each item is an object.",
+        "item_schema": {
+          "institution_name": "string",
+          "degree_name": "string",
+          "major_field_of_study": "string",
+          "graduation_date": "string (YYYY-MM or YYYY)",
+          "gpa": "string"
+        },
+        "keys_for_llm_prompt": [ # These represent how LLM might see labels for fields within one education block
+            "user.education[].institution_name",
+            "user.education[].degree_name",
+            "user.education[].major_field_of_study",
+            "user.education[].graduation_date",
+            "user.education[].gpa"
+        ]
+      },
+      "work_experience": {
+        "description": "List of professional work experiences. Each item is an object.",
+        "item_schema": {
+          "company_name": "string",
+          "job_title": "string",
+          "start_date": "string (YYYY-MM)",
+          "end_date": "string (YYYY-MM or 'current')",
+          "is_current_job": "boolean",
+          "location_city": "string",
+          "location_state_province_region": "string",
+          "location_country": "string",
+          "responsibilities_summary": "string (paragraph)"
+        },
+        "keys_for_llm_prompt": [
+            "user.work_experience[].company_name",
+            "user.work_experience[].job_title",
+            "user.work_experience[].start_date",
+            "user.work_experience[].end_date",
+            "user.work_experience[].is_current_job",
+            "user.work_experience[].location_city",
+            "user.work_experience[].location_state_province_region",
+            "user.work_experience[].location_country",
+            "user.work_experience[].responsibilities_summary"
+        ]
+      },
+      "skills": {
+        "description": "List of skills. Can be simple strings or objects with name/proficiency.",
+        "item_schema_object": {"skill_name": "string", "proficiency_level": "string (e.g., beginner, intermediate, advanced)"},
+        "item_schema_string": "string",
+        "keys_for_llm_prompt": [
+            "user.skills[].skill_name",
+            "user.skills[].proficiency_level",
+            "user.skills.list_all"
+        ]
+      },
+      "documents": {
+        "description": "Links to user's documents.",
+        "keys": [
+            "user.resume_url",
+            "user.cover_letter_template_url"
+        ]
+      },
+      "preferences": {
+        "description": "User's job preferences.",
+        "keys": [
+            "user.preferences.job_type",
+            "user.preferences.work_location_type"
+        ]
+      }
+    },
+    "application_details": {
+      "description": "Information specific to a particular job application.",
+      "job_details_applied_for": {
+        "description": "Details of the job being applied to.",
+        "keys": [
+            "application.job_details.job_id",
+            "application.job_details.job_title",
+            "application.job_details.company_name"
+        ]
+      },
+      "submission_info": {
+        "description": "Information about the application submission.",
+        "keys": [
+            "application.date_of_application"
+        ]
+      },
+      "work_authorization": {
+        "description": "User's work authorization status for the target country/region.",
+        "keys": [
+          "application.work_authorization.is_us_citizen_or_permanent_resident",
+          "application.work_authorization.requires_visa_sponsorship",
+          "application.work_authorization.visa_status_type"
+        ]
+      },
+      "availability": {
+        "description": "User's availability to start a new role.",
+        "keys": [
+          "application.availability.earliest_start_date",
+          "application.availability.notice_period_duration"
+        ]
+      },
+      "salary_expectations": {
+        "description": "User's salary expectations for the role.",
+        "keys": [
+          "application.salary_expectations.desired_amount",
+          "application.salary_expectations.currency",
+          "application.salary_expectations.frequency"
+        ]
+      },
+      "references_provided": {
+        "description": "List of professional references. Each item is an object.",
+        "item_schema": {
+          "name": "string",
+          "contact_info": "string (email or phone)",
+          "relationship": "string"
+        },
+        "keys_for_llm_prompt": [
+            "application.references[].name",
+            "application.references[].contact_info",
+            "application.references[].relationship"
+        ]
+      },
+      "cover_letter": {
+        "description": "The actual cover letter text for this specific application.",
+        "keys": [
+            "application.cover_letter_text_final"
+        ]
+      },
+      "eeo_self_identification": {
+        "description": "Equal Employment Opportunity self-identification information. Often voluntary and can have many sub-fields.",
+        "keys": [
+          "application.eeo.race_ethnicity",
+          "application.eeo.gender_identity",
+          "application.eeo.veteran_status",
+          "application.eeo.disability_status"
+        ]
+      },
+      "source_details": {
+        "description": "How the user found out about the job.",
+        "keys": [
+            "application.source.how_heard_about_job"
+        ]
+      },
+      "custom_questions_responses": {
+        "description": "Responses to application-specific custom questions. Keys might need to be dynamic or use generic placeholders.",
+        "keys": [
+          "application.custom_question.generic_response_1",
+          "application.custom_question.generic_response_2",
+          "application.custom_question.generic_response_3"
+        ]
+      },
+      "legal_agreements": {
+        "description": "Consent and agreement checkboxes.",
+        "keys": [
+            "application.legal.agreement_to_terms",
+            "application.legal.privacy_policy_consent"
+        ]
+      }
+    },
+    "system_internal": {
+      "description": "Keys used by the system for fields that don't map to user or application data, or for errors.",
+      "keys": [
+        "system_internal.other_unspecified_field",
+        "system_internal.generic_text_input",
+        "system_internal.generic_selection",
+        "system_internal.error_message_field"
+      ]
+    }
+  }
+}
