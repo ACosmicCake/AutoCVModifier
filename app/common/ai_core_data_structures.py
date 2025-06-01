@@ -88,17 +88,19 @@ class FormFieldOption:
 
 @dataclass
 class IdentifiedFormField:
-    id: str  # unique identifier for this field instance
-    visual_label_text: Optional[str] = None
+    # Non-default fields first
+    id: str
     visual_location: VisualLocation
-    dom_path_primary: str  # e.g., XPath, CSS selector for the input element
-    dom_path_label: Optional[str] = None # e.g., XPath, CSS selector for the label
+    dom_path_primary: str
     field_type_predicted: PredictedFieldType
-    semantic_meaning_predicted: str  # e.g., "user.firstName", "application.availabilityDate"
-    confidence_score: float  # 0.0 to 1.0
-    options: List[FormFieldOption] = field(default_factory=list) # For dropdowns, radio groups
+    semantic_meaning_predicted: str
+    confidence_score: float
+    # Default fields follow
+    visual_label_text: Optional[str] = None
+    dom_path_label: Optional[str] = None
+    options: List[FormFieldOption] = field(default_factory=list)
     is_required_predicted: bool = False
-    current_value: Optional[Any] = None # Value currently in the field, if any
+    current_value: Optional[Any] = None
 
 class NavigationActionType(Enum):
     SUBMIT_FORM = "submit_form"
@@ -109,12 +111,14 @@ class NavigationActionType(Enum):
 
 @dataclass
 class NavigationElement:
+    # Non-default fields first
     id: str
-    visual_label_text: Optional[str] = None
     visual_location: VisualLocation
     dom_path: str
     action_type_predicted: NavigationActionType
     confidence_score: float
+    # Default fields follow
+    visual_label_text: Optional[str] = None
 
 @dataclass
 class FormUnderstandingResult:
@@ -171,11 +175,13 @@ class ActionSequenceRecommendation:
 
 @dataclass
 class ClarificationRequest:
-    type: str = "clarification_request"
-    ambiguous_element_id: Optional[str] = None # references id from FormUnderstandingResult.fields
+    # Non-default fields first
     question_for_user: str
+    # Default fields follow
+    type: str = "clarification_request"
+    ambiguous_element_id: Optional[str] = None
     options_for_user: List[str] = field(default_factory=list)
-    context_image_required: bool = False # If true, frontend should show relevant part of screenshot
+    context_image_required: bool = False
 
 # Union type for all possible AI Core outputs
 AICoreOutput = Union[
