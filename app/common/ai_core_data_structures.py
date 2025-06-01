@@ -129,14 +129,16 @@ class FormUnderstandingResult:
 
 @dataclass
 class QuestionAnsweringResult:
-    type: str = "question_answering_result"
+    # Non-default fields first
     question_text_identified: str
-    dom_path_question: str # selector for the question element or its input field
+    dom_path_question: str
     suggested_answer_draft: str
-    sources_from_profile: List[str] # references to parts of user profile used
+    sources_from_profile: List[str]
+    # Default fields follow
+    type: str = "question_answering_result"
     requires_user_review: bool = True
 
-    def to_dict(self) -> Dict[str, Any]: # Add this method
+    def to_dict(self) -> Dict[str, Any]: # Method remains the same
         return {
             "type": self.type,
             "question_text_identified": self.question_text_identified,
