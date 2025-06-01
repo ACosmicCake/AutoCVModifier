@@ -326,6 +326,21 @@ def create_app(test_config=None):
             driver.get(job_url)
             time.sleep(2) # Allow page to load a bit, can be replaced by explicit waits
 
+            # --- Manual Login Pause ---
+            manual_login_pause_seconds = 120
+            # The 'domain' variable is derived from job_url a few lines above for selector logic.
+            print(f"--- MANUAL LOGIN REQUIRED FOR: {domain} ---")
+            print(f"The script will now pause for {manual_login_pause_seconds} seconds.")
+            print(f"Please log in to '{domain}' in the automated browser window that has opened.")
+            print(f"Once logged in, please leave the browser window open.")
+            print(f"The script will automatically continue after the pause.")
+            print(f"----------------------------------------------------")
+            time.sleep(manual_login_pause_seconds)
+            print(f"--- RESUMING AUTOMATION FOR: {domain} ---")
+            print(f"Resuming automated form filling.")
+            print(f"If login was not successful or the correct page is not active, subsequent steps may fail.")
+            print(f"--------------------------------------------------")
+
             # Extract CV data for form filling
             personal_info = tailored_cv_data.get("PersonalInformation", {}) if tailored_cv_data else {}
             cv_name = personal_info.get("Name", "Default Name")
@@ -417,11 +432,14 @@ def create_app(test_config=None):
             if not submit_button_element:
                  time.sleep(5) # For visual inspection during dev; remove for production/tests.
 
+            # The manual_login_pause_seconds variable was defined earlier in this 'try' block.
+            # The domain variable was also defined earlier based on job_url.
             return jsonify({
                 "message": f"Navigated to job URL and attempted basic form filling for {job_url}. " +
                            "Please verify the application on the site. See server logs for field-specific status.",
                 "job_url": job_url,
-                "cv_data_received": bool(tailored_cv_data)
+                "cv_data_received": bool(tailored_cv_data),
+                "manual_login_prompt_details": f"User was prompted via server console to manually log in to '{domain}' during a {manual_login_pause_seconds}-second pause. Automation resumed afterwards."
             }), 200
 
         except Exception as e_selenium:
@@ -666,14 +684,20 @@ def create_app(test_config=None):
 
         job_descriptions = request.form.getlist('job_descriptions[]')
         job_titles = request.form.getlist('job_titles[]') # For summary in results
+        job_ids = request.form.getlist('job_ids[]') # Retrieve job IDs
 
         if not job_descriptions:
             return jsonify({"error": "No job descriptions provided"}), 400
 
-        if len(job_descriptions) != len(job_titles):
-             # Fallback if titles are not sent consistently, though JS aims to send them.
-            job_titles = [f"Job {i+1}" for i in range(len(job_descriptions))]
-
+        # Basic validation for consistent lengths of received arrays
+        if not (len(job_descriptions) == len(job_titles) == len(job_ids)):
+            print(f"Warning: Mismatch in lengths of job_descriptions ({len(job_descriptions)}), "
+                  f"job_titles ({len(job_titles)}), and job_ids ({len(job_ids)}). "
+                  "This may lead to incorrect associations in batch results.")
+            # Fallback for job_titles if its length doesn't match job_descriptions
+            if len(job_descriptions) != len(job_titles):
+                job_titles = [f"Job Description {i+1}" for i in range(len(job_descriptions))]
+            # job_ids will be accessed conditionally using index to avoid errors if its length is short
 
         results = []
         cv_content_str = None
@@ -708,16 +732,19 @@ def create_app(test_config=None):
 
         # Process each job description
         for index, jd_content in enumerate(job_descriptions):
-            job_title_summary = job_titles[index] if index < len(job_titles) else f"Job Description {index + 1}"
+            job_title_summary = job_titles[index] # Assumes job_titles is now aligned or correctly fallen back
+            current_job_id = job_ids[index] if index < len(job_ids) else None
 
             if not jd_content:
                 results.append({
+                    "job_id": current_job_id,
                     "job_title_summary": job_title_summary,
                     "status": "error",
                     "message": "Empty job description provided."
                 })
                 continue
 
+            tailored_cv_json_str = None # Initialize for broader scope
             try:
                 tailored_cv_json_str = process_cv_and_jd(
                     cv_content_str, # Processed CV text
@@ -728,6 +755,7 @@ def create_app(test_config=None):
 
                 if not tailored_cv_json_str:
                     results.append({
+                        "job_id": current_job_id,
                         "job_title_summary": job_title_summary,
                         "status": "error",
                         "message": "Failed to tailor CV (API processing failed)."
@@ -744,21 +772,26 @@ def create_app(test_config=None):
 
                 if pdf_generation_success:
                     results.append({
+                        "job_id": current_job_id,
                         "job_title_summary": job_title_summary,
                         "status": "success",
-                        "pdf_url": f"/api/download-cv/{unique_pdf_filename}"
+                        "pdf_url": f"/api/download-cv/{unique_pdf_filename}",
+                        "pdf_filename": unique_pdf_filename,
+                        "tailored_cv_json": json.loads(tailored_cv_json_str)
                     })
                 else:
                     results.append({
+                        "job_id": current_job_id,
                         "job_title_summary": job_title_summary,
                         "status": "error",
-                        "message": "Tailored, but PDF generation failed."
-                        # Optionally include tailored_cv_json_str here if useful for debugging
+                        "message": "Tailored, but PDF generation failed.",
+                        "tailored_cv_json": json.loads(tailored_cv_json_str) if tailored_cv_json_str else None
                     })
 
             except Exception as e_proc:
                 print(f"Error processing job description '{job_title_summary}': {e_proc}")
                 results.append({
+                    "job_id": current_job_id,
                     "job_title_summary": job_title_summary,
                     "status": "error",
                     "message": f"An unexpected error occurred: {str(e_proc)}"
