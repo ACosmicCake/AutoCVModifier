@@ -132,6 +132,16 @@ class QuestionAnsweringResult:
     sources_from_profile: List[str] # references to parts of user profile used
     requires_user_review: bool = True
 
+    def to_dict(self) -> Dict[str, Any]: # Add this method
+        return {
+            "type": self.type,
+            "question_text_identified": self.question_text_identified,
+            "dom_path_question": self.dom_path_question,
+            "suggested_answer_draft": self.suggested_answer_draft,
+            "sources_from_profile": self.sources_from_profile,
+            "requires_user_review": self.requires_user_review
+        }
+
 class ActionSequenceActionType(Enum):
     FILL_TEXT = "fill_text"
     SELECT_DROPDOWN_OPTION = "select_dropdown_option"
