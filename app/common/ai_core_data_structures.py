@@ -55,11 +55,11 @@ class PreviousAction:
 
 @dataclass
 class AICoreInput:
-    page_screenshot: PageScreenshot
-    dom_structure: DOMStructure
-    accessibility_tree: Optional[AccessibilityTree] = None
-    metadata: Metadata
-    previous_actions_summary: List[PreviousAction] = field(default_factory=list)
+    page_screenshot: PageScreenshot  # Non-default
+    dom_structure: DOMStructure      # Non-default
+    metadata: Metadata               # Non-default - Moved up
+    accessibility_tree: Optional[AccessibilityTree] = None  # Default
+    previous_actions_summary: List[PreviousAction] = field(default_factory=list)  # Default
 
 # --- Output Data Structures ---
 
