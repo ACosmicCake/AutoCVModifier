@@ -1,6 +1,7 @@
 # app/orchestrator/mvp_orchestrator.py
 import time
 import json
+import os # Ensure os is imported
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime # For feedback logging timestamp
 
@@ -202,8 +203,12 @@ class MVCOrchestrator:
         password_config_typed = password_config
         final_submit_config_typed = final_submit_config
 
-        username = "testuser"  # Or from a more secure config/profile source
-        password = "testpassword" # Or from a more secure config/profile source
+        username = os.environ.get("LINKEDIN_USERNAME")
+        password = os.environ.get("LINKEDIN_PASSWORD")
+
+        if not username or not password:
+            print("LinkedIn Login: LINKEDIN_USERNAME or LINKEDIN_PASSWORD not found in environment variables.")
+            return False
 
         # Step 1: Click Initial Trigger Button
         print(f"LinkedIn Login: Attempting to click initial trigger button: {initial_trigger_config_typed}")
@@ -244,7 +249,25 @@ class MVCOrchestrator:
             return False
 
         print("LinkedIn Login: Multi-step login process completed successfully.")
-        return True
+
+        # Attempt to click post-login apply button
+        apply_button_config = linkedin_selectors.get("post_login_apply_button")
+        if self._validate_selector_config(apply_button_config, "post_login_apply_button (LinkedIn)"):
+            # Type assertion for type checker
+            apply_button_config_typed = apply_button_config
+            print(f"LinkedIn Login: Attempting to click post-login apply button: {apply_button_config_typed}")
+            time.sleep(1) # Allow page to settle after login before clicking apply
+            apply_click_success = self.browser_wrapper.click_element(
+                selector=apply_button_config_typed['value'], find_by=apply_button_config_typed['type']
+            )
+            if apply_click_success:
+                print("LinkedIn Login: Successfully clicked post-login apply button.")
+            else:
+                print("LinkedIn Login: Failed to click post-login apply button.")
+        else:
+            print("LinkedIn Login: 'post_login_apply_button' selector missing or invalid in site_selectors.json. Skipping apply button click.")
+
+        return True # Return True because login was successful, apply button is best-effort
 
     def _handle_indeed_login(self) -> bool:
         """Handles the login process for Indeed using selectors from SITE_SELECTORS."""
@@ -266,7 +289,10 @@ class MVCOrchestrator:
         username_config_typed = username_config
         login_button_config_typed = login_button_config
 
-        username = "testuser"  # Or from a more secure config/profile source
+        username = os.environ.get("INDEED_USERNAME")
+        if not username:
+            print("Indeed Login: INDEED_USERNAME not found in environment variables.")
+            return False
 
         # Step 1: Fill Username
         print(f"Indeed Login: Attempting to fill username using selector: {username_config_typed}")
