@@ -2,8 +2,10 @@ python-dotenv
 PyPDF2
 python-docx
 google-genai
-Flask
+Flask[async]
 jobspy
 reportlab
 pytest
 pytest-mock
+anthropic[bedrock,vertex]>=0.39.0
+StrEnum # For Python 3.10 compatibility with computer-use-demo

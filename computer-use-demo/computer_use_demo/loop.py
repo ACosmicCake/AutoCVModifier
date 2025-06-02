@@ -5,8 +5,7 @@ Agentic sampling loop that calls the Anthropic API and local implementation of a
 import platform
 from collections.abc import Callable
 from datetime import datetime
-from enum import StrEnum
-from typing import Any, cast
+from typing import Any, cast, Literal # Literal for APIProvider type hint
 
 import httpx
 from anthropic import (
@@ -38,12 +37,8 @@ from .tools import (
 
 PROMPT_CACHING_BETA_FLAG = "prompt-caching-2024-07-31"
 
-
-class APIProvider(StrEnum):
-    ANTHROPIC = "anthropic"
-    BEDROCK = "bedrock"
-    VERTEX = "vertex"
-
+# APIProvider will now be a Literal type hint, actual values are strings
+APIProviderType = Literal["anthropic", "bedrock", "vertex"]
 
 # This system prompt is optimized for the Docker environment in this repository and
 # specific tool combinations enabled.
@@ -70,7 +65,7 @@ SYSTEM_PROMPT = f"""<SYSTEM_CAPABILITY>
 async def sampling_loop(
     *,
     model: str,
-    provider: APIProvider,
+    provider: APIProviderType, # Updated type hint
     system_prompt_suffix: str,
     messages: list[BetaMessageParam],
     output_callback: Callable[[BetaContentBlockParam], None],
@@ -101,13 +96,15 @@ async def sampling_loop(
         if token_efficient_tools_beta:
             betas.append("token-efficient-tools-2025-02-19")
         image_truncation_threshold = only_n_most_recent_images or 0
-        if provider == APIProvider.ANTHROPIC:
+        if provider == "anthropic": # Compare with string literal
             client = Anthropic(api_key=api_key, max_retries=4)
             enable_prompt_caching = True
-        elif provider == APIProvider.VERTEX:
+        elif provider == "vertex": # Compare with string literal
             client = AnthropicVertex()
-        elif provider == APIProvider.BEDROCK:
+        elif provider == "bedrock": # Compare with string literal
             client = AnthropicBedrock()
+        else:
+            raise ValueError(f"Unsupported API provider: {provider}")
 
         if enable_prompt_caching:
             betas.append(PROMPT_CACHING_BETA_FLAG)

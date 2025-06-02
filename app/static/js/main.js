@@ -181,10 +181,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (cvFilename) {
                 html += `<button onclick="window.open('/api/download-cv/${escapeHtml(cvFilename)}', '_blank')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2">Download CV</button>`;
-                html += `<button onclick="console.log('Auto Apply for job ID ${escapeHtml(jobId)} clicked. CV: ${escapeHtml(cvFilename)}')" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2">Auto Apply Job</button>`;
+                // Add data attributes and a class for later event listener attachment
+                html += `<button class="auto-apply-btn bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2" data-job-id="${escapeHtml(jobId)}" data-job-url="${escapeHtml(job_url)}" data-cv-filename="${escapeHtml(cvFilename)}">Auto Apply Job</button>`;
             }
-
-            html += `       </div> 
+            html += `       </div>
+                            <div class="auto-apply-status text-xs mt-1 text-gray-600"></div> <!-- New div for status messages -->
                             <details class="mt-2 text-sm">
                                 <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Full Description (for reference)</summary>
                                 <p class="mt-1 text-gray-600 leading-relaxed whitespace-pre-line">${escapeHtml(description)}</p>
@@ -214,13 +215,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const toggleButtons = jobResultsDiv.querySelectorAll('.toggle-applied-btn');
         toggleButtons.forEach(button => {
             button.addEventListener('click', async (event) => {
-                const jobId = event.target.dataset.jobId;
-                if (!jobId) return;
+                const currentJobId = event.target.dataset.jobId; // Renamed to avoid conflict in wider scope if jobId was used
+                if (!currentJobId) return;
 
                 showLoading('Updating status...');
 
                 try {
-                    const response = await fetch(`/api/jobs/${jobId}/toggle-applied`, {
+                    const response = await fetch(`/api/jobs/${currentJobId}/toggle-applied`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -230,17 +231,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     hideLoading();
 
                     if (response.ok && result.new_status !== undefined) {
-                        // Dynamically update the specific job card's UI
                         const card = event.target.closest('.job-card');
                         if (card) {
                             const statusTextElement = card.querySelector('.job-applied-status');
-                            const toggleButton = event.target; // or card.querySelector('.toggle-applied-btn')
-
+                            const toggleButton = event.target; 
                             const newAppliedStatusBool = result.new_status === 1 || result.new_status === true;
-
-                            if (statusTextElement) {
-                                statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
-                            }
+                            if (statusTextElement) statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
                             if (toggleButton) {
                                 toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
                                 if (newAppliedStatusBool) {
@@ -262,11 +258,106 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         });
+
+        // Add event listeners for Auto Apply Job buttons (for jobs loaded directly in displayJobs)
+        const autoApplyButtons = jobResultsDiv.querySelectorAll('.auto-apply-btn');
+        autoApplyButtons.forEach(button => {
+            button.addEventListener('click', async (event) => {
+                const clickedButton = event.currentTarget; // Use currentTarget for the button event was attached to
+                const originalButtonText = clickedButton.textContent;
+                clickedButton.disabled = true;
+                clickedButton.textContent = 'Applying...';
+
+                const jobCard = clickedButton.closest('.job-card');
+                let statusDiv = null;
+                if (jobCard) {
+                    statusDiv = jobCard.querySelector('.auto-apply-status');
+                    if (statusDiv) {
+                        statusDiv.innerHTML = ''; // Clear previous messages
+                        statusDiv.className = 'auto-apply-status text-xs mt-1 text-gray-600'; // Reset class
+                    }
+                }
+
+                const jobUrl = clickedButton.dataset.jobUrl;
+                const cvFilename = clickedButton.dataset.cvFilename;
+
+                if (!jobUrl || !cvFilename) {
+                    alert('Missing job URL or CV filename for auto-apply. Check button data attributes.');
+                    console.error("AutoApply Error: jobUrl or cvFilename missing from button dataset.", clickedButton.dataset);
+                    if (statusDiv) {
+                        statusDiv.textContent = 'Error: Missing job URL or CV filename.';
+                        statusDiv.className = 'auto-apply-status text-xs mt-1 text-red-600';
+                    }
+                    clickedButton.disabled = false;
+                    clickedButton.textContent = originalButtonText;
+                    return;
+                }
+
+                const userProfileFileInput = document.getElementById('userProfileFile');
+                let profile_json_path = "User_profile.json"; // Default
+                if (userProfileFileInput && userProfileFileInput.files && userProfileFileInput.files.length > 0) {
+                    profile_json_path = userProfileFileInput.files[0].name;
+                } else {
+                    alert("User Profile JSON not selected. Using default 'User_profile.json'. Ensure this file is correctly placed for AI access if this default is intended.");
+                    // Optionally update statusDiv here too if desired, e.g., "Using default profile."
+                }
+
+                showLoading('Starting AutoApply process...');
+
+                try {
+                    const response = await fetch('/api/auto-apply', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            job_url: jobUrl,
+                            cv_json_path: cvFilename, // Using filename as identifier for JSON CV
+                            cv_pdf_path: cvFilename,  // Using filename as identifier for PDF CV
+                            profile_json_path: profile_json_path // Use determined path
+                        })
+                    });
+
+                    // Try to parse JSON regardless of response.ok to get error details from body
+                    const resultData = await response.json(); 
+
+                    if (response.ok) {
+                        console.log('AutoApply Response:', resultData);
+                        alert('AutoApply process initiated: ' + (resultData.message || 'Request successful. Check server logs.'));
+                        if (statusDiv) {
+                            statusDiv.textContent = `Process initiated: ${resultData.message || 'Server confirmed.'}`;
+                            statusDiv.className = 'auto-apply-status text-xs mt-1 text-green-600';
+                        }
+                    } else {
+                        console.error('AutoApply Error Data:', resultData);
+                        alert('AutoApply failed: ' + (resultData.error || 'Unknown server error. Check console.'));
+                        if (statusDiv) {
+                            statusDiv.textContent = `Failed: ${resultData.error || 'Unknown server error.'}`;
+                            statusDiv.className = 'auto-apply-status text-xs mt-1 text-red-600';
+                        }
+                    }
+                } catch (error) { // Catches network errors or issues with fetch/JSON parsing itself
+                    console.error('Fetch Error for AutoApply:', error);
+                    alert('AutoApply request failed: ' + error.message);
+                    if (statusDiv) {
+                        statusDiv.textContent = `Request error: ${error.message}`;
+                        statusDiv.className = 'auto-apply-status text-xs mt-1 text-red-600';
+                    }
+                } finally {
+                    hideLoading();
+                    clickedButton.disabled = false;
+                    clickedButton.textContent = originalButtonText;
+                }
+            });
+        });
+        
         updateBatchButtonState(); // Update batch button state after rendering jobs and attaching listeners
     }
 
+    // --- Store current jobs data globally for access in batch CV update ---
+    let currentJobsData = []; // Will be populated by displayJobs
+
     // --- Fetch and Display Jobs (Filtered or All) ---
     async function fetchAndDisplayJobs(queryParams = {}) {
+        currentJobsData = []; // Clear previous data
         showLoading('Fetching jobs from database...');
         if (jobResultsDiv) jobResultsDiv.innerHTML = '<p>Loading jobs...</p>';
 
@@ -432,8 +523,85 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const autoApplyBtn = document.createElement('button');
                                     autoApplyBtn.textContent = 'Auto Apply Job';
                                     autoApplyBtn.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2';
-                                    autoApplyBtn.addEventListener('click', () => {
-                                        console.log(`Auto Apply clicked for job ID ${result.job_id}, CV: ${escapeHtml(result.pdf_url)}`);
+                                    // Add event listener for this dynamically created button (batch context)
+                                    autoApplyBtn.addEventListener('click', async (event) => {
+                                        const clickedButtonBatch = event.currentTarget;
+                                        const originalButtonTextBatch = clickedButtonBatch.textContent;
+                                        clickedButtonBatch.disabled = true;
+                                        clickedButtonBatch.textContent = 'Applying...';
+
+                                        const jobCardBatch = clickedButtonBatch.closest('.job-card');
+                                        let statusDivBatch = null;
+                                        if (jobCardBatch) {
+                                            statusDivBatch = jobCardBatch.querySelector('.auto-apply-status');
+                                            if (statusDivBatch) {
+                                                statusDivBatch.innerHTML = ''; // Clear previous messages
+                                                statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-gray-600'; // Reset class
+                                            }
+                                        }
+
+                                        const jobUrlBatch = clickedButtonBatch.dataset.jobUrl;
+                                        const cvFilenameForAutoApplyBatch = clickedButtonBatch.dataset.cvFilename;
+                                        
+                                        if (!jobUrlBatch || !cvFilenameForAutoApplyBatch) {
+                                            alert('Missing job URL or CV filename for auto-apply (batch).');
+                                            if (statusDivBatch) {
+                                                statusDivBatch.textContent = 'Error: Missing job URL or CV filename.';
+                                                statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-red-600';
+                                            }
+                                            clickedButtonBatch.disabled = false;
+                                            clickedButtonBatch.textContent = originalButtonTextBatch;
+                                            return;
+                                        }
+
+                                        const userProfileFileInputBatch = document.getElementById('userProfileFile');
+                                        let profile_json_path_batch = "User_profile.json"; // Default
+                                        if (userProfileFileInputBatch && userProfileFileInputBatch.files && userProfileFileInputBatch.files.length > 0) {
+                                            profile_json_path_batch = userProfileFileInputBatch.files[0].name;
+                                        } else {
+                                            alert("User Profile JSON not selected. Using default 'User_profile.json' for batch auto-apply.");
+                                        }
+
+                                        showLoading('Starting AutoApply process (batch)...');
+                                        try {
+                                            const fetchResponse = await fetch('/api/auto-apply', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    job_url: jobUrlBatch,
+                                                    cv_json_path: cvFilenameForAutoApplyBatch,
+                                                    cv_pdf_path: cvFilenameForAutoApplyBatch,
+                                                    profile_json_path: profile_json_path_batch 
+                                                })
+                                            });
+                                            const responseData = await fetchResponse.json();
+                                            if (fetchResponse.ok) {
+                                                console.log('AutoApply Response (batch):', responseData);
+                                                alert('AutoApply (batch) initiated: ' + (responseData.message || 'OK'));
+                                                if (statusDivBatch) {
+                                                    statusDivBatch.textContent = `Process initiated: ${responseData.message || 'OK'}`;
+                                                    statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-green-600';
+                                                }
+                                            } else {
+                                                console.error('AutoApply Error (batch):', responseData);
+                                                alert('AutoApply (batch) failed: ' + (responseData.error || 'Error'));
+                                                if (statusDivBatch) {
+                                                    statusDivBatch.textContent = `Failed: ${responseData.error || 'Error'}`;
+                                                    statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-red-600';
+                                                }
+                                            }
+                                        } catch (fetchError) {
+                                            console.error('Fetch Error for AutoApply (batch):', fetchError);
+                                            alert('AutoApply (batch) request failed: ' + fetchError.message);
+                                            if (statusDivBatch) {
+                                                statusDivBatch.textContent = `Request error: ${fetchError.message}`;
+                                                statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-red-600';
+                                            }
+                                        } finally {
+                                            hideLoading();
+                                            clickedButtonBatch.disabled = false;
+                                            clickedButtonBatch.textContent = originalButtonTextBatch;
+                                        }
                                     });
                                     actionsDiv.appendChild(autoApplyBtn);
 
@@ -544,8 +712,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Initial Load ---
-    if (jobResultsDiv) { // Basic check, specific elements for filters/batch are checked inside their setup.
-        fetchAndDisplayJobs();
+    // Populate currentJobsData when jobs are fetched
+    if (jobResultsDiv) { 
+        fetchAndDisplayJobs().then(() => {
+            // This is a bit of a placeholder; displayJobs itself populates currentJobsData.
+            // No specific action needed here unless there's post-fetch logic for currentJobsData.
+        });
     } else {
         console.warn("jobResultsDiv not found on page load. Initial job fetch skipped.");
     }

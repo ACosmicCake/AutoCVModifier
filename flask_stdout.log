@@ -1,0 +1,47 @@
+Calculated project root: /app
+Calculated computer_use_demo package path for sys.path: /app/computer-use-demo
+Current sys.path before CUD mod: ['/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+Inserted CUD package path into sys.path. New sys.path: ['/app/computer-use-demo', '/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+Successfully imported computer_use_demo components for auto-apply.
+[job_scraper.py] sys.path at top: ['/app/computer-use-demo', '/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+[job_scraper.py] Failed to import jobspy. Detailed error: ModuleNotFoundError("No module named 'jobspy'"). sys.path was: ['/app/computer-use-demo', '/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+WARNING: job_scraper module (or its dependencies like jobspy, pandas) not found. Job scraping functionality will be disabled.
+.env file not found at /app/.env. Relying on environment variables.
+Warning: SECRET_KEY not found in environment. Using a temporary, auto-generated key: d77b9b48...
+For production or persistent sessions, set a fixed SECRET_KEY in your .env file or environment.
+Upload folder: /app/instance/uploads
+Generated PDFs folder: /app/instance/generated_pdfs
+Error: GOOGLE_API_KEY not found in environment variables.
+CRITICAL: GOOGLE_API_KEY not found after loading .env. Please set it in .env file at project root or as an environment variable.
+Column 'applied' already exists in 'jobs' table.
+Database initialized, tables created/updated, and foreign key support enabled.
+Database will be initialized at: /app/instance/jobs.db
+Starting Flask app on 0.0.0.0:5001 (Debug: True)
+ * Serving Flask app 'app.main'
+ * Debug mode: on
+Calculated project root: /app
+Calculated computer_use_demo package path for sys.path: /app/computer-use-demo
+Current sys.path before CUD mod: ['/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+Inserted CUD package path into sys.path. New sys.path: ['/app/computer-use-demo', '/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+Successfully imported computer_use_demo components for auto-apply.
+[job_scraper.py] sys.path at top: ['/app/computer-use-demo', '/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+[job_scraper.py] Failed to import jobspy. Detailed error: ModuleNotFoundError("No module named 'jobspy'"). sys.path was: ['/app/computer-use-demo', '/app', '/home/swebot/.local/lib/python3.10/site-packages', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages']
+WARNING: job_scraper module (or its dependencies like jobspy, pandas) not found. Job scraping functionality will be disabled.
+.env file not found at /app/.env. Relying on environment variables.
+Warning: SECRET_KEY not found in environment. Using a temporary, auto-generated key: f4a76f01...
+For production or persistent sessions, set a fixed SECRET_KEY in your .env file or environment.
+Upload folder: /app/instance/uploads
+Generated PDFs folder: /app/instance/generated_pdfs
+Error: GOOGLE_API_KEY not found in environment variables.
+CRITICAL: GOOGLE_API_KEY not found after loading .env. Please set it in .env file at project root or as an environment variable.
+Column 'applied' already exists in 'jobs' table.
+Database initialized, tables created/updated, and foreign key support enabled.
+Database will be initialized at: /app/instance/jobs.db
+Starting Flask app on 0.0.0.0:5001 (Debug: True)
+ComputerTool20250124 class is available.
+Attempting to call sampling_loop with model: claude-3-5-sonnet-20240620, provider: anthropic, tool_version: computer_use_20250124
+[Callback] API Interaction:
+  Request: Method=POST, URL=https://api.anthropic.com/v1/messages?beta=true
+  Response: Status=401
+  Exception: Type=AuthenticationError, Message='Error code: 401 - {'type': 'error', 'error': {'type': 'authentication_error', 'message': 'invalid x-api-key'}}'
+sampling_loop call completed. Result messages count: 1

@@ -1,5 +1,11 @@
 # app/job_scraper.py
-from jobspy import scrape_jobs as jobspy_scrape
+import sys
+print(f"[job_scraper.py] sys.path at top: {sys.path}")
+try:
+    from jobspy import scrape_jobs as jobspy_scrape
+except ModuleNotFoundError as e:
+    print(f"[job_scraper.py] Failed to import jobspy. Detailed error: {e!r}. sys.path was: {sys.path}")
+    jobspy_scrape = None # Placeholder
 import pandas as pd # jobspy returns a pandas DataFrame
 import requests # For catching specific network exceptions like ReadTimeout
 

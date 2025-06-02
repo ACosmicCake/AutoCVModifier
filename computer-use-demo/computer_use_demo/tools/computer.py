@@ -3,9 +3,9 @@ import base64
 import os
 import shlex
 import shutil
-from enum import StrEnum
+# StrEnum removed, will use string literals and typing.Literal for ScalingSource
 from pathlib import Path
-from typing import Literal, TypedDict, cast, get_args
+from typing import Literal, TypedDict, cast, get_args, Union
 from uuid import uuid4
 
 from anthropic.types.beta import BetaToolComputerUse20241022Param, BetaToolUnionParam
@@ -67,10 +67,8 @@ CLICK_BUTTONS = {
     "triple_click": "--repeat 3 --delay 10 1",
 }
 
-
-class ScalingSource(StrEnum):
-    COMPUTER = "computer"
-    API = "api"
+# Define ScalingSource as a Literal type for type hinting
+ScalingSourceType = Literal["computer", "api"]
 
 
 class ComputerToolOptions(TypedDict):
@@ -100,7 +98,7 @@ class BaseComputerTool:
     @property
     def options(self) -> ComputerToolOptions:
         width, height = self.scale_coordinates(
-            ScalingSource.COMPUTER, self.width, self.height
+            "computer", self.width, self.height # Use string literal "computer"
         )
         return {
             "display_width_px": width,
@@ -200,7 +198,7 @@ class BaseComputerTool:
                 )
                 output = result.output or ""
                 x, y = self.scale_coordinates(
-                    ScalingSource.COMPUTER,
+                    "computer", # Use string literal "computer"
                     int(output.split("X=")[1].split("\n")[0]),
                     int(output.split("Y=")[1].split("\n")[0]),
                 )
@@ -217,7 +215,7 @@ class BaseComputerTool:
         if not all(isinstance(i, int) and i >= 0 for i in coordinate):
             raise ToolError(f"{coordinate} must be a tuple of non-negative ints")
 
-        return self.scale_coordinates(ScalingSource.API, coordinate[0], coordinate[1])
+        return self.scale_coordinates("api", coordinate[0], coordinate[1]) # Use string literal "api"
 
     async def screenshot(self):
         """Take a screenshot of the current screen and return the base64 encoded image."""
@@ -235,7 +233,7 @@ class BaseComputerTool:
         result = await self.shell(screenshot_cmd, take_screenshot=False)
         if self._scaling_enabled:
             x, y = self.scale_coordinates(
-                ScalingSource.COMPUTER, self.width, self.height
+                "computer", self.width, self.height # Use string literal "computer"
             )
             await self.shell(
                 f"convert {path} -resize {x}x{y}! {path}", take_screenshot=False
@@ -259,7 +257,7 @@ class BaseComputerTool:
 
         return ToolResult(output=stdout, error=stderr, base64_image=base64_image)
 
-    def scale_coordinates(self, source: ScalingSource, x: int, y: int):
+    def scale_coordinates(self, source: ScalingSourceType, x: int, y: int): # Updated type hint
         """Scale coordinates to a target maximum resolution."""
         if not self._scaling_enabled:
             return x, y
@@ -276,7 +274,7 @@ class BaseComputerTool:
         # should be less than 1
         x_scaling_factor = target_dimension["width"] / self.width
         y_scaling_factor = target_dimension["height"] / self.height
-        if source == ScalingSource.API:
+        if source == "api": # Compare with string literal
             if x > self.width or y > self.height:
                 raise ToolError(f"Coordinates {x}, {y} are out of bounds")
             # scale up

@@ -1,11 +1,46 @@
 # app/main.py
 import os
+import sys # Added for sys.path modification
 import uuid
 import json # For get_cv_content_from_file if handling JSON CVs directly
 import secrets # For generating a fallback SECRET_KEY
+import asyncio # Added for async endpoint
+
 from flask import Flask, request, jsonify, send_file, render_template
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+
+# --- Define project root path ---
+# This is /app, the parent of the 'app' directory (where main.py is) and 'computer-use-demo'
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+print(f"Calculated project root: {_project_root}")
+
+# --- Path modification for computer_use_demo ---
+# Add /app/computer_use_demo to sys.path to treat the inner computer_use_demo as a top-level package
+_computer_use_demo_package_path = os.path.join(_project_root, 'computer-use-demo')
+print(f"Calculated computer_use_demo package path for sys.path: {_computer_use_demo_package_path}")
+print(f"Current sys.path before CUD mod: {sys.path}")
+if _computer_use_demo_package_path not in sys.path:
+    sys.path.insert(0, _computer_use_demo_package_path)
+    print(f"Inserted CUD package path into sys.path. New sys.path: {sys.path}")
+else:
+    print(f"CUD package path already in sys.path.")
+
+# --- Import from computer_use_demo and other specifics ---
+try:
+    # Now import from the inner computer_use_demo directory
+    from computer_use_demo.loop import sampling_loop # APIProvider was removed from here
+    from computer_use_demo.tools import ToolVersion # This is a Literal
+    from computer_use_demo.tools.computer import ComputerTool20250124
+    # from anthropic.types.beta import BetaMessageParam # For stricter typing if needed
+    print("Successfully imported computer_use_demo components for auto-apply.")
+except ImportError as e:
+    print(f"Failed to import computer_use_demo components. Detailed error: {e!r}")
+    sampling_loop = None
+    # APIProvider = None # No longer needed as it's not a class
+    ToolVersion = None # Literal, so None is just a placeholder
+    ComputerTool20250124 = None
+    # BetaMessageParam = None
 
 # --- Import refactored utility functions ---
 # Assuming these files are in the same directory 'app'
@@ -19,10 +54,15 @@ from .cv_utils import (
 )
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
-from .job_scraper import scrape_online_jobs
+try:
+    from .job_scraper import scrape_online_jobs
+except ModuleNotFoundError:
+    print("WARNING: job_scraper module (or its dependencies like jobspy, pandas) not found. Job scraping functionality will be disabled.")
+    scrape_online_jobs = None # Define it as None so later checks don't cause NameError
 from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv # Added save_generated_cv
 
-# --- Configuration ---
+
+# --- Configuration --- (This is the good block, keep)
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
 # So, when app is created, app.instance_path will be '.../cv_tailor_project/instance'
 UPLOAD_FOLDER_NAME = 'uploads'
@@ -30,14 +70,16 @@ GENERATED_PDFS_FOLDER_NAME = 'generated_pdfs'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'docx', 'json'}
 CV_FORMAT_FILENAME = 'CV_format.json' # Path relative to project root
 
+
 # --- App Initialization ---
 def create_app(test_config=None):
     app = Flask(__name__, instance_relative_config=True) # instance_relative_config=True
-    project_root = os.path.dirname(app.instance_path) # Get project root (/path/to/repo)
+    # _project_root is defined globally now, so it's available.
+    # The Flask app's instance_path is fine for UPLOAD_FOLDER etc.
 
     # --- Load Environment Variables ---
     # .env is now at the project root
-    dotenv_path = os.path.join(project_root, '.env')
+    dotenv_path = os.path.join(_project_root, '.env') # Use _project_root
     if os.path.exists(dotenv_path):
         load_dotenv(dotenv_path)
         print(f"Loaded .env file from {dotenv_path}")
@@ -59,10 +101,11 @@ def create_app(test_config=None):
         UPLOAD_FOLDER=os.path.join(app.instance_path, UPLOAD_FOLDER_NAME),
         GENERATED_PDFS_FOLDER=os.path.join(app.instance_path, GENERATED_PDFS_FOLDER_NAME),
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16 MB upload limit
-        CV_FORMAT_FILE_PATH=os.path.join(project_root, CV_FORMAT_FILENAME) # Path to CV_format.json at project root
+        CV_FORMAT_FILE_PATH=os.path.join(_project_root, CV_FORMAT_FILENAME) # Use _project_root
     )
 
     if test_config:
+    # .env is now at the project root
         app.config.from_mapping(test_config)
 
     # --- Ensure instance folders exist ---
@@ -210,6 +253,9 @@ def create_app(test_config=None):
 
     @app.route('/api/scrape-jobs', methods=['GET'])
     def scrape_jobs_endpoint():
+        if scrape_online_jobs is None:
+            return jsonify({"error": "Job scraping functionality is currently unavailable due to missing dependencies."}), 503
+        
         site_names_str = request.args.get('site_names', 'linkedin,indeed')
         site_names_list = [name.strip() for name in site_names_str.split(',') if name.strip()]
         search_term = request.args.get('search_term', 'software engineer')
@@ -473,6 +519,177 @@ def create_app(test_config=None):
                 print(f"Error removing temporary CV file {temp_cv_filepath}: {e_remove}")
 
         return jsonify({"results": results})
+
+    @app.route('/api/auto-apply', methods=['POST'])
+    async def auto_apply_endpoint():
+        # Set placeholder environment variables for ComputerTool, if not already set
+        # These are needed for ComputerTool20250124 instantiation within sampling_loop's ToolCollection
+        os.environ.setdefault('WIDTH', '1280')
+        os.environ.setdefault('HEIGHT', '720')
+        os.environ.setdefault('DISPLAY_NUM', '1') # A common X display number
+
+        # Enhanced Placeholder callbacks for better logging with flushing
+        def output_callback_stub(content_block):
+            block_type = content_block.get('type', 'unknown') if isinstance(content_block, dict) else 'unknown'
+            print(f"[Callback] AI Output Block Type: {block_type}"); sys.stdout.flush()
+            if block_type == 'text':
+                print(f"AI Text: {content_block.get('text')}"); sys.stdout.flush()
+            elif block_type == 'tool_use':
+                print(f"AI Tool Use: Name='{content_block.get('name')}', Input='{content_block.get('input')}'"); sys.stdout.flush()
+            else:
+                print(f"AI Output (Full): {content_block}"); sys.stdout.flush()
+
+        def tool_output_callback_stub(tool_result, tool_id):
+            # tool_result is a ToolResult object. Check its fields.
+            print(f"[Callback] Tool Output for ID {tool_id}:"); sys.stdout.flush()
+            if tool_result.output:
+                print(f"  Output: {tool_result.output[:200]}{'...' if tool_result.output and len(tool_result.output) > 200 else ''}"); sys.stdout.flush()
+            if tool_result.error:
+                print(f"  Error: {tool_result.error}"); sys.stdout.flush()
+            if tool_result.base64_image:
+                print(f"  Image: (base64_image present, length {len(tool_result.base64_image)})"); sys.stdout.flush()
+            if tool_result.system:
+                 print(f"  System Message: {tool_result.system}"); sys.stdout.flush()
+            if not (tool_result.output or tool_result.error or tool_result.base64_image or tool_result.system):
+                print(f"  (No direct output, error, image or system message in ToolResult object for {tool_id})"); sys.stdout.flush()
+
+
+        def api_response_callback_stub(req, resp, exc):
+            print("[Callback] API Interaction:"); sys.stdout.flush()
+            if req:
+                print(f"  Request: Method={req.method}, URL={req.url}"); sys.stdout.flush()
+            if resp:
+                print(f"  Response: Status={resp.status_code if hasattr(resp, 'status_code') else 'N/A'}"); sys.stdout.flush()
+            if exc:
+                print(f"  Exception: Type={type(exc).__name__}, Message='{str(exc)}'"); sys.stdout.flush()
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON payload received"}), 400
+
+        job_url = data.get('job_url')
+        cv_json_path = data.get('cv_json_path')
+        cv_pdf_path = data.get('cv_pdf_path')
+        profile_json_path = data.get('profile_json_path')
+
+        missing_params = []
+        if not job_url: missing_params.append('job_url')
+        if not cv_json_path: missing_params.append('cv_json_path')
+        if not cv_pdf_path: missing_params.append('cv_pdf_path')
+        if not profile_json_path: missing_params.append('profile_json_path')
+
+        if missing_params:
+            return jsonify({"error": f"Missing required parameters: {', '.join(missing_params)}"}), 400
+
+        received_data = {
+            "job_url": job_url, "cv_json_path": cv_json_path,
+            "cv_pdf_path": cv_pdf_path, "profile_json_path": profile_json_path
+        }
+
+        # Configuration for sampling_loop
+        anthropic_api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if not anthropic_api_key:
+            print("Error: ANTHROPIC_API_KEY not found in environment variables."); sys.stdout.flush()
+            return jsonify({"error": "Server configuration error: Missing ANTHROPIC_API_KEY"}), 500
+
+        ai_model_name = "claude-3-5-sonnet-20240620"
+        # APIProvider is no longer an enum, ToolVersion is a Literal[str]
+        api_provider_str = "anthropic" # Use string literal directly
+        tool_version_str = "computer_use_20250124" # From tools/groups.py
+
+        if not sampling_loop or not ComputerTool20250124: # Removed check for APIProvider
+            print("Error: Core components for sampling_loop (sampling_loop or ComputerTool20250124) are not imported correctly."); sys.stdout.flush()
+            return jsonify({"error": "Server components not available for auto-apply."}), 500
+
+        system_prompt_suffix = """
+Your primary goal is to automatically apply for a job on behalf of the user.
+You will be provided with a job URL, a tailored CV in JSON format, the same CV as a PDF, and a user profile in JSON format.
+Your main tasks are to navigate to the job URL, locate the application form, accurately fill it using the provided data, upload the CV PDF when required, and submit the application.
+Remember to use your computer interaction tools (mouse clicks, keyboard typing, scrolling, screenshotting) to perform these tasks.
+
+Key Strategies and Considerations:
+- Data Awareness: The file paths provided (CV JSON, CV PDF, User Profile JSON) are identifiers. Assume the content of these files is accessible to you for filling forms or for upload.
+- Field Mapping: Carefully match data from the JSON CV and user profile to the website's form fields. Pay close attention to field labels and context.
+- Information Hierarchy: Prioritize information from the Tailored CV JSON for sections like 'Work Experience', 'Education', 'Skills'. Use the User Profile JSON for contact details (email, phone, address), personal information not in the CV, and potentially for creating accounts if explicitly guided.
+- CV Upload: When an option to upload a CV/resume is present, use the provided PDF file path/identifier.
+- Cover Letters: For now, if you encounter a cover letter section, you may state that a cover letter was not provided or skip the field if it's not mandatory. Do not attempt to write one.
+- Mandatory Fields: Ensure all mandatory fields (often marked with * or similar) are completed before attempting to submit. If you cannot find required information in the provided data, report this.
+- Account Creation: If account creation is mandatory to apply, and you do not have explicit credentials (e.g. in user profile or prior instructions), report this as a blocker. Do not attempt to create an account without pre-approved credentials.
+- CAPTCHAs: You cannot solve CAPTCHAs. If you encounter one, stop the process and report it clearly, including a screenshot.
+- Review Stage: If a review page is available before final submission, take a screenshot of the filled-in data for verification purposes.
+- Submission & Confirmation: After submitting, look for a confirmation message or page. Take a screenshot of this confirmation.
+- Error Handling & Reporting: If you encounter any errors (e.g., website errors, validation issues you can't resolve, unexpected page structure) or cannot proceed for any reason, clearly describe the issue and its context. Take a screenshot of the page where the error occurred.
+- Navigation: Use the provided job URL to start. Navigate methodically. If the application is on a third-party site (e.g., Workday, Greenhouse, Lever), adapt to their specific flow.
+- Pace and Observation: Operate at a human-like pace to ensure pages load and scripts execute. Observe on-screen text and visual cues.
+"""
+
+        initial_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Your task is to automatically apply for the job at the following URL: {job_url}. "
+                                f"You must use the information from these files (assume you can access their content via these identifiers): "
+                                f"Tailored CV (JSON format): '{cv_json_path}', "
+                                f"Tailored CV (PDF format for upload): '{cv_pdf_path}', "
+                                f"User Profile (JSON format): '{profile_json_path}'. "
+                                f"Please begin the application process. Remember to use your computer control tools to navigate, type, click, and take screenshots as needed. Prioritize accuracy and completing all required steps. "
+                                f"Follow the strategies outlined in the system prompt. If you encounter issues like mandatory account creation without credentials or CAPTCHAs, report them clearly."
+                    }
+                ]
+            }
+        ]
+        # Type casting for clarity, matching BetaMessageParam structure.
+        # from typing import cast, List, Dict, Any
+        # typed_initial_messages = cast(List[Dict[str, Any]], initial_messages)
+
+        # Instantiate ComputerTool - this might fail if WIDTH/HEIGHT env vars are not set
+        try:
+            # ComputerTool20250124 is instantiated by sampling_loop itself if passed as a class.
+            # However, if specific instances with prior setup were needed, it would be here.
+            # For now, sampling_loop takes tool classes. Let's ensure it's available.
+            # The loop actually expects a list of *classes* for ToolCollection.
+            # So, no instantiation here, but we check if the class was imported.
+            if not ComputerTool20250124: # Redundant due to check above, but for clarity
+                 raise ImportError("ComputerTool20250124 not available")
+            print("ComputerTool20250124 class is available."); sys.stdout.flush()
+
+        except Exception as e:
+            print(f"Warning: Could not prepare ComputerTool20250124. Error: {e}. Proceeding without it for sampling_loop structure test."); sys.stdout.flush()
+            # Depending on strictness, might return error here.
+            # For this subtask, we attempt to call sampling_loop anyway if it's imported.
+
+        try:
+            print(f"Attempting to call sampling_loop with model: {ai_model_name}, provider: {api_provider_str}, tool_version: {tool_version_str}"); sys.stdout.flush()
+            # sampling_loop is async, so we await it.
+            # Flask needs to be running in an async-capable server (e.g. Hypercorn) for `await` in routes.
+            # Or, one might use asyncio.run() if this were a sync route calling async code (not recommended for request handling).
+            loop_result_messages = await sampling_loop(
+                model=ai_model_name,
+                provider=api_provider_str, # Pass the string directly
+                system_prompt_suffix=system_prompt_suffix,
+                messages=initial_messages, # Pass as is, loop.py uses BetaMessageParam
+                output_callback=output_callback_stub,
+                tool_output_callback=tool_output_callback_stub,
+                api_response_callback=api_response_callback_stub,
+                api_key=anthropic_api_key,
+                tool_version=tool_version_str, # Pass the string literal
+                # max_tokens, thinking_budget can use defaults in sampling_loop
+            )
+            print(f"sampling_loop call completed. Result messages count: {len(loop_result_messages) if loop_result_messages else 'None'}"); sys.stdout.flush()
+            return jsonify({
+                "message": "AutoApply request processed, sampling_loop invoked.",
+                "data": received_data,
+                "loop_status": "completed"
+            }), 200
+        except Exception as e:
+            print(f"Error during sampling_loop invocation: {e}"); sys.stdout.flush()
+            return jsonify({
+                "error": "Failed to invoke or complete sampling_loop",
+                "details": str(e)
+            }), 500
+
 
     @app.route('/api/download-cv/<filename>', methods=['GET'])
     def download_cv(filename):
