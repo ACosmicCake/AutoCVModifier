@@ -176,267 +176,130 @@ class MVCOrchestrator:
         return "indeed.com" in url.lower()
 
     def _handle_linkedin_login(self) -> bool:
-        """Handles the login process for LinkedIn."""
+        """Handles the login process for LinkedIn using selectors from SITE_SELECTORS."""
         print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting LinkedIn login...")
 
-        username_xpath = "//*[@id='base-sign-in-modal']/div/section/div/div/form/div[1]/div[1]/div/div" # This seems more like a container for input
-        # More specific XPaths usually target the <input> tag directly.
-        # Let's assume this is the intended XPath for the clickable/interactable element that might reveal the input,
-        # or it's a general area and send_keys will target the correct sub-element.
-        # For a more robust solution, one might need to click this first, then find an input.
-        # Given the task, we'll use the provided XPaths.
-        # A more typical LinkedIn username XPath: //*[@id='session_key'] or //input[@name='session_key']
+        linkedin_selectors = SITE_SELECTORS.get("linkedin.com", {})
 
-        # The provided username XPath seems too generic and might not be the input field itself.
-        # For the purpose of this task, I will use a more standard LinkedIn XPath for username.
-        # If the specific complex XPath is required, it suggests a more complex interaction pattern not covered by simple fill.
-        # However, sticking to the requirements:
-        # Using a slightly more direct approach for username if the provided one is problematic:
-        username_input_xpath = "//input[@id='session_key']" # A common LinkedIn username field ID
-        # If the provided one must be used: username_input_xpath = username_xpath
-        # Let's try the provided one first, then a common one if it fails, or adjust based on actual behavior.
-        # For this implementation, I'll use the provided XPaths directly as per the instructions.
-        # The instruction provided: username_xpath = "//*[@id='base-sign-in-modal']/div/section/div/div/form/div[1]/div[1]/div/div"
-        # This might be a div that, when clicked, makes an input field active, or text needs to be sent to this div.
-        # Let's assume it's the element to send keys to.
+        initial_trigger_config = linkedin_selectors.get("login_initial_trigger_button")
+        username_config = linkedin_selectors.get("login_username")
+        password_config = linkedin_selectors.get("login_password")
+        final_submit_config = linkedin_selectors.get("login_final_submit_button")
 
-        password_xpath = "//*[@id='base-sign-in-modal_session_password']" # This is likely the <input> for password.
-        login_button_xpath = "//*[@id='base-sign-in-modal']/div/section/div/div/form/div[2]/button" # This is likely the button.
+        # Validate crucial selectors
+        if not self._validate_selector_config(initial_trigger_config, "login_initial_trigger_button (LinkedIn)"):
+            return False
+        if not self._validate_selector_config(username_config, "login_username (LinkedIn)"):
+            return False
+        if not self._validate_selector_config(password_config, "login_password (LinkedIn)"):
+            return False
+        if not self._validate_selector_config(final_submit_config, "login_final_submit_button (LinkedIn)"):
+            return False
 
-        username = "testuser" # Hardcoded as per requirement
-        password = "testpassword" # Hardcoded as per requirement
+        # Type assertions for type checker after validation
+        initial_trigger_config_typed = initial_trigger_config
+        username_config_typed = username_config
+        password_config_typed = password_config
+        final_submit_config_typed = final_submit_config
 
-        # Attempt to fill username
-        # For the given username_xpath, it might be a container. Let's try to fill it.
-        # If it's a div, send_keys might not work as expected.
-        # A more robust approach might involve clicking it first if it's a custom control.
-        # For now, directly using fill_text_field.
-        print(f"LinkedIn Login: Attempting to fill username with XPath: {username_xpath}")
-        if not self.browser_wrapper.fill_text_field(selector=username_xpath, text=username, find_by='xpath'):
-            # Try a more common XPath if the provided one fails, as a fallback for demonstration of robustness.
-            # This part is an addition to make it potentially work if the provided XPath is for a container.
-            print(f"LinkedIn Login: Provided username XPath ({username_xpath}) failed. Trying common XPath: {username_input_xpath}")
-            if not self.browser_wrapper.fill_text_field(selector=username_input_xpath, text=username, find_by='xpath'):
-                print(f"LinkedIn Login: Failed to fill username with both provided and common XPaths.")
-                return False
-            print(f"LinkedIn Login: Successfully filled username using common XPath: {username_input_xpath}")
-        else:
-            print(f"LinkedIn Login: Successfully filled username using provided XPath: {username_xpath}")
+        username = "testuser"  # Or from a more secure config/profile source
+        password = "testpassword" # Or from a more secure config/profile source
 
+        # Step 1: Click Initial Trigger Button
+        print(f"LinkedIn Login: Attempting to click initial trigger button: {initial_trigger_config_typed}")
+        if not self.browser_wrapper.click_element(
+            selector=initial_trigger_config_typed['value'], find_by=initial_trigger_config_typed['type']
+        ):
+            print("LinkedIn Login: Failed to click initial trigger button.")
+            return False
+        print("LinkedIn Login: Successfully clicked initial trigger button.")
+        time.sleep(1)  # Allow time for modal or UI changes
+
+        # Step 2: Fill Username
+        print(f"LinkedIn Login: Attempting to fill username using selector: {username_config_typed}")
+        if not self.browser_wrapper.fill_text_field(
+            selector=username_config_typed['value'], text=username, find_by=username_config_typed['type']
+        ):
+            print("LinkedIn Login: Failed to fill username.")
+            return False
+        print("LinkedIn Login: Successfully filled username.")
         time.sleep(0.2)
 
-        # Attempt to fill password
-        print(f"LinkedIn Login: Attempting to fill password with XPath: {password_xpath}")
-        if not self.browser_wrapper.fill_text_field(selector=password_xpath, text=password, find_by='xpath'):
-            print(f"LinkedIn Login: Failed to fill password.")
+        # Step 3: Fill Password
+        print(f"LinkedIn Login: Attempting to fill password using selector: {password_config_typed}")
+        if not self.browser_wrapper.fill_text_field(
+            selector=password_config_typed['value'], text=password, find_by=password_config_typed['type']
+        ):
+            print("LinkedIn Login: Failed to fill password.")
             return False
         print("LinkedIn Login: Successfully filled password.")
         time.sleep(0.2)
 
-        # Attempt to click login button
-        print(f"LinkedIn Login: Attempting to click login button with XPath: {login_button_xpath}")
-        if not self.browser_wrapper.click_element(selector=login_button_xpath, find_by='xpath'):
-            print(f"LinkedIn Login: Failed to click login button.")
-            # As a fallback, could try dynamic click here as well if needed in a more complex scenario
-            # print("LinkedIn Login: Configured LinkedIn button failed, trying dynamic find...")
-            # if not self._find_and_click_login_button_dynamically():
-            #     print(f"LinkedIn Login: Dynamic click also failed for login button.")
-            #     return False
-            # print("LinkedIn Login: Dynamic click succeeded for login button.")
-            return False # Sticking to the instruction to fail if this specific button fails for now.
+        # Step 4: Click Final Submit Button
+        print(f"LinkedIn Login: Attempting to click final submit button: {final_submit_config_typed}")
+        if not self.browser_wrapper.click_element(
+            selector=final_submit_config_typed['value'], find_by=final_submit_config_typed['type']
+        ):
+            print("LinkedIn Login: Failed to click final submit button.")
+            return False
 
-        print("LinkedIn Login: Successfully submitted credentials.")
+        print("LinkedIn Login: Multi-step login process completed successfully.")
         return True
 
     def _handle_indeed_login(self) -> bool:
-        """Handles the login process for Indeed."""
+        """Handles the login process for Indeed using selectors from SITE_SELECTORS."""
         print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting Indeed login...")
 
-        # XPaths as per instructions
-        username_xpath = "//*[@id='ifl-InputFormField-:r0:']"
-        # Prioritizing the user's latest specific XPath for the button:
-        login_button_xpath = "//*[@id='89ee8fd0e70ecbb0a20787b6e54d37186c6acf6c607a8a26ce01d9c794db14c8']"
-        # Note: The XPath for the button looks like a dynamically generated ID or a hash.
-        # Such XPaths are brittle and likely to change. A more robust XPath would use text, roles, or stable classes.
-        # e.g., //button[contains(., 'Continue') or contains(., 'Sign In')]
-        # For this task, the provided XPath will be used.
+        indeed_selectors = SITE_SELECTORS.get("indeed.com", {})
 
-        username = "testuser" # Hardcoded as per requirement
+        username_config = indeed_selectors.get("login_username")
+        # login_password_config = indeed_selectors.get("login_password") # Fetched but not used, as per instruction
+        login_button_config = indeed_selectors.get("login_button")
 
-        # Attempt to fill username
-        print(f"Indeed Login: Attempting to fill username with XPath: {username_xpath}")
-        if not self.browser_wrapper.fill_text_field(selector=username_xpath, text=username, find_by='xpath'):
-            print(f"Indeed Login: Failed to fill username with XPath: {username_xpath}")
+        # Validate crucial selectors
+        if not self._validate_selector_config(username_config, "login_username (Indeed)"):
             return False
-        print(f"Indeed Login: Successfully filled username using XPath: {username_xpath}")
+        if not self._validate_selector_config(login_button_config, "login_button (Indeed)"):
+            return False
+
+        # Type assertions for type checker
+        username_config_typed = username_config
+        login_button_config_typed = login_button_config
+
+        username = "testuser"  # Or from a more secure config/profile source
+
+        # Step 1: Fill Username
+        print(f"Indeed Login: Attempting to fill username using selector: {username_config_typed}")
+        if not self.browser_wrapper.fill_text_field(
+            selector=username_config_typed['value'], text=username, find_by=username_config_typed['type']
+        ):
+            print("Indeed Login: Failed to fill username.")
+            return False
+        print("Indeed Login: Successfully filled username.")
         time.sleep(0.2)
 
-        # Password field is intentionally skipped as per user instructions.
+        # Step 2: Skip Password (as per explicit instructions)
+        print("Indeed Login: Skipping password field as per instructions.")
 
-        # Attempt to click login button
-        print(f"Indeed Login: Attempting to click login button with XPath: {login_button_xpath}")
-        if not self.browser_wrapper.click_element(selector=login_button_xpath, find_by='xpath'):
-            print(f"Indeed Login: Failed to click login button with XPath: {login_button_xpath}")
-            # As a fallback, could try dynamic click here as well if needed, or a more stable XPath.
-            # For example, trying the class-based XPath if the ID one fails:
-            # fallback_button_xpath = "//button[contains(@class, 'Login-button')]" # From site_selectors.json
-            # print(f"Indeed Login: Configured button XPath ({login_button_xpath}) failed. Trying fallback XPath: {fallback_button_xpath}")
-            # if not self.browser_wrapper.click_element(selector=fallback_button_xpath, find_by='xpath'):
-            #     print(f"Indeed Login: Fallback button XPath ({fallback_button_xpath}) also failed.")
-            #     # Final attempt with dynamic finder if all specific XPaths fail
-            #     print(f"Indeed Login: Trying dynamic button finder...")
-            #     if not self._find_and_click_login_button_dynamically():
-            #         print(f"Indeed Login: Dynamic button finder also failed.")
-            #         return False
-            #     print(f"Indeed Login: Dynamic button finder succeeded.")
-            # else:
-            #    print(f"Indeed Login: Fallback button XPath ({fallback_button_xpath}) succeeded.")
-            return False # Sticking to the instruction to fail if this specific button fails.
+        # Step 3: Click Login Button
+        print(f"Indeed Login: Attempting to click login button using selector: {login_button_config_typed}")
+        if not self.browser_wrapper.click_element(
+            selector=login_button_config_typed['value'], find_by=login_button_config_typed['type']
+        ):
+            print("Indeed Login: Failed to click login button.")
+            return False
 
-        print(f"Indeed Login: Successfully submitted username and clicked login button (XPath: {login_button_xpath}).")
+        print("Indeed Login: Process completed successfully.")
         return True
 
     def _handle_unknown_site_login(self) -> bool:
         """
-        Handles the login process for unknown sites by attempting to fill default
-        username/password if selectors exist and then dynamically finding a login button.
+        Handles the login process for unknown sites by skipping the login attempt.
+        This method now simply logs that an unknown site was detected and returns True
+        to allow the orchestrator to proceed to the next state (e.g., website analysis).
         """
-        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting unknown/generic site login...")
-
-        username = "testuser"
-        password = "testpassword"
-
-        # 1. Attempt to fill default username/password (optional fill)
-        default_site_selectors = SITE_SELECTORS.get("default")
-        if default_site_selectors:
-            username_selector_config = default_site_selectors.get("login_username")
-            if username_selector_config and self._validate_selector_config(username_selector_config, "login_username (unknown_site)"):
-                print(f"Unknown Site Login: Attempting to fill default username using selector: {username_selector_config}")
-                if self.browser_wrapper.fill_text_field(
-                    selector=username_selector_config['value'], text=username, find_by=username_selector_config['type']
-                ):
-                    print("Unknown Site Login: Successfully filled default username.")
-                    time.sleep(0.2)
-                else:
-                    print("Unknown Site Login: Failed to fill default username or selector not found.")
-            else:
-                print("Unknown Site Login: No valid default username selector configured.")
-
-            password_selector_config = default_site_selectors.get("login_password")
-            if password_selector_config and self._validate_selector_config(password_selector_config, "login_password (unknown_site)"):
-                print(f"Unknown Site Login: Attempting to fill default password using selector: {password_selector_config}")
-                if self.browser_wrapper.fill_text_field(
-                    selector=password_selector_config['value'], text=password, find_by=password_selector_config['type']
-                ):
-                    print("Unknown Site Login: Successfully filled default password.")
-                    time.sleep(0.2)
-                else:
-                    print("Unknown Site Login: Failed to fill default password or selector not found.")
-            else:
-                print("Unknown Site Login: No valid default password selector configured.")
-        else:
-            print("Unknown Site Login: No 'default' site selectors found. Skipping optional field fills.")
-
-        # 2. Dynamically find and click a login-like button
-        print("Unknown Site Login: Attempting to dynamically find and click a login-like button...")
-        if not self.browser_wrapper: # Should be caught by _handle_login, but good practice
-            print("Unknown Site Login: Browser wrapper not available for dynamic button search.")
-            return False
-
-        interactable_elements = self.browser_wrapper.get_all_interactable_elements_details()
-        if not interactable_elements:
-            print("Unknown Site Login: No interactable elements found on the page for dynamic button search.")
-            return False
-
-        # Expanded keywords
-        login_keywords = [
-            "log in", "login", "sign in", "signin", "submit", "continue", "next",
-            "sign in with email", "login with email", "access", "enter", "go"
-        ]
-
-        candidate_buttons = []
-        for element in interactable_elements:
-            tag_name = element.get('tag_name', '').lower()
-            text_content = element.get('text_content', '').lower()
-            attributes = element.get('attributes', {})
-            el_xpath = element.get('xpath')
-
-            if not el_xpath:
-                continue
-
-            is_potential_button = False
-            if tag_name == 'button':
-                is_potential_button = True
-            elif tag_name == 'input' and attributes.get('type', '').lower() == 'submit':
-                is_potential_button = True
-
-            # Check class attribute for "button" like strings if not already identified as button/submit
-            if not is_potential_button:
-                class_attr = attributes.get('class', '')
-                if isinstance(class_attr, str) and 'button' in class_attr.lower(): # Simple check
-                    is_potential_button = True
-                elif isinstance(class_attr, list): # class can be a list
-                    if any('button' in str(c).lower() for c in class_attr):
-                        is_potential_button = True
-
-            if not is_potential_button: # Only proceed if it's a button, submit input, or has 'button' in class
-                continue
-
-            # Keyword search in text and attributes
-            found_keyword_in_text = any(keyword in text_content for keyword in login_keywords)
-
-            found_keyword_in_attr = False
-            attribute_values_to_check = [
-                attributes.get('id', '').lower(),
-                attributes.get('name', '').lower(),
-                attributes.get('value', '').lower(), # input type=button might have text in value
-                attributes.get('aria-label', '').lower(),
-                attributes.get('data-testid', '').lower(),
-            ]
-            if isinstance(attributes.get('class', ''), str) : # Add class string to searchable attributes
-                 attribute_values_to_check.append(attributes.get('class', '').lower())
-
-
-            for attr_val_str in attribute_values_to_check:
-                if any(keyword in attr_val_str for keyword in login_keywords):
-                    found_keyword_in_attr = True
-                    break
-
-            if found_keyword_in_text or found_keyword_in_attr:
-                # Basic priority: text match is often better.
-                priority = 1
-                if found_keyword_in_text and tag_name == 'button': priority = 3
-                elif found_keyword_in_text and tag_name == 'input': priority = 2
-
-                candidate_buttons.append({
-                    'element_details': element,
-                    'priority': priority,
-                    'xpath': el_xpath,
-                    'text': text_content # for logging
-                })
-
-        sorted_candidates = sorted(candidate_buttons, key=lambda x: x['priority'], reverse=True)
-
-        if not sorted_candidates:
-            print("Unknown Site Login: No suitable login button candidates found dynamically based on keywords and element types.")
-            return False
-
-        print(f"Unknown Site Login: Found {len(sorted_candidates)} dynamic button candidates. Attempting clicks...")
-        for candidate in sorted_candidates:
-            element_info = candidate['element_details']
-            xpath_to_click = candidate['xpath']
-            button_text = candidate['text']
-
-            print(f"Unknown Site Login: Attempting to click dynamically found button with text '{button_text[:50]}' and XPath '{xpath_to_click}'...")
-            if self.browser_wrapper.click_element(selector=xpath_to_click, find_by='xpath'):
-                print(f"Unknown Site Login: Successfully clicked dynamically found button: Text='{button_text[:50]}', XPath='{xpath_to_click}'.")
-                time.sleep(2) # Allow time for page transition
-                return True
-            else:
-                print(f"Unknown Site Login: Failed to click button with text '{button_text[:50]}', XPath='{xpath_to_click}'.")
-
-        print("Unknown Site Login: All dynamically found login button candidates failed to be clicked.")
-        return False
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Unknown site detected. Skipping login attempt and proceeding to website analysis.")
+        return True
 
     def _handle_login(self) -> bool:
         print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Dispatching login based on URL...")

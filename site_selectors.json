@@ -1,64 +1,168 @@
 {
   "default": {
-    "name": { "type": "id", "value": "full_name" },
-    "email": { "type": "id", "value": "email" },
-    "phone": { "type": "id", "value": "phone" },
-    "cv_upload": { "type": "css", "value": "input[type='file']" },
-    "submit_button": { "type": "id", "value": "submit_application" },
-    "login_username": { "type": "css", "value": "input#username" },
-    "login_password": { "type": "css", "value": "input#password" },
-    "login_button": { "type": "css", "value": "button#login" },
-    "login_email_button": { "type": "css", "value": "button#login-with-email" },
-    "secondary_login_trigger_button": { "type": "css", "value": "button.login-prompt" }
+    "login_username": {
+      "type": "xpath",
+      "value": "//input[contains(@name, 'username') or contains(@id, 'username') or contains(@aria-label, 'username') or contains(@placeholder, 'username')]"
+    },
+    "login_password": {
+      "type": "xpath",
+      "value": "//input[contains(@name, 'password') or contains(@id, 'password') or contains(@aria-label, 'password') or contains(@placeholder, 'password')]"
+    },
+    "login_button": {
+      "type": "xpath",
+      "value": "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'log in') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'sign in')]"
+    },
+    "login_email_button": {
+      "type": "xpath",
+      "value": "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'sign in with email') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'log in with email') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'continue with email')]"
+    },
+    "secondary_login_trigger_button": {
+      "type": "xpath",
+      "value": "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'sign in options') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'more ways to sign in')]"
+    }
   },
   "linkedin.com": {
-    "name": { "type": "css", "value": "input[id*='UNUSED-FOR-NOW-linkedin-name']" },
-    "email": { "type": "css", "value": "input[id*='emailAddress'], input[id*='text-input-email'], input[name*='email']" },
-    "phone": { "type": "css", "value": "input[id*='phoneNumber'], input[id*='text-input-phoneNumber'], input[name*='phone']" },
-    "cv_upload": { "type": "css", "value": "input[type='file'][id*='resume-upload'], input[type='file'][aria-label*='upload resume' i], input[type='file'][name*='resume']" },
-    "submit_button": { "type": "css", "value": "button[aria-label*='submit' i][aria-label*='application' i], button[data-control-name*='submit'], button[aria-label*='continue' i]" },
+    "name": {
+      "type": "css",
+      "value": "input[id*='UNUSED-FOR-NOW-linkedin-name']"
+    },
+    "email": {
+      "type": "css",
+      "value": "input[id*='emailAddress'], input[id*='text-input-email'], input[name*='email']"
+    },
+    "phone": {
+      "type": "css",
+      "value": "input[id*='phoneNumber'], input[id*='text-input-phoneNumber'], input[name*='phone']"
+    },
+    "cv_upload": {
+      "type": "css",
+      "value": "input[type='file'][id*='resume-upload'], input[type='file'][aria-label*='upload resume' i], input[type='file'][name*='resume']"
+    },
+    "submit_button": {
+      "type": "css",
+      "value": "button[aria-label*='submit' i][aria-label*='application' i], button[data-control-name*='submit'], button[aria-label*='continue' i]"
+    },
     "screening_questions": [
-        {
-            "question_text_fragments": ["authorized to work", "eligible to work"],
-            "answer_selectors": {
-                "Yes": {"type": "xpath", "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]]"},
-                "No": {"type": "xpath", "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]]"}
-            },
-            "target_answer": "Yes"
+      {
+        "question_text_fragments": [
+          "authorized to work",
+          "eligible to work"
+        ],
+        "answer_selectors": {
+          "Yes": {
+            "type": "xpath",
+            "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]]"
+          },
+          "No": {
+            "type": "xpath",
+            "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]]"
+          }
         },
-        {
-            "question_text_fragments": ["require sponsorship", "need sponsorship"],
-            "answer_selectors": {
-                "Yes": {"type": "xpath", "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]]"},
-                "No": {"type": "xpath", "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]]"}
-            },
-            "target_answer": "No"
-        }
-    ]
+        "target_answer": "Yes"
+      },
+      {
+        "question_text_fragments": [
+          "require sponsorship",
+          "need sponsorship"
+        ],
+        "answer_selectors": {
+          "Yes": {
+            "type": "xpath",
+            "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]]"
+          },
+          "No": {
+            "type": "xpath",
+            "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]]"
+          }
+        },
+        "target_answer": "No"
+      }
+    ],
+    "login_initial_trigger_button": {
+      "type": "css",
+      "value": "#base-contextual-sign-in-modal > div > section > div > div > div > div.sign-in-modal > button"
+    },
+    "login_username": {
+      "type": "css",
+      "value": "#base-sign-in-modal_session_key"
+    },
+    "login_password": {
+      "type": "css",
+      "value": "#base-sign-in-modal_session_password"
+    },
+    "login_final_submit_button": {
+      "type": "css",
+      "value": "#base-sign-in-modal > div > section > div > div > form > div.flex.justify-between.sign-in-form__footer--full-width > button"
+    }
   },
   "indeed.com": {
-    "name": { "type": "id", "value": "ia-fullName" },
-    "email": { "type": "id", "value": "ia-email" },
-    "phone": { "type": "id", "value": "ia-phoneNumber" },
-    "cv_upload": { "type": "css", "value": "input[type='file'][id*='resume'], input[type='file'][name*='resume'], input[type='file'][aria-label*='resume' i], input#resumeupload_input[type='file']" },
-    "submit_button": { "type": "css", "value": "button[data-testid*='continue' i], button[data-testid*='submit' i], button[id*='form-action-continue'], button[class*='ia-continueButton']" },
+    "name": {
+      "type": "id",
+      "value": "ia-fullName"
+    },
+    "email": {
+      "type": "id",
+      "value": "ia-email"
+    },
+    "phone": {
+      "type": "id",
+      "value": "ia-phoneNumber"
+    },
+    "cv_upload": {
+      "type": "css",
+      "value": "input[type='file'][id*='resume'], input[type='file'][name*='resume'], input[type='file'][aria-label*='resume' i], input#resumeupload_input[type='file']"
+    },
+    "submit_button": {
+      "type": "css",
+      "value": "button[data-testid*='continue' i], button[data-testid*='submit' i], button[id*='form-action-continue'], button[class*='ia-continueButton']"
+    },
     "screening_questions": [
-        {
-            "question_text_fragments": ["authorized to work", "legally authorized"],
-            "answer_selectors": {
-                "Yes": {"type": "xpath", "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]] | //label[contains(normalize-space(), 'Yes')][input[@type='radio']]"},
-                "No": {"type": "xpath", "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]] | //label[contains(normalize-space(), 'No')][input[@type='radio']]"}
-            },
-            "target_answer": "Yes"
+      {
+        "question_text_fragments": [
+          "authorized to work",
+          "legally authorized"
+        ],
+        "answer_selectors": {
+          "Yes": {
+            "type": "xpath",
+            "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]] | //label[contains(normalize-space(), 'Yes')][input[@type='radio']]"
+          },
+          "No": {
+            "type": "xpath",
+            "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]] | //label[contains(normalize-space(), 'No')][input[@type='radio']]"
+          }
         },
-        {
-            "question_text_fragments": ["require sponsorship", "need sponsorship"],
-            "answer_selectors": {
-                "Yes": {"type": "xpath", "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]] | //label[contains(normalize-space(), 'Yes')][input[@type='radio']]"},
-                "No": {"type": "xpath", "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]] | //label[contains(normalize-space(), 'No')][input[@type='radio']]"}
-            },
-            "target_answer": "No"
-        }
-    ]
+        "target_answer": "Yes"
+      },
+      {
+        "question_text_fragments": [
+          "require sponsorship",
+          "need sponsorship"
+        ],
+        "answer_selectors": {
+          "Yes": {
+            "type": "xpath",
+            "value": "//label[contains(.,'Yes')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'Yes')]] | //label[contains(normalize-space(), 'Yes')][input[@type='radio']]"
+          },
+          "No": {
+            "type": "xpath",
+            "value": "//label[contains(.,'No')]/input[@type='radio'] | //input[@type='radio'][following-sibling::label[contains(.,'No')]] | //label[contains(normalize-space(), 'No')][input[@type='radio']]"
+          }
+        },
+        "target_answer": "No"
+      }
+    ],
+    "login_username": {
+      "type": "xpath",
+      "value": "//*[@id='ifl-InputFormField-:r0:']"
+    },
+    "login_password": {
+      "type": "xpath",
+      "value": ""
+    },
+    "login_button": {
+      "type": "xpath",
+      "value": "//*[@id='89ee8fd0e70ecbb0a20787b6e54d37186c6acf6c607a8a26ce01d9c794db14c8']"
+    }
   }
 }
