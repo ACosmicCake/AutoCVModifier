@@ -181,11 +181,10 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (cvFilename) {
                 html += `<button onclick="window.open('/api/download-cv/${escapeHtml(cvFilename)}', '_blank')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2">Download CV</button>`;
-                // Add data attributes and a class for later event listener attachment
                 html += `<button class="auto-apply-btn bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2" data-job-id="${escapeHtml(jobId)}" data-job-url="${escapeHtml(job_url)}" data-cv-filename="${escapeHtml(cvFilename)}">Auto Apply Job</button>`;
             }
             html += `       </div>
-                            <div class="auto-apply-status text-xs mt-1 text-gray-600"></div> <!-- New div for status messages -->
+                            <div class="auto-apply-status text-xs mt-1 text-gray-600"></div> <!-- Ensure this was part of the previous change, if not, it's added now -->
                             <details class="mt-2 text-sm">
                                 <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Full Description (for reference)</summary>
                                 <p class="mt-1 text-gray-600 leading-relaxed whitespace-pre-line">${escapeHtml(description)}</p>
@@ -263,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const autoApplyButtons = jobResultsDiv.querySelectorAll('.auto-apply-btn');
         autoApplyButtons.forEach(button => {
             button.addEventListener('click', async (event) => {
-                const clickedButton = event.currentTarget; // Use currentTarget for the button event was attached to
+                const clickedButton = event.currentTarget; 
                 const originalButtonText = clickedButton.textContent;
                 clickedButton.disabled = true;
                 clickedButton.textContent = 'Applying...';
@@ -273,8 +272,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (jobCard) {
                     statusDiv = jobCard.querySelector('.auto-apply-status');
                     if (statusDiv) {
-                        statusDiv.innerHTML = ''; // Clear previous messages
-                        statusDiv.className = 'auto-apply-status text-xs mt-1 text-gray-600'; // Reset class
+                        statusDiv.innerHTML = ''; 
+                        statusDiv.className = 'auto-apply-status text-xs mt-1 text-gray-600'; 
                     }
                 }
 
@@ -321,24 +320,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (response.ok) {
                         console.log('AutoApply Response:', resultData);
-                        alert('AutoApply process initiated: ' + (resultData.message || 'Request successful. Check server logs.'));
+                        // alert('AutoApply process initiated: ' + (resultData.message || 'Request successful. Check server logs.')); // Alert kept for now
                         if (statusDiv) {
-                            statusDiv.textContent = `Process initiated: ${resultData.message || 'Server confirmed.'}`;
+                            statusDiv.textContent = `Initiated: ${resultData.message || 'Server confirmed.'}`;
                             statusDiv.className = 'auto-apply-status text-xs mt-1 text-green-600';
                         }
                     } else {
                         console.error('AutoApply Error Data:', resultData);
-                        alert('AutoApply failed: ' + (resultData.error || 'Unknown server error. Check console.'));
+                        // alert('AutoApply failed: ' + (resultData.error || 'Unknown server error. Check console.')); // Alert kept for now
                         if (statusDiv) {
                             statusDiv.textContent = `Failed: ${resultData.error || 'Unknown server error.'}`;
                             statusDiv.className = 'auto-apply-status text-xs mt-1 text-red-600';
                         }
                     }
-                } catch (error) { // Catches network errors or issues with fetch/JSON parsing itself
+                } catch (error) { 
                     console.error('Fetch Error for AutoApply:', error);
-                    alert('AutoApply request failed: ' + error.message);
+                    // alert('AutoApply request failed: ' + error.message); // Alert kept for now
                     if (statusDiv) {
-                        statusDiv.textContent = `Request error: ${error.message}`;
+                        statusDiv.textContent = `Request Error: ${error.message}`;
                         statusDiv.className = 'auto-apply-status text-xs mt-1 text-red-600';
                     }
                 } finally {
@@ -349,15 +348,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         
-        updateBatchButtonState(); // Update batch button state after rendering jobs and attaching listeners
+        updateBatchButtonState(); 
     }
 
     // --- Store current jobs data globally for access in batch CV update ---
-    let currentJobsData = []; // Will be populated by displayJobs
+    let currentJobsData = []; 
 
     // --- Fetch and Display Jobs (Filtered or All) ---
     async function fetchAndDisplayJobs(queryParams = {}) {
-        currentJobsData = []; // Clear previous data
+        currentJobsData = []; 
         showLoading('Fetching jobs from database...');
         if (jobResultsDiv) jobResultsDiv.innerHTML = '<p>Loading jobs...</p>';
 
@@ -375,6 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
             hideLoading();
 
             if (response.ok && result.jobs) {
+                currentJobsData = result.jobs; // Populate currentJobsData
                 displayJobs(result.jobs);
             } else {
                 if (jobResultsDiv) jobResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to fetch jobs.')}</p>`;
@@ -522,7 +522,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
                                     const autoApplyBtn = document.createElement('button');
                                     autoApplyBtn.textContent = 'Auto Apply Job';
-                                    autoApplyBtn.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2';
+                                    autoApplyBtn.className = 'auto-apply-btn bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2';
+                                    
+                                    // Set data attributes for the new auto-apply button
+                                    autoApplyBtn.dataset.jobId = result.job_id;
+                                    const pdfUrlPartsBatch = result.pdf_url.split('/');
+                                    const newCvFilenameBatch = pdfUrlPartsBatch[pdfUrlPartsBatch.length -1];
+                                    autoApplyBtn.dataset.cvFilename = newCvFilenameBatch;
+                                    
+                                    const currentJobBatch = currentJobsData.find(job => job.id === parseInt(result.job_id));
+                                    if (currentJobBatch && currentJobBatch.url) {
+                                        autoApplyBtn.dataset.jobUrl = currentJobBatch.url;
+                                    } else {
+                                        console.error(`Could not find job URL for job ID ${result.job_id} in currentJobsData for batch-generated button.`);
+                                        autoApplyBtn.dataset.jobUrl = ""; // Fallback
+                                    }
+
                                     // Add event listener for this dynamically created button (batch context)
                                     autoApplyBtn.addEventListener('click', async (event) => {
                                         const clickedButtonBatch = event.currentTarget;
@@ -535,8 +550,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                         if (jobCardBatch) {
                                             statusDivBatch = jobCardBatch.querySelector('.auto-apply-status');
                                             if (statusDivBatch) {
-                                                statusDivBatch.innerHTML = ''; // Clear previous messages
-                                                statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-gray-600'; // Reset class
+                                                statusDivBatch.innerHTML = ''; 
+                                                statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-gray-600'; 
                                             }
                                         }
 
@@ -555,7 +570,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         }
 
                                         const userProfileFileInputBatch = document.getElementById('userProfileFile');
-                                        let profile_json_path_batch = "User_profile.json"; // Default
+                                        let profile_json_path_batch = "User_profile.json"; 
                                         if (userProfileFileInputBatch && userProfileFileInputBatch.files && userProfileFileInputBatch.files.length > 0) {
                                             profile_json_path_batch = userProfileFileInputBatch.files[0].name;
                                         } else {
@@ -577,14 +592,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                             const responseData = await fetchResponse.json();
                                             if (fetchResponse.ok) {
                                                 console.log('AutoApply Response (batch):', responseData);
-                                                alert('AutoApply (batch) initiated: ' + (responseData.message || 'OK'));
+                                                // alert('AutoApply (batch) initiated: ' + (responseData.message || 'OK'));
                                                 if (statusDivBatch) {
-                                                    statusDivBatch.textContent = `Process initiated: ${responseData.message || 'OK'}`;
+                                                    statusDivBatch.textContent = `Initiated: ${responseData.message || 'OK'}`;
                                                     statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-green-600';
                                                 }
                                             } else {
                                                 console.error('AutoApply Error (batch):', responseData);
-                                                alert('AutoApply (batch) failed: ' + (responseData.error || 'Error'));
+                                                // alert('AutoApply (batch) failed: ' + (responseData.error || 'Error'));
                                                 if (statusDivBatch) {
                                                     statusDivBatch.textContent = `Failed: ${responseData.error || 'Error'}`;
                                                     statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-red-600';
@@ -592,9 +607,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                             }
                                         } catch (fetchError) {
                                             console.error('Fetch Error for AutoApply (batch):', fetchError);
-                                            alert('AutoApply (batch) request failed: ' + fetchError.message);
+                                            // alert('AutoApply (batch) request failed: ' + fetchError.message);
                                             if (statusDivBatch) {
-                                                statusDivBatch.textContent = `Request error: ${fetchError.message}`;
+                                                statusDivBatch.textContent = `Request Error: ${fetchError.message}`;
                                                 statusDivBatch.className = 'auto-apply-status text-xs mt-1 text-red-600';
                                             }
                                         } finally {
