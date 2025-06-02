@@ -14,9 +14,20 @@ from app.ai_core.mvp_field_filler import generate_text_fill_actions_for_mvp as m
 from app.ai_core.live_visual_perception import get_llm_field_predictions, parse_llm_output_to_identified_elements
 from app.ai_core.live_visual_grounder import ground_visual_elements
 from app.ai_core.live_semantic_matcher import annotate_fields_with_semantic_meaning # New integration
-from app.common.ai_core_data_structures import IdentifiedFormField, NavigationElement, NavigationActionType # For isinstance and nav logic
+from app.common.ai_core_data_structures import (
+    IdentifiedFormField,
+    NavigationElement,
+    QuestionAnsweringResult,
+    ActionSequenceRecommendation, # Added
+    ActionSequenceActionType, # Added
+    PredictedFieldType, # Added
+    NavigationActionType,
+    VisualLocation, # Added
+    ActionDetail # Implicitly used by List[ActionDetail]
+)
 from app.ai_core.live_question_answerer import generate_answer_for_question, _load_user_profile, _load_job_description
-from app.common.ai_core_data_structures import QuestionAnsweringResult
+# QuestionAnsweringResult is already imported via the grouped import above
+from action_generation_orchestrator import orchestrate_action_sequence # Added for advanced action generation
 
 # (Simulated) User Profile for MVP
 MVP_USER_PROFILE = {
@@ -50,6 +61,7 @@ class MVCOrchestrator:
         self.ai_recommendations_cache: Optional[Dict[str, Any]] = None
         self.user_profile = MVP_USER_PROFILE
         self.auto_apply_mode = False # Add this line
+        self.current_target_url: Optional[str] = None # Added for multi-step navigation
 
         self.browser_wrapper = MVPSeleniumWrapper(webdriver_path=webdriver_path, headless=False)
         if not self.browser_wrapper.driver:
@@ -434,28 +446,64 @@ class MVCOrchestrator:
         logging.info("AI Core: Received raw output from LLM.")
         logging.debug(f"Raw LLM output dictionary: {raw_llm_output}")
 
-        identified_elements_visual_only, navigation_elements_visual_only = parse_llm_output_to_identified_elements(raw_llm_output)
+        # Ensure these are lists of IdentifiedFormField and NavigationElement
+        parsed_visual_forms, parsed_visual_navs = parse_llm_output_to_identified_elements(raw_llm_output)
+        identified_elements_visual_only: List[IdentifiedFormField] = [
+            el if isinstance(el, IdentifiedFormField) else IdentifiedFormField(**el) for el in parsed_visual_forms # type: ignore
+        ]
+        navigation_elements_visual_only: List[NavigationElement] = [
+            el if isinstance(el, NavigationElement) else NavigationElement(**el) for el in parsed_visual_navs # type: ignore
+        ]
         logging.info(f"AI Core: Parsed LLM output. Found {len(identified_elements_visual_only)} visual form fields and {len(navigation_elements_visual_only)} visual navigation elements.")
 
-        all_visual_elements_to_ground = identified_elements_visual_only + navigation_elements_visual_only
+        all_visual_elements_to_ground: List[Any] = [] # Using List[Any] to accommodate mixed types before filtering
+        all_visual_elements_to_ground.extend(identified_elements_visual_only)
+        all_visual_elements_to_ground.extend(navigation_elements_visual_only)
+
+
         if not all_visual_elements_to_ground:
             logging.warning("AI Core: No visual elements identified by LLM to ground.")
-            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing stopped early due to no visual elements identified by LLM to ground.")
+            # Return new structure even in this case
             return {
-                "summary": "No visual elements identified by LLM. Nothing to ground or process further.",
-                "fields_to_fill": [], "actions": [], "navigation_element_text": "N/A"
+                "form_understanding": {
+                    "fields": [],
+                    "navigation_elements": []
+                },
+                "question_answers": [],
+                "summary": "No visual elements identified by LLM. Nothing to ground or process further."
             }
 
         logging.info(f"AI Core: Starting visual grounding for {len(all_visual_elements_to_ground)} elements...")
-        grounded_elements_mixed = ground_visual_elements(all_visual_elements_to_ground, actual_dom_elements_details)
+        # Ensure ground_visual_elements returns lists of actual dataclass instances
+        grounded_elements_mixed_raw = ground_visual_elements(all_visual_elements_to_ground, actual_dom_elements_details)
 
         grounded_form_fields: List[IdentifiedFormField] = []
         grounded_navigation_elements: List[NavigationElement] = []
-        for el in grounded_elements_mixed:
-            if isinstance(el, IdentifiedFormField):
-                grounded_form_fields.append(el)
-            elif isinstance(el, NavigationElement):
-                grounded_navigation_elements.append(el)
+        for el_data in grounded_elements_mixed_raw:
+            if isinstance(el_data, IdentifiedFormField): # Already an instance
+                grounded_form_fields.append(el_data)
+            elif isinstance(el_data, NavigationElement): # Already an instance
+                grounded_navigation_elements.append(el_data)
+            # If they are dicts, convert them (assuming constructor can handle dicts)
+            # Adding more specific checks for dictionary structure before attempting conversion
+            elif isinstance(el_data, dict):
+                # Heuristic for IdentifiedFormField dict: check for keys common to this type
+                if all(k in el_data for k in ['visual_label_text', 'predicted_label', 'predicted_field_type']):
+                    try:
+                        grounded_form_fields.append(IdentifiedFormField(**el_data))
+                    except TypeError as e:
+                        logging.error(f"Failed to convert dict to IdentifiedFormField: {el_data}, error: {e}")
+                # Heuristic for NavigationElement dict: check for keys common to this type
+                elif all(k in el_data for k in ['visual_label_text', 'action_type_predicted']):
+                    try:
+                        grounded_navigation_elements.append(NavigationElement(**el_data))
+                    except TypeError as e:
+                        logging.error(f"Failed to convert dict to NavigationElement: {el_data}, error: {e}")
+                else:
+                    logging.warning(f"AI Core: Unknown dictionary structure in grounded_elements_mixed: {el_data}")
+            else:
+                logging.warning(f"AI Core: Unknown element type in grounded_elements_mixed: {type(el_data)}")
+
 
         count_successfully_grounded_fields = sum(1 for f in grounded_form_fields if f.dom_path_primary)
         count_successfully_grounded_navs = sum(1 for n in grounded_navigation_elements if n.dom_path_primary)
@@ -463,7 +511,11 @@ class MVCOrchestrator:
                      f"{count_successfully_grounded_navs}/{len(grounded_navigation_elements)} navigation elements were grounded.")
 
         logging.info("AI Core: Performing LIVE semantic matching on grounded fields...")
-        semantically_matched_fields = annotate_fields_with_semantic_meaning(grounded_form_fields, live_llm_call=True)
+        # Ensure annotate_fields_with_semantic_meaning returns List[IdentifiedFormField]
+        semantically_matched_fields_raw = annotate_fields_with_semantic_meaning(grounded_form_fields, live_llm_call=True)
+        semantically_matched_fields: List[IdentifiedFormField] = [
+            f if isinstance(f, IdentifiedFormField) else IdentifiedFormField(**f) for f in semantically_matched_fields_raw # type: ignore
+        ]
         count_successfully_semantic_matched = sum(1 for f in semantically_matched_fields if f.semantic_meaning_predicted and f.semantic_meaning_predicted != "system_internal.other_unspecified_field")
         logging.info(f"AI Core: Live semantic matching complete. {count_successfully_semantic_matched}/{len(semantically_matched_fields)} fields have a specific semantic meaning assigned.")
 
@@ -497,127 +549,139 @@ class MVCOrchestrator:
                     job_context_data=job_context_for_qa,
                     live_llm_call=True
                 )
-                question_answers_generated.append(qa_result)
-                if qa_result.suggested_answer_draft and not qa_result.suggested_answer_draft.startswith("Error:") and not "blocked" in qa_result.suggested_answer_draft:
-                    temp_user_profile_for_action_gen[field.semantic_meaning_predicted] = qa_result.suggested_answer_draft
-                    logging.info(f"AI Core: QA answer for '{field.semantic_meaning_predicted}' will be used for action generation.")
+            # Ensure qa_result is a QuestionAnsweringResult instance
+            if isinstance(qa_result, dict):
+                try:
+                    # Attempt to create QuestionAnsweringResult, ensure all required fields are present or provide defaults
+                    qa_result_data = {
+                        'question_text_identified': qa_result.get('question_text_identified', question_text),
+                        'dom_path_question': qa_result.get('dom_path_question', field.dom_path_primary),
+                        'semantic_key_of_question': qa_result.get('semantic_key_of_question', field.semantic_meaning_predicted),
+                        'suggested_answer_draft': qa_result.get('suggested_answer_draft'),
+                        'confidence_score_answer': qa_result.get('confidence_score_answer', 0.0),
+                        'raw_llm_response_answer_generation': qa_result.get('raw_llm_response_answer_generation'),
+                        'error_message': qa_result.get('error_message')
+                    }
+                    qa_result_obj = QuestionAnsweringResult(**qa_result_data)
+                except TypeError as e:
+                    logging.error(f"Failed to convert dict to QuestionAnsweringResult: {qa_result}, error: {e}")
+                    qa_result_obj = QuestionAnsweringResult(
+                        question_text_identified=question_text,
+                        dom_path_question=field.dom_path_primary,
+                        semantic_key_of_question=field.semantic_meaning_predicted,
+                        suggested_answer_draft=f"Error: Could not parse QA result - {e}",
+                        confidence_score_answer=0.0,
+                        raw_llm_response_answer_generation=str(qa_result),
+                        error_message=f"Conversion error: {e}"
+                    )
+            elif isinstance(qa_result, QuestionAnsweringResult): # Already a QuestionAnsweringResult object
+                qa_result_obj = qa_result
+            else: # Handle unexpected type for qa_result
+                logging.error(f"Unexpected type for qa_result: {type(qa_result)}. Expected dict or QuestionAnsweringResult.")
+                qa_result_obj = QuestionAnsweringResult(
+                    question_text_identified=question_text,
+                    dom_path_question=field.dom_path_primary,
+                    semantic_key_of_question=field.semantic_meaning_predicted,
+                    suggested_answer_draft="Error: Unexpected QA result type",
+                    confidence_score_answer=0.0,
+                    raw_llm_response_answer_generation=str(qa_result),
+                    error_message="Unexpected QA result type"
+                )
+
+            question_answers_generated.append(qa_result_obj)
+            # Note: The logic that used temp_user_profile_for_action_gen is removed as action generation is deferred.
+            # We still log if an answer was usable or not.
+            if qa_result_obj.suggested_answer_draft and not qa_result_obj.suggested_answer_draft.startswith("Error:") and not "blocked" in qa_result_obj.suggested_answer_draft:
+                logging.info(f"AI Core: QA answer generated for '{field.semantic_meaning_predicted}'.")
                 else:
-                    logging.warning(f"AI Core: QA for '{field.semantic_meaning_predicted}' did not produce a usable answer. Original profile value (if any) will be used for this field's action.")
+                logging.warning(f"AI Core: QA for '{field.semantic_meaning_predicted}' did not produce a usable answer. Answer: '{qa_result_obj.suggested_answer_draft}', Error: '{qa_result_obj.error_message}'")
 
-        logging.info("AI Core: Generating MVP text fill actions (potentially with QA answers in profile)...")
-        fill_actions_details_obj_list = mvp_generate_text_fill_actions(
-            semantically_matched_fields,
-            temp_user_profile_for_action_gen
-        )
-        logging.info(f"AI Core: MVP text fill action generation complete. {len(fill_actions_details_obj_list)} fill actions proposed.")
-        if not fill_actions_details_obj_list and count_successfully_grounded_fields > 0 and not any(qa.suggested_answer_draft for qa in question_answers_generated) :
-             logging.warning("AI Core: No fill actions generated by MVP action generator (and no QA answers were generated/used). This might be due to semantic keys not matching user profile, no grounded paths, or no fillable types found.")
-
-        fields_to_display = []
-        for field in semantically_matched_fields:
-            value_to_fill_display = temp_user_profile_for_action_gen.get(field.semantic_meaning_predicted, "N/A_IN_PROFILE") \
-                                    if field.semantic_meaning_predicted else "N/A_SEMANTIC_MATCH"
-            corresponding_qa: Optional[QuestionAnsweringResult] = next(
-                (qa for qa in question_answers_generated if qa.dom_path_question == field.dom_path_primary and qa.suggested_answer_draft and not qa.suggested_answer_draft.startswith("Error:")), None
-            )
-            display_semantic_key = field.semantic_meaning_predicted if field.semantic_meaning_predicted else "NONE"
-            if corresponding_qa:
-                value_to_fill_display = f"[QA Draft]: {corresponding_qa.suggested_answer_draft[:100]}"
-                if len(corresponding_qa.suggested_answer_draft) > 100:
-                    value_to_fill_display += "..."
-            elif field.semantic_meaning_predicted and field.semantic_meaning_predicted in temp_user_profile_for_action_gen and \
-                 field.semantic_meaning_predicted not in [qa.semantic_key_of_question for qa in question_answers_generated if qa.suggested_answer_draft]:
-                value_to_fill_display = temp_user_profile_for_action_gen[field.semantic_meaning_predicted]
-            fields_to_display.append({
-                "label": field.visual_label_text or "Unknown Label",
-                "value": value_to_fill_display,
-                "xpath": field.dom_path_primary if field.dom_path_primary else "NOT_GROUNDED",
-                "semantic_key_assigned": display_semantic_key,
-                "overall_confidence": field.confidence_score
-            })
-
-        final_actions_list = [action.to_dict() for action in fill_actions_details_obj_list]
-        chosen_navigation_text = "No usable navigation found."
-        nav_target: Optional[NavigationElement] = None
-
-        if grounded_navigation_elements:
-            submit_navs = [n for n in grounded_navigation_elements if n.action_type_predicted == NavigationActionType.SUBMIT_FORM and n.dom_path_primary]
-            if submit_navs: nav_target = submit_navs[0]
-            else:
-                next_navs = [n for n in grounded_navigation_elements if n.action_type_predicted == NavigationActionType.NEXT_PAGE and n.dom_path_primary]
-                if next_navs: nav_target = next_navs[0]
-                else:
-                    first_grounded_nav = next((n for n in grounded_navigation_elements if n.dom_path_primary), None)
-                    if first_grounded_nav: nav_target = first_grounded_nav
-            if nav_target:
-                chosen_navigation_text = nav_target.visual_label_text or "Unnamed Navigation"
-                final_actions_list.append({
-                    "action_type": "CLICK_ELEMENT",
-                    "dom_path_target": nav_target.dom_path_primary,
-                    "visual_label": chosen_navigation_text
-                })
-                logging.info(f"AI Core: Selected navigation action: Click '{chosen_navigation_text}' (XPath: {nav_target.dom_path_primary})")
-            elif any(n.dom_path_primary for n in grounded_navigation_elements):
-                 chosen_navigation_text = "Grounded navigation found, but no clear submit/next/usable target."
-                 logging.warning(f"AI Core: {chosen_navigation_text}")
-            else:
-                 chosen_navigation_text = "Navigation elements visually found but none could be grounded with a DOM path."
-                 logging.warning(f"AI Core: {chosen_navigation_text}")
-        else:
-            logging.info("AI Core: No navigation elements were passed from visual perception to grounding.")
+        # Action generation (mvp_generate_text_fill_actions) is REMOVED from this function.
+        # Navigation action selection logic is REMOVED from this function.
 
         summary_message = (
-            f"LivePerception: {len(identified_elements_visual_only)} vis-fields, {len(navigation_elements_visual_only)} vis-navs. "
-            f"Grounder: {count_successfully_grounded_fields}/{len(grounded_form_fields)} fields, {count_successfully_grounded_navs}/{len(grounded_navigation_elements)} navs. "
-            f"LiveSemantics: {count_successfully_semantic_matched}/{len(semantically_matched_fields)} fields matched. "
-            f"MVPActions: {len(fill_actions_details_obj_list)} fill actions. QA Generated: {len(question_answers_generated)}."
+            f"Visual Perception: {len(identified_elements_visual_only)} form fields, {len(navigation_elements_visual_only)} navigation elements. "
+            f"Grounding: {count_successfully_grounded_fields}/{len(grounded_form_fields)} form fields, {count_successfully_grounded_navs}/{len(grounded_navigation_elements)} navigation elements. "
+            f"Semantic Matching: {count_successfully_semantic_matched}/{len(semantically_matched_fields)} fields matched. "
+            f"Question Answering: {len(question_answers_generated)} answers generated."
         )
+        logging.info(f"AI Core Summary: {summary_message}")
 
-        final_recommendations = {
-            "summary": summary_message,
-            "fields_to_fill": fields_to_display,
-            "actions": final_actions_list,
-            "navigation_element_text": chosen_navigation_text,
-            "question_answers_to_review": [qa.to_dict() for qa in question_answers_generated]
+        ai_recommendations_cache = {
+            "form_understanding": {
+                "fields": semantically_matched_fields,  # List[IdentifiedFormField]
+                "navigation_elements": grounded_navigation_elements  # List[NavigationElement]
+            },
+            "question_answers": question_answers_generated,  # List[QuestionAnsweringResult]
+            "summary": summary_message
         }
-        logging.debug(f"Final AI recommendations (with QA): {final_recommendations}")
-        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing finished, returning recommendations.")
-        return final_recommendations
+        # Old keys like "fields_to_fill", "actions", "navigation_element_text", "question_answers_to_review" are removed.
 
-    def _execute_browser_automation(self, actions: List[Dict[str, Any]]) -> bool:
+        logging.debug(f"New AI recommendations cache structure: {{'form_understanding': {{'fields': List[IdentifiedFormField], 'navigation_elements': List[NavigationElement]}}, 'question_answers': List[QuestionAnsweringResult], 'summary': str}}")
+        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing finished, returning new structured recommendations.")
+        return ai_recommendations_cache
+
+    def _execute_browser_automation(self, actions: List[ActionDetail]) -> bool:
         print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Executing browser automation actions...")
         if not self.browser_wrapper or not self.browser_wrapper.driver:
             print("Error: Browser wrapper not available for executing actions.")
             return False
 
-        for i, action_dict in enumerate(actions):
-            action_type = action_dict.get('action_type')
-            dom_path = action_dict.get('dom_path_target') # This is typically XPath
-            value = action_dict.get('value_to_fill')
-            # The find_by logic needs to be robust if dom_path_target is not always XPath
-            # For now, assume it's XPath as per current fill_text_field/click_element calls.
-            find_by_method = "xpath" # Default, assuming dom_path_target is XPath
+        for i, action in enumerate(actions):
+            action_type = action.action_type
+            dom_path = action.dom_path_target
+            value_to_fill = action.value_to_fill
+            option_to_select = action.option_to_select # For dropdowns
+            file_path_to_upload = action.file_path_to_upload # For file uploads
 
-            print(f"  Action {i+1}/{len(actions)}: Type: {action_type}, Path: {dom_path}" + (f", Value: '{str(value)[:30]}...'" if value else ""))
+            print(f"  Action {i+1}/{len(actions)}: Type: {action_type.name}, Path: {dom_path}" +
+                  (f", Value: '{str(value_to_fill)[:30]}...'" if value_to_fill else "") +
+                  (f", Option: '{option_to_select}'" if option_to_select else "") +
+                  (f", File: '{file_path_to_upload}'" if file_path_to_upload else "")
+            )
 
             success = False
-            if action_type == "FILL_TEXT":
-                if dom_path and value is not None and dom_path != "NOT_GROUNDED" and "MISSING" not in dom_path:
-                    success = self.browser_wrapper.fill_text_field(selector=dom_path, text=str(value), find_by=find_by_method)
+            find_by_method = "xpath" # Assuming dom_path_target is usually XPath
+
+            if action_type == ActionSequenceActionType.FILL_TEXT:
+                if dom_path and value_to_fill is not None and "NOT_GROUNDED" not in dom_path and "MISSING" not in dom_path :
+                    success = self.browser_wrapper.fill_text_field(selector=dom_path, text=str(value_to_fill), find_by=find_by_method)
                 else:
                     print(f"    Skipping FILL_TEXT due to missing path ('{dom_path}') or value.")
-            elif action_type == "CLICK_ELEMENT":
-                if dom_path and dom_path != "NOT_GROUNDED" and "MISSING" not in dom_path:
+
+            elif action_type == ActionSequenceActionType.CLICK_ELEMENT:
+                if dom_path and "NOT_GROUNDED" not in dom_path and "MISSING" not in dom_path:
                     success = self.browser_wrapper.click_element(selector=dom_path, find_by=find_by_method)
                 else:
                     print(f"    Skipping CLICK_ELEMENT due to missing path ('{dom_path}').")
+
+            elif action_type == ActionSequenceActionType.SELECT_DROPDOWN_OPTION:
+                if dom_path and option_to_select is not None and "NOT_GROUNDED" not in dom_path and "MISSING" not in dom_path :
+                    if hasattr(self.browser_wrapper, 'select_dropdown_option_by_visible_text'):
+                        success = self.browser_wrapper.select_dropdown_option_by_visible_text(selector=dom_path, text=option_to_select, find_by=find_by_method)
+                    elif hasattr(self.browser_wrapper, 'select_dropdown_option'): # Generic fallback
+                         success = self.browser_wrapper.select_dropdown_option(selector=dom_path, option=option_to_select, find_by=find_by_method) # type: ignore
+                    else:
+                        print(f"    SKIPPING SELECT_DROPDOWN_OPTION: MVPSeleniumWrapper does not have 'select_dropdown_option_by_visible_text' or 'select_dropdown_option' method.")
+                else:
+                    print(f"    Skipping SELECT_DROPDOWN_OPTION due to missing path ('{dom_path}') or option.")
+
+            elif action_type == ActionSequenceActionType.UPLOAD_FILE:
+                if dom_path and file_path_to_upload is not None and "NOT_GROUNDED" not in dom_path and "MISSING" not in dom_path :
+                    if hasattr(self.browser_wrapper, 'upload_file_to_element'):
+                        success = self.browser_wrapper.upload_file_to_element(selector=dom_path, file_path=file_path_to_upload, find_by=find_by_method)
+                    else:
+                        print(f"    SKIPPING UPLOAD_FILE: MVPSeleniumWrapper does not have 'upload_file_to_element' method.")
+                else:
+                    print(f"    Skipping UPLOAD_FILE due to missing path ('{dom_path}') or file path.")
+
             else:
-                print(f"    Warning: Unknown action type '{action_type}' in action sequence.")
+                print(f"    Warning: Unknown or unhandled action type '{action_type.name}' in action sequence.")
                 continue
 
             if not success:
-                print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Browser automation action failed: {action_type} on {dom_path}.")
-                return False
+                print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Browser automation action failed: {action_type.name} on {dom_path}.")
+                return False # Stop on first failure
             time.sleep(0.5)
 
         print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): All browser automation actions completed successfully.")
@@ -663,16 +727,24 @@ class MVCOrchestrator:
                     elif not self.job_url or not self.job_url.startswith("http"):
                         print("Invalid or missing URL. Please include http:// or https:// or choose 'y' for predefined.")
                         self.job_url = None
+                        self.current_target_url = None
                     else:
+                        self.current_target_url = self.job_url # Initialize current_target_url
                         self.current_state = OrchestratorState.LOADING_PAGE_DATA
-                        print(f"State: {self.current_state} - URL: {self.job_url}")
+                        print(f"State: {self.current_state} - URL: {self.current_target_url}")
 
                 elif self.current_state == OrchestratorState.LOADING_PAGE_DATA:
-                    if not self.job_url:
-                        print("Error: No job URL to load. Resetting.")
+                    if not self.current_target_url: # Changed from self.job_url
+                        print("Error: No current target URL to load. Resetting.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                         continue
-                    self.page_data_cache = self._load_page_data(self.job_url)
+                    # Determine URL for _load_page_data:
+                    # If current_target_url is the same as browser's current url, it means we are continuing a flow.
+                    # Otherwise, it's an initial load or a redirect we need to enforce.
+                    # MVPSeleniumWrapper.navigate_to_url handles not re-navigating if already on the URL.
+                    url_to_load = self.current_target_url
+
+                    self.page_data_cache = self._load_page_data(url_to_load)
                     if self.page_data_cache:
                         self.current_state = OrchestratorState.AWAITING_LOGIN_APPROVAL
                     else:
@@ -734,17 +806,65 @@ class MVCOrchestrator:
                         print("Error: No page data to process. Resetting.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                         continue
-                    self.ai_recommendations_cache = self._call_ai_core(self.page_data_cache, self.user_profile)
-                    if self.ai_recommendations_cache:
-                        if self.ai_recommendations_cache.get("actions") or \
-                           (self.ai_recommendations_cache.get("summary") and "Nothing to ground" in self.ai_recommendations_cache.get("summary", "")):
-                            print("AI Core processing complete. Proceeding to user approval.")
-                            self.current_state = OrchestratorState.AWAITING_USER_APPROVAL
-                        else:
-                            print("Error: Failed to get valid AI recommendations or no actionable items proposed by AI Core.")
-                            self.current_state = OrchestratorState.FAILED_ERROR
+
+                    ai_core_output = self._call_ai_core(self.page_data_cache, self.user_profile)
+
+                    if not ai_core_output:
+                        print("Error: AI Core processing failed to return any recommendations (_call_ai_core returned None).")
+                        self.current_state = OrchestratorState.FAILED_ERROR
+                        print(f"State: {self.current_state}")
+                        continue
+
+                    form_understanding = ai_core_output.get("form_understanding", {})
+                    question_answers_generated = ai_core_output.get("question_answers", [])
+                    ai_summary = ai_core_output.get("summary", "Summary not available.")
+
+                    semantically_matched_fields = form_understanding.get("fields", [])
+                    grounded_navigation_elements = form_understanding.get("navigation_elements", [])
+
+                    print("Orchestrator: Calling orchestrate_action_sequence...")
+                    action_sequence_recommendation = orchestrate_action_sequence(
+                        processed_fields=semantically_matched_fields,
+                        navigation_elements=grounded_navigation_elements,
+                        user_profile_data=self.user_profile,
+                        approved_qa_results=question_answers_generated,
+                        # page_context={} # Omitting for now, or using default
+                    )
+                    # TODO: Add logic to handle ClarificationRequest if returned by AI Core.
+
+                    if not action_sequence_recommendation:
+                        print("Error: Action sequence generation failed (orchestrate_action_sequence returned None).")
+                        self.current_state = OrchestratorState.FAILED_ERROR
+                        self.ai_recommendations_cache = { # Store partial data for debugging
+                            "action_sequence_recommendation": None,
+                            "form_understanding": form_understanding,
+                            "question_answers": question_answers_generated,
+                            "summary": ai_summary + " | Action generation failed."
+                        }
+                        print(f"State: {self.current_state}")
+                        continue
+
+                    self.ai_recommendations_cache = {
+                        "action_sequence_recommendation": action_sequence_recommendation,
+                        "form_understanding": form_understanding,
+                        "question_answers": question_answers_generated,
+                        "summary": ai_summary # This summary is from _call_ai_core
+                    }
+                    logging.info(f"Orchestrator: New ai_recommendations_cache populated with action_sequence.")
+                    logging.debug(f"Cache content: {self.ai_recommendations_cache}")
+
+
+                    # Conditional Transition to AWAITING_USER_APPROVAL
+                    has_actions = action_sequence_recommendation and action_sequence_recommendation.actions
+                    has_qa_to_review = bool(question_answers_generated)
+                    # Also consider if the initial _call_ai_core summary indicated "Nothing to ground"
+                    nothing_to_ground = "Nothing to ground" in ai_summary
+
+                    if has_actions or has_qa_to_review or nothing_to_ground:
+                        print("AI Core and Action Generation processing complete. Proceeding to user approval.")
+                        self.current_state = OrchestratorState.AWAITING_USER_APPROVAL
                     else:
-                        print("Error: AI Core processing failed to return any recommendations.")
+                        print("Error: No actionable items (no actions, no QA) proposed by AI pipeline.")
                         self.current_state = OrchestratorState.FAILED_ERROR
                     print(f"State: {self.current_state}")
 
@@ -756,52 +876,102 @@ class MVCOrchestrator:
 
                     print("\n--- AI Recommendations ---")
                     print(f"Summary: {self.ai_recommendations_cache.get('summary', 'N/A')}")
-                    print("Fields to fill/identified:")
-                    for field_info in self.ai_recommendations_cache.get('fields_to_fill', []):
-                        print(f"  - Label: {field_info.get('label', 'N/A')}, "
-                              f"Value to Fill: '{field_info.get('value', 'N/A')}', "
-                              f"XPath: {field_info.get('xpath', 'N/A')}, "
-                              f"Semantic Key: {field_info.get('semantic_key_assigned', 'N/A')}, "
-                              f"Confidence: {field_info.get('overall_confidence', 'N/A')}")
-                    print(f"Proposed Navigation: Click '{self.ai_recommendations_cache.get('navigation_element_text', 'N/A')}'")
 
-                    qa_answers_review = self.ai_recommendations_cache.get('question_answers_to_review', [])
-                    if qa_answers_review:
-                        print("\n--- Suggested Answers to Application Questions (Review) ---")
-                        for i, qa_info in enumerate(qa_answers_review):
-                            print(f"  Question {i+1} for Path '{qa_info.get('dom_path_question')}': {qa_info.get('question_text_identified')}")
-                            print(f"    Suggested Answer: {qa_info.get('suggested_answer_draft')}")
+                    # Display Identified Form Fields & Data
+                    form_understanding = self.ai_recommendations_cache.get("form_understanding", {})
+                    identified_fields: List[IdentifiedFormField] = form_understanding.get("fields", [])
+                    all_qa_results: List[QuestionAnsweringResult] = self.ai_recommendations_cache.get("question_answers", [])
+
+                    print("\n--- Identified Form Fields & Data ---")
+                    if identified_fields:
+                        for field in identified_fields:
+                            value_to_fill_display = "N/A_IN_PROFILE"
+                            if field.semantic_meaning_predicted:
+                                # Check if it's a QA field and if an answer exists
+                                is_qa_field = field.semantic_meaning_predicted.startswith("application.custom_question") or \
+                                              field.semantic_meaning_predicted == "application.cover_letter_text_final"
+                                corresponding_qa = next(
+                                    (qa for qa in all_qa_results if qa.semantic_key_of_question == field.semantic_meaning_predicted and qa.suggested_answer_draft), None
+                                )
+                                if is_qa_field and corresponding_qa:
+                                    value_to_fill_display = f"[QA Draft]: {corresponding_qa.suggested_answer_draft[:100]}"
+                                    if len(corresponding_qa.suggested_answer_draft) > 100:  value_to_fill_display += "..."
+                                elif field.semantic_meaning_predicted in self.user_profile:
+                                    value_to_fill_display = self.user_profile[field.semantic_meaning_predicted]
+
+                            print(f"  - Label: {field.visual_label_text or 'Unknown Label'}")
+                            print(f"    Value: '{value_to_fill_display}'")
+                            print(f"    XPath: {field.dom_path_primary or 'NOT_GROUNDED'}")
+                            print(f"    Semantic Key: {field.semantic_meaning_predicted or 'NONE'}")
+                            print(f"    Confidence: {field.confidence_score:.2f}")
+                    else:
+                        print("  No form fields identified.")
+
+                    # Display Proposed Actions
+                    action_sequence_rec = self.ai_recommendations_cache.get("action_sequence_recommendation")
+                    proposed_actions: List[ActionDetail] = action_sequence_rec.actions if action_sequence_rec else []
+
+                    print("\n--- Proposed Actions ---")
+                    if proposed_actions:
+                        for i, action in enumerate(proposed_actions):
+                            action_details = f"  Action {i+1}: {action.action_type.name}"
+                            if action.dom_path_target: action_details += f", Target: {action.dom_path_target}"
+                            if action.value_to_fill: action_details += f", Value: '{str(action.value_to_fill)[:30]}...'"
+                            if action.option_to_select: action_details += f", Option: '{action.option_to_select}'"
+                            if action.file_path_to_upload: action_details += f", File: '{action.file_path_to_upload}'"
+                            print(action_details)
+                    else:
+                        print("  No actions proposed.")
+
+                    # Display Suggested Answers (QA)
+                    # qa_answers_review = self.ai_recommendations_cache.get('question_answers', []) # Already got this as all_qa_results
+                    print("\n--- Suggested Answers to Application Questions (Review) ---")
+                    if all_qa_results:
+                        for i, qa_info in enumerate(all_qa_results):
+                            print(f"  Question {i+1} for Field with DOM Path '{qa_info.dom_path_question}':")
+                            print(f"    Identified Question Text: {qa_info.question_text_identified}")
+                            print(f"    Suggested Answer: {qa_info.suggested_answer_draft}")
+                            print(f"    Semantic Key: {qa_info.semantic_key_of_question}")
                         print("--- End of Suggested Answers (Review) ---")
+                    else:
+                        print("  No QA answers to review.")
 
-                    if not self.ai_recommendations_cache.get("actions") and not qa_answers_review:
+                    # Approval Logic
+                    has_actions = bool(proposed_actions)
+                    has_qa = bool(all_qa_results)
+
+                    if not has_actions and not has_qa:
                         print("No actions proposed by AI and no QA answers to review. Resetting for new URL.")
                         self.current_state = OrchestratorState.AWAITING_JOB_URL
                         time.sleep(1)
                         continue
-                    elif not self.ai_recommendations_cache.get("actions") and qa_answers_review:
+                    elif not has_actions and has_qa:
                         print("Only QA answers to review. No direct browser actions proposed. Please review the QA answers.")
 
                     if self.auto_apply_mode:
                         print("AutoApply Mode: Auto-approving AI recommendations.")
-                        if self.ai_recommendations_cache.get("actions"):
+                        if has_actions:
                             self.current_state = OrchestratorState.EXECUTING_AUTOMATION
-                        elif self.ai_recommendations_cache.get('question_answers_to_review'):
+                        elif has_qa: # QA-only case
                             print("AutoApply Mode: Only QA answers to review. Logging them and completing this cycle.")
                             self._log_user_approval_of_qa_only()
-                            self.current_state = OrchestratorState.COMPLETED_SUCCESS
-                        else:
+                            self.current_state = OrchestratorState.COMPLETED_SUCCESS # Or AWAITING_JOB_URL if preferred for QA-only
+                        else: # Should not be reached due to the check above
                             print("AutoApply Mode: No actions and no QA to approve. Setting to FAILED_ERROR.")
                             self.current_state = OrchestratorState.FAILED_ERROR
-                    else:
+                    else: # Manual approval mode
                         approval = input("Approve and apply (this includes all fields and QA answers)? (y/n/quit): ").lower()
                         if approval == 'y':
-                            if not self.ai_recommendations_cache.get("actions") and self.ai_recommendations_cache.get('question_answers_to_review'):
+                            if has_actions:
+                                self.current_state = OrchestratorState.EXECUTING_AUTOMATION
+                            elif has_qa: # QA-only case, user approved
                                 print("Approved QA answers. No direct browser actions to execute. Resetting for next URL.")
                                 self._log_user_approval_of_qa_only()
+                                self.current_state = OrchestratorState.AWAITING_JOB_URL # Consistent with previous logic for QA-only approval
+                                # continue # This might be needed if AWAITING_JOB_URL doesn't immediately loop
+                            else: # No actions, no QA, but user said 'y'. Should be caught by earlier check.
+                                print("No actions or QA to apply. Resetting.")
                                 self.current_state = OrchestratorState.AWAITING_JOB_URL
-                                continue
-                            else:
-                                self.current_state = OrchestratorState.EXECUTING_AUTOMATION
                         elif approval == 'n':
                             print("Application not approved by user. Logging feedback and resetting.")
                             self._log_user_disapproval()
@@ -813,14 +983,55 @@ class MVCOrchestrator:
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.EXECUTING_AUTOMATION:
-                    if not self.ai_recommendations_cache or not self.ai_recommendations_cache.get("actions"):
-                        print("Error: No browser actions to execute. This state should not be reached if only QA was approved. Resetting.")
-                        self.current_state = OrchestratorState.AWAITING_JOB_URL
+                    if not self.ai_recommendations_cache or \
+                       not self.ai_recommendations_cache.get("action_sequence_recommendation") or \
+                       not self.ai_recommendations_cache["action_sequence_recommendation"].actions:
+
+                        # Check if there are QA answers, if so, this might be a valid state if user approved only QA
+                        if self.ai_recommendations_cache and self.ai_recommendations_cache.get("question_answers"):
+                             print("No browser actions to execute, but QA answers were present and potentially approved. Completing cycle.")
+                             self.current_state = OrchestratorState.COMPLETED_SUCCESS
+                        else:
+                            print("Error: No browser actions to execute. Resetting.")
+                            self.current_state = OrchestratorState.AWAITING_JOB_URL
                         continue
 
-                    success = self._execute_browser_automation(self.ai_recommendations_cache['actions'])
-                    if success:
+                    actions_to_execute = self.ai_recommendations_cache["action_sequence_recommendation"].actions
+                    if not actions_to_execute: # Should be caught by the above, but as a safeguard
+                        print("No actions to execute. Completing cycle as success.")
                         self.current_state = OrchestratorState.COMPLETED_SUCCESS
+                        continue
+
+                    success = self._execute_browser_automation(actions_to_execute)
+                    if success:
+                        # Check for multi-step navigation
+                        action_seq_rec = self.ai_recommendations_cache.get("action_sequence_recommendation")
+                        if action_seq_rec and action_seq_rec.expected_next_page_type:
+                            next_page_type = action_seq_rec.expected_next_page_type.lower()
+                            # Define completion types more explicitly
+                            completion_types = ["confirmation_page", "application_submitted", "stay_on_page_completed"]
+
+                            if any(comp_type in next_page_type for comp_type in completion_types) or \
+                               next_page_type in ["stay_on_page_or_no_clear_nav", ""]: # Empty or None also means complete
+                                print(f"Orchestrator: Application step/final submission likely complete. Expected next page: {next_page_type}")
+                                self.current_state = OrchestratorState.COMPLETED_SUCCESS
+                            else: # Indicates continuation
+                                print(f"Orchestrator: Multi-step form detected. Expected next page type: {next_page_type}. Proceeding to load next page data.")
+                                if self.browser_wrapper and self.browser_wrapper.driver:
+                                    self.current_target_url = self.browser_wrapper.driver.current_url
+                                    print(f"Orchestrator: Next target URL set to current browser URL: {self.current_target_url}")
+                                else: # Should not happen if browser is active
+                                    print("Orchestrator ERROR: Browser not available to get current URL for multi-step. Failing.")
+                                    self.current_state = OrchestratorState.FAILED_ERROR
+                                    self.current_target_url = None # Reset
+                                    self.job_url = None # Reset
+                                if self.current_state != OrchestratorState.FAILED_ERROR: # Only transition if not already failed
+                                   self.current_state = OrchestratorState.LOADING_PAGE_DATA
+                                # self.job_url is NOT reset here, as it's the overall application URL.
+                        else:
+                            # Default to COMPLETED_SUCCESS if expected_next_page_type is missing
+                            print("Orchestrator: No explicit next page type. Assuming completion.")
+                            self.current_state = OrchestratorState.COMPLETED_SUCCESS
                     else:
                         print("Orchestrator: Execution of browser automation failed.")
                         self.current_state = OrchestratorState.FAILED_ERROR
@@ -830,6 +1041,7 @@ class MVCOrchestrator:
                     print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Entering COMPLETED_SUCCESS state for job URL: {self.job_url}.")
                     print(f"\nApplication process for {self.job_url} completed successfully!")
                     self.job_url = None
+                    self.current_target_url = None # Reset current_target_url
                     self.current_state = OrchestratorState.AWAITING_JOB_URL
                     print(f"State: {self.current_state}")
 
@@ -837,6 +1049,7 @@ class MVCOrchestrator:
                     print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Entering FAILED_ERROR state for job URL: {self.job_url}.")
                     print(f"\nApplication process for {self.job_url} failed or encountered an error.")
                     self.job_url = None
+                    self.current_target_url = None # Reset current_target_url
                     self.current_state = OrchestratorState.AWAITING_JOB_URL
                     print(f"State: {self.current_state}")
 
