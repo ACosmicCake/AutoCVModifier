@@ -51,15 +51,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateBatchButtonState() {
         // Ensure button and help text elements exist before proceeding
         if (!batchGenerateCVsButton || !batchCvHelpText) {
-            // console.warn("Batch CV button or help text element not found.");
             return;
         }
-        // Ensure CV file input and job results div exist for checks
-        // If these critical elements are missing, disable button and show help.
         if (!cvFileInput || !jobResultsDiv) {
-            // console.warn("CV file input or job results div not found for batch button state update.");
             batchGenerateCVsButton.disabled = true;
-            batchGenerateCVsButton.classList.add('hidden'); // Explicitly hide
+            batchGenerateCVsButton.classList.add('hidden');
+            batchCvHelpText.textContent = "Upload a CV and ensure job listings are loaded to enable batch generation.";
             batchCvHelpText.classList.remove('hidden');
             return;
         }
@@ -69,12 +66,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (cvFileSelected && selectedJobsCount > 0) {
             batchGenerateCVsButton.disabled = false;
-            batchGenerateCVsButton.classList.remove('hidden'); // Show button
-            batchCvHelpText.classList.add('hidden');    // Hide help text
+            batchGenerateCVsButton.classList.remove('hidden');
+            batchCvHelpText.classList.add('hidden');
+            batchCvHelpText.textContent = "Select your base CV and one or more jobs to generate tailored CVs."; // Default help text
         } else {
             batchGenerateCVsButton.disabled = true;
-            batchGenerateCVsButton.classList.add('hidden'); // Hide button
-            batchCvHelpText.classList.remove('hidden');   // Show help text
+            batchGenerateCVsButton.classList.add('hidden');
+            batchCvHelpText.classList.remove('hidden');
+            if (!cvFileSelected && selectedJobsCount === 0) {
+                batchCvHelpText.textContent = "Please upload your base CV and select at least one job from the list below.";
+            } else if (!cvFileSelected) {
+                batchCvHelpText.textContent = "Please upload your base CV.";
+            } else { // selectedJobsCount === 0
+                batchCvHelpText.textContent = "Please select at least one job from the list below.";
+            }
         }
     }
 
@@ -151,11 +156,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // Use job.id from database as the unique value for checkbox
             const jobId = job.id;
             const isApplied = job.applied === 1 || job.applied === true;
+            const cvFilename = job.cv_filename; // New field
+            // const generatedCvId = job.generated_cv_id; // New field, might be used later
 
             html += `
-                <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id-card="${escapeHtml(jobId)}">
+                <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id="${escapeHtml(jobId)}">
                     <div class="flex items-start">
-                        <input type="checkbox" class="job-select-checkbox mt-1 mr-3 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" value="${escapeHtml(jobId)}" data-job-description="${escapeHtml(description)}" data-job-title="${escapeHtml(job.title || 'N/A')}">
+                        <input type="checkbox" class="job-select-checkbox mt-1 mr-3 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
+                               value="${escapeHtml(jobId)}" 
+                               data-job-id="${escapeHtml(jobId)}" 
+                               data-job-description="${escapeHtml(description)}" 
+                               data-job-title="${escapeHtml(job.title || 'N/A')}">
                         <div class="flex-grow">
                             <div class="flex justify-between items-center">
                                 <h4 class="text-lg font-bold text-blue-600">${escapeHtml(job.title || 'N/A')}</h4>
@@ -165,6 +176,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-xs text-gray-500">Source: ${escapeHtml(source)} | Scraped: ${escapeHtml(formatted_date_scraped)} | DB ID: ${jobId}</p>
                             <p class="text-xs text-gray-500 job-applied-status">Status: ${isApplied ? 'Applied' : 'Not Applied'}</p>
                             ${job_url ? `<a href="${escapeHtml(job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm mr-2">View Original Job</a>` : ''}
+                            
+                            <div class="mt-2 job-actions">`; // Container for action buttons
+            
+            if (cvFilename) {
+                html += `<button onclick="window.open('/api/download-cv/${escapeHtml(cvFilename)}', '_blank')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2">Download CV</button>`;
+                html += `<button onclick="console.log('Auto Apply for job ID ${escapeHtml(jobId)} clicked. CV: ${escapeHtml(cvFilename)}')" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2">Auto Apply Job</button>`;
+            }
+
+            html += `       </div> 
                             <details class="mt-2 text-sm">
                                 <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Full Description (for reference)</summary>
                                 <p class="mt-1 text-gray-600 leading-relaxed whitespace-pre-line">${escapeHtml(description)}</p>
