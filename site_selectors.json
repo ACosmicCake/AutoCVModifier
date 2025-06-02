@@ -96,7 +96,7 @@
     },
     "post_login_apply_button": {
       "type": "css",
-      "value": "#jobs-apply-button-id"
+      "value": "#jobs-apply-button-id > svg"
     }
   },
   "indeed.com": {
