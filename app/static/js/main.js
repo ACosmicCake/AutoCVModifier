@@ -51,15 +51,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateBatchButtonState() {
         // Ensure button and help text elements exist before proceeding
         if (!batchGenerateCVsButton || !batchCvHelpText) {
-            // console.warn("Batch CV button or help text element not found.");
             return;
         }
-        // Ensure CV file input and job results div exist for checks
-        // If these critical elements are missing, disable button and show help.
         if (!cvFileInput || !jobResultsDiv) {
-            // console.warn("CV file input or job results div not found for batch button state update.");
             batchGenerateCVsButton.disabled = true;
-            batchGenerateCVsButton.classList.add('hidden'); // Explicitly hide
+            batchGenerateCVsButton.classList.add('hidden');
+            batchCvHelpText.textContent = "Upload a CV and ensure job listings are loaded to enable batch generation.";
             batchCvHelpText.classList.remove('hidden');
             return;
         }
@@ -69,12 +66,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (cvFileSelected && selectedJobsCount > 0) {
             batchGenerateCVsButton.disabled = false;
-            batchGenerateCVsButton.classList.remove('hidden'); // Show button
-            batchCvHelpText.classList.add('hidden');    // Hide help text
+            batchGenerateCVsButton.classList.remove('hidden');
+            batchCvHelpText.classList.add('hidden');
+            batchCvHelpText.textContent = "Select your base CV and one or more jobs to generate tailored CVs."; // Default help text
         } else {
             batchGenerateCVsButton.disabled = true;
-            batchGenerateCVsButton.classList.add('hidden'); // Hide button
-            batchCvHelpText.classList.remove('hidden');   // Show help text
+            batchGenerateCVsButton.classList.add('hidden');
+            batchCvHelpText.classList.remove('hidden');
+            if (!cvFileSelected && selectedJobsCount === 0) {
+                batchCvHelpText.textContent = "Please upload your base CV and select at least one job from the list below.";
+            } else if (!cvFileSelected) {
+                batchCvHelpText.textContent = "Please upload your base CV.";
+            } else { // selectedJobsCount === 0
+                batchCvHelpText.textContent = "Please select at least one job from the list below.";
+            }
         }
     }
 
@@ -151,11 +156,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // Use job.id from database as the unique value for checkbox
             const jobId = job.id;
             const isApplied = job.applied === 1 || job.applied === true;
+            const cvFilename = job.cv_filename; // New field
+            // const generatedCvId = job.generated_cv_id; // New field, might be used later
 
             html += `
-                <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id-card="${escapeHtml(jobId)}">
+                <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id="${escapeHtml(jobId)}">
                     <div class="flex items-start">
-                        <input type="checkbox" class="job-select-checkbox mt-1 mr-3 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" value="${escapeHtml(jobId)}" data-job-description="${escapeHtml(description)}" data-job-title="${escapeHtml(job.title || 'N/A')}">
+                        <input type="checkbox" class="job-select-checkbox mt-1 mr-3 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
+                               value="${escapeHtml(jobId)}" 
+                               data-job-id="${escapeHtml(jobId)}" 
+                               data-job-description="${escapeHtml(description)}" 
+                               data-job-title="${escapeHtml(job.title || 'N/A')}">
                         <div class="flex-grow">
                             <div class="flex justify-between items-center">
                                 <h4 class="text-lg font-bold text-blue-600">${escapeHtml(job.title || 'N/A')}</h4>
@@ -165,6 +176,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-xs text-gray-500">Source: ${escapeHtml(source)} | Scraped: ${escapeHtml(formatted_date_scraped)} | DB ID: ${jobId}</p>
                             <p class="text-xs text-gray-500 job-applied-status">Status: ${isApplied ? 'Applied' : 'Not Applied'}</p>
                             ${job_url ? `<a href="${escapeHtml(job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm mr-2">View Original Job</a>` : ''}
+                            
+                            <div class="mt-2 job-actions">`; // Container for action buttons
+            
+            if (cvFilename) {
+                html += `<button onclick="window.open('/api/download-cv/${escapeHtml(cvFilename)}', '_blank')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2">Download CV</button>`;
+                html += `<button onclick="console.log('Auto Apply for job ID ${escapeHtml(jobId)} clicked. CV: ${escapeHtml(cvFilename)}')" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2">Auto Apply Job</button>`;
+            }
+
+            html += `       </div> 
                             <details class="mt-2 text-sm">
                                 <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Full Description (for reference)</summary>
                                 <p class="mt-1 text-gray-600 leading-relaxed whitespace-pre-line">${escapeHtml(description)}</p>
@@ -388,22 +408,77 @@ document.addEventListener('DOMContentLoaded', () => {
                 const resultsData = await response.json();
                 hideLoading();
 
+                if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear previous summary
+                const errorMessages = [];
+                let successes = 0;
+
                 if (response.ok && resultsData.results) {
-                    let html = '<h3 class="text-xl font-semibold mb-3">Batch CV Generation Results:</h3><div class="space-y-3">';
-                    resultsData.results.forEach(res => {
-                        html += `<div class="p-3 border rounded-md ${res.status === 'success' ? 'bg-green-50' : 'bg-red-50'}">`;
-                        html += `<p class="font-semibold">${escapeHtml(res.job_title_summary || 'Job')}: <span class="${res.status === 'success' ? 'text-green-700' : 'text-red-700'}">${escapeHtml(res.status)}</span></p>`;
-                        if (res.status === 'success' && res.pdf_url) {
-                            html += `<a href="${escapeHtml(res.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download PDF</a>`;
-                        } else if (res.message) {
-                            html += `<p class="text-sm text-red-600">${escapeHtml(res.message)}</p>`;
+                    resultsData.results.forEach(result => {
+                        if (result.status === 'success') {
+                            successes++;
+                            const jobCard = document.querySelector(`.job-card[data-job-id='${result.job_id}']`);
+                            if (jobCard) {
+                                const actionsDiv = jobCard.querySelector('.job-actions');
+                                if (actionsDiv) {
+                                    actionsDiv.innerHTML = ''; // Clear existing buttons
+
+                                    const downloadBtn = document.createElement('a');
+                                    downloadBtn.href = escapeHtml(result.pdf_url);
+                                    downloadBtn.textContent = 'Download CV';
+                                    downloadBtn.className = 'bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2';
+                                    downloadBtn.target = '_blank';
+                                    actionsDiv.appendChild(downloadBtn);
+
+                                    const autoApplyBtn = document.createElement('button');
+                                    autoApplyBtn.textContent = 'Auto Apply Job';
+                                    autoApplyBtn.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2';
+                                    autoApplyBtn.addEventListener('click', () => {
+                                        console.log(`Auto Apply clicked for job ID ${result.job_id}, CV: ${escapeHtml(result.pdf_url)}`);
+                                    });
+                                    actionsDiv.appendChild(autoApplyBtn);
+
+                                    jobCard.classList.add('bg-green-100');
+                                    setTimeout(() => jobCard.classList.remove('bg-green-100'), 3000);
+                                } else {
+                                    console.warn(`Actions div not found for job card ID: ${result.job_id}`);
+                                    // Optionally add this to a different kind of error/warning list if needed
+                                }
+                            } else {
+                                console.warn(`Job card not found for ID: ${result.job_id}`);
+                                // This case might happen if the job list was refreshed or changed during batch processing.
+                                // Add to errorMessages or a separate warnings list if necessary.
+                                errorMessages.push(`<li>Successfully generated CV for Job ID ${result.job_id} (title: ${escapeHtml(result.job_title_summary || 'N/A')}) but could not find its card to update. PDF: <a href="${escapeHtml(result.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download Here</a></li>`);
+                            }
+                        } else { // result.status === 'error'
+                            errorMessages.push(`<li>${escapeHtml(result.job_title_summary || 'Unknown Job')}: ${escapeHtml(result.message)} (Job ID: ${result.job_id || 'N/A'})</li>`);
                         }
-                        html += `</div>`;
                     });
-                    html += '</div>';
-                    if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = html;
-                } else {
-                     if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(resultsData.error || 'Failed to generate batch CVs.')}</p>`;
+
+                    if (errorMessages.length > 0 && batchCvResultsDiv) {
+                        const errorTitle = document.createElement('h4');
+                        errorTitle.className = 'text-lg font-semibold text-red-700 mb-2';
+                        errorTitle.textContent = 'CV Generation Issues:';
+                        batchCvResultsDiv.appendChild(errorTitle);
+                        
+                        const errorList = document.createElement('ul');
+                        errorList.className = 'list-disc list-inside text-red-600';
+                        errorList.innerHTML = errorMessages.join('');
+                        batchCvResultsDiv.appendChild(errorList);
+                    }
+                    
+                    if (successes > 0 && errorMessages.length === 0 && batchCvResultsDiv) {
+                         batchCvResultsDiv.innerHTML = `<p class="text-green-600">Batch CV generation completed successfully for ${successes} job(s). Job cards have been updated.</p>`;
+                    } else if (successes > 0 && errorMessages.length > 0 && batchCvResultsDiv) {
+                        // If there were also successes, add a small note about them if not already clear
+                        const successMessage = document.createElement('p');
+                        successMessage.className = 'text-green-600 mt-2';
+                        successMessage.textContent = `${successes} CV(s) generated successfully and job cards updated. See issues above.`;
+                        batchCvResultsDiv.appendChild(successMessage);
+                    }
+
+
+                } else { // Response not ok or resultsData.results not present
+                     if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(resultsData.error || 'Failed to process batch CVs response.')}</p>`;
                 }
             } catch (error) {
                 hideLoading();

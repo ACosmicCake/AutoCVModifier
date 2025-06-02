@@ -22,9 +22,14 @@ def get_db_connection():
     return conn
 
 def init_db():
-    """Initializes the database and creates the jobs table if it doesn't exist."""
+    """Initializes the database and creates tables if they don't exist."""
     conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # Enable foreign key support
+    cursor.execute("PRAGMA foreign_keys = ON;")
+
+    # Create jobs table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +44,25 @@ def init_db():
             applied INTEGER NOT NULL DEFAULT 0
         )
     ''')
-    # Commit the CREATE TABLE statement
+    # Commit the CREATE TABLE statement for jobs
+    conn.commit()
+
+    # Create generated_cvs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS generated_cvs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            cv_filename TEXT NOT NULL,
+            tailored_cv_json TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
+        )
+    ''')
+    # Create index for generated_cvs table
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_generated_cvs_job_id ON generated_cvs (job_id);
+    ''')
+    
+    # Commit the CREATE TABLE and CREATE INDEX statements for generated_cvs
     conn.commit()
 
     # Attempt to add the 'applied' column if it doesn't exist (for existing databases)
@@ -47,18 +70,18 @@ def init_db():
     try:
         cursor.execute("ALTER TABLE jobs ADD COLUMN applied INTEGER NOT NULL DEFAULT 0;")
         conn.commit() # Commit the ALTER TABLE statement
-        print("Column 'applied' added to 'jobs' table or already existed with default.")
+        print("Column 'applied' added to 'jobs' table.")
     except sqlite3.OperationalError as e:
         # Check if the error is "duplicate column name"
         if "duplicate column name: applied" in str(e).lower():
             print("Column 'applied' already exists in 'jobs' table.")
         else:
-            # If it's a different OperationalError, re-raise it
-            print(f"An unexpected SQLite OperationalError occurred: {e}")
-            raise
+            # If it's a different OperationalError, re-raise it or log more verbosely
+            print(f"An unexpected SQLite OperationalError occurred while updating 'jobs' table: {e}")
+            # raise # Decide if re-raising is appropriate for your application flow
 
     conn.close()
-    print("Database initialized and jobs table schema updated (if necessary).")
+    print("Database initialized, tables created/updated, and foreign key support enabled.")
 
 def save_job(job_data):
     """Saves a single job listing to the database.
@@ -158,6 +181,61 @@ def toggle_applied_status(job_id: int) -> dict | None:
             conn.close()
         raise # Re-raise the exception to be handled by the caller (API endpoint)
 
+def save_generated_cv(job_id: int, cv_filename: str, tailored_cv_json: str):
+    """Saves a generated CV record to the database.
+
+    Args:
+        job_id: The ID of the job this CV is associated with.
+        cv_filename: The filename of the generated CV PDF.
+        tailored_cv_json: The JSON string of the tailored CV data.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys = ON;") # Ensure FK support is on for this connection
+        cursor.execute('''
+            INSERT INTO generated_cvs (job_id, cv_filename, tailored_cv_json)
+            VALUES (?, ?, ?)
+        ''', (job_id, cv_filename, tailored_cv_json))
+        conn.commit()
+        print(f"Generated CV for job ID {job_id} saved: {cv_filename}")
+    except sqlite3.Error as e:
+        print(f"Database error while saving generated CV for job ID {job_id}: {e}")
+        # Optionally, re-raise the exception if the caller needs to handle it
+        # raise
+    finally:
+        if conn:
+            conn.close()
+
+def get_generated_cv_by_job_id(job_id: int) -> dict | None:
+    """Fetches a generated CV record by job_id.
+
+    Args:
+        job_id: The ID of the job.
+
+    Returns:
+        A dictionary representing the CV data if found, otherwise None.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys = ON;") # Ensure FK support is on for this connection
+        cursor.execute('''
+            SELECT id, job_id, cv_filename, tailored_cv_json
+            FROM generated_cvs
+            WHERE job_id = ?
+        ''', (job_id,))
+        cv_data = cursor.fetchone() # fetchone() returns a Row object or None
+        if cv_data:
+            return dict(cv_data) # Convert Row to dict
+        return None
+    except sqlite3.Error as e:
+        print(f"Database error while fetching generated CV for job ID {job_id}: {e}")
+        return None # Return None on error
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == '__main__':
     # For testing or manual initialization
     init_db()
@@ -198,8 +276,13 @@ def get_jobs(filters=None):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Update base_query to include the new 'applied' column
-    base_query = "SELECT id, title, company, location, description, url, source, date_scraped, applied FROM jobs"
+    # Update base_query to include generated_cv_id and cv_filename from generated_cvs table
+    base_query = """
+        SELECT j.id, j.title, j.company, j.location, j.description, j.url, j.source, j.date_scraped, j.applied,
+               gc.id as generated_cv_id, gc.cv_filename
+        FROM jobs j
+        LEFT JOIN generated_cvs gc ON j.id = gc.job_id
+    """
     where_clauses = []
     params = []
 
@@ -210,29 +293,32 @@ def get_jobs(filters=None):
         applied_status = filters.get('applied_status')
 
         if keyword:
-            where_clauses.append("(title LIKE ? OR description LIKE ?)")
+            # Ensure correct aliasing if column names are ambiguous (e.g., j.title)
+            where_clauses.append("(j.title LIKE ? OR j.description LIKE ?)")
             params.extend([f"%{keyword}%", f"%{keyword}%"])
 
         if location:
-            where_clauses.append("location LIKE ?")
+            where_clauses.append("j.location LIKE ?") # Alias with j.
             params.append(f"%{location}%")
 
         if source:
-            where_clauses.append("source = ?")
+            where_clauses.append("j.source = ?") # Alias with j.
             params.append(source)
 
         if applied_status == 'applied':
-            where_clauses.append("applied = 1")
+            where_clauses.append("j.applied = 1") # Alias with j.
         elif applied_status == 'not_applied':
-            where_clauses.append("applied = 0")
+            where_clauses.append("j.applied = 0") # Alias with j.
         # If applied_status is 'all', None, or any other value, do not add a filter for 'applied' status
 
     if where_clauses:
+        # The base_query itself is a complete SELECT FROM JOIN, so WHERE clauses are appended directly
         query = f"{base_query} WHERE {' AND '.join(where_clauses)}"
     else:
-        query = base_query
+        # If there are no filters, base_query is already the complete query
+        query = base_query 
 
-    query += " ORDER BY date_scraped DESC" # Always order by most recent
+    query += " ORDER BY j.date_scraped DESC" # Always order by most recent, alias with j.
 
     try:
         cursor.execute(query, params)

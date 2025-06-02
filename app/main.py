@@ -20,7 +20,7 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, toggle_applied_status # Added toggle_applied_status
+from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv # Added save_generated_cv
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -329,14 +329,22 @@ def create_app(test_config=None):
 
         job_descriptions = request.form.getlist('job_descriptions[]')
         job_titles = request.form.getlist('job_titles[]') # For summary in results
+        job_ids = request.form.getlist('job_ids[]') # Retrieve job_ids
 
         if not job_descriptions:
             return jsonify({"error": "No job descriptions provided"}), 400
+        
+        if not job_ids:
+            return jsonify({"error": "No job IDs provided"}), 400
 
-        if len(job_descriptions) != len(job_titles):
-             # Fallback if titles are not sent consistently, though JS aims to send them.
-            job_titles = [f"Job {i+1}" for i in range(len(job_descriptions))]
-
+        if len(job_descriptions) != len(job_titles) or len(job_descriptions) != len(job_ids):
+             # Fallback for titles, but job_ids length mismatch is more critical
+            job_titles = [f"Job {i+1}" for i in range(len(job_descriptions))] # Keep this for titles
+            if len(job_descriptions) != len(job_ids):
+                # It's crucial that job_ids align with descriptions for saving CVs correctly.
+                # Log this error, as client-side should prevent this.
+                print(f"Error: Mismatch in lengths: descriptions ({len(job_descriptions)}), ids ({len(job_ids)})")
+                return jsonify({"error": "Mismatch in the number of job descriptions and job IDs received."}), 400
 
         results = []
         cv_content_str = None
@@ -372,9 +380,23 @@ def create_app(test_config=None):
         # Process each job description
         for index, jd_content in enumerate(job_descriptions):
             job_title_summary = job_titles[index] if index < len(job_titles) else f"Job Description {index + 1}"
+            current_job_id_str = job_ids[index]
+            
+            try:
+                job_id_int = int(current_job_id_str) # Convert job_id to int
+            except ValueError:
+                print(f"Error: Invalid job_id format '{current_job_id_str}' for job '{job_title_summary}'. Skipping.")
+                results.append({
+                    "job_id": current_job_id_str, # Keep original string for reference in result
+                    "job_title_summary": job_title_summary,
+                    "status": "error",
+                    "message": f"Invalid job_id format: {current_job_id_str}. Must be an integer."
+                })
+                continue
 
             if not jd_content:
                 results.append({
+                    "job_id": job_id_int,
                     "job_title_summary": job_title_summary,
                     "status": "error",
                     "message": "Empty job description provided."
@@ -391,6 +413,7 @@ def create_app(test_config=None):
 
                 if not tailored_cv_json_str:
                     results.append({
+                        "job_id": job_id_int,
                         "job_title_summary": job_title_summary,
                         "status": "error",
                         "message": "Failed to tailor CV (API processing failed)."
@@ -398,21 +421,35 @@ def create_app(test_config=None):
                     continue
 
                 # PDF Generation for this tailored CV
-                # Sanitize title for use in filename (optional, uuid is main uniqueness)
                 safe_title_part = secure_filename(job_title_summary)[:30] if job_title_summary else "job"
-                unique_pdf_filename = f"tailored_cv_{safe_title_part}_{uuid.uuid4()}.pdf"
-                full_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], unique_pdf_filename)
+                # Ensure unique_pdf_filename is just the name, not the full path
+                unique_pdf_filename_only = f"tailored_cv_{safe_title_part}_{job_id_int}_{uuid.uuid4()}.pdf"
+                full_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], unique_pdf_filename_only)
 
                 pdf_generation_success = generate_cv_pdf_from_json_string(tailored_cv_json_str, full_pdf_path)
 
                 if pdf_generation_success:
-                    results.append({
-                        "job_title_summary": job_title_summary,
-                        "status": "success",
-                        "pdf_url": f"/api/download-cv/{unique_pdf_filename}"
-                    })
+                    # Save to generated_cvs table
+                    try:
+                        save_generated_cv(job_id_int, unique_pdf_filename_only, tailored_cv_json_str)
+                        results.append({
+                            "job_id": job_id_int,
+                            "job_title_summary": job_title_summary,
+                            "status": "success",
+                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}"
+                        })
+                    except Exception as e_db_save:
+                        print(f"Error saving generated CV to database for job ID {job_id_int}: {e_db_save}")
+                        results.append({
+                            "job_id": job_id_int,
+                            "job_title_summary": job_title_summary,
+                            "status": "error",
+                            "message": "CV generated and PDF created, but failed to save record to database.",
+                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}" # Still provide URL if PDF was made
+                        })
                 else:
                     results.append({
+                        "job_id": job_id_int,
                         "job_title_summary": job_title_summary,
                         "status": "error",
                         "message": "Tailored, but PDF generation failed."
@@ -420,8 +457,9 @@ def create_app(test_config=None):
                     })
 
             except Exception as e_proc:
-                print(f"Error processing job description '{job_title_summary}': {e_proc}")
+                print(f"Error processing job description '{job_title_summary}' for job ID {job_id_int}: {e_proc}")
                 results.append({
+                    "job_id": job_id_int,
                     "job_title_summary": job_title_summary,
                     "status": "error",
                     "message": f"An unexpected error occurred: {str(e_proc)}"
