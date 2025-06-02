@@ -683,21 +683,27 @@ class MVCOrchestrator:
                     login_success = self._handle_login() # This now calls the new complex logic
                     if login_success:
                         print("Auto-login successful. Proceeding to next step.")
-                        # Refresh page data as login might have changed the page
-                        print("Refreshing page data after login...")
-                        current_url_after_login, _, _ = self.browser_wrapper.get_page_state(get_screenshot=False, get_dom=False)
-                        url_to_load_after_login = current_url_after_login or self.job_url # Fallback
-                        if not url_to_load_after_login:
-                            print("Error: Could not determine URL after login. Critical state.")
-                            self.current_state = OrchestratorState.FAILED_ERROR
-                        else:
-                            self.page_data_cache = self._load_page_data(url_to_load_after_login)
-                            if self.page_data_cache:
-                                print("Page data refreshed. Proceeding to apply button check.")
-                                self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL
-                            else:
-                                print("Error: Failed to reload page data after login.")
+                        try:
+                            # Refresh page data as login might have changed the page
+                            print("Refreshing page data after login...")
+                            current_url_after_login, _, _ = self.browser_wrapper.get_page_state(get_screenshot=False, get_dom=False)
+                            url_to_load_after_login = current_url_after_login or self.job_url # Fallback
+                            print(f"Orchestrator: Preparing to refresh page. current_url_after_login='{current_url_after_login}', self.job_url='{self.job_url}', effective url_to_load_after_login='{url_to_load_after_login}'")
+                            if not url_to_load_after_login:
+                                print("Error: Could not determine URL after login. Critical state.")
                                 self.current_state = OrchestratorState.FAILED_ERROR
+                            else:
+                                self.page_data_cache = self._load_page_data(url_to_load_after_login)
+                                if self.page_data_cache:
+                                    print("Page data refreshed. Proceeding to apply button check.")
+                                    self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL
+                                else:
+                                    print("Error: Failed to reload page data after login.")
+                                    self.current_state = OrchestratorState.FAILED_ERROR
+                        except Exception as e:
+                            print(f"CRITICAL ERROR during page refresh after login: {e}")
+                            self.current_state = OrchestratorState.FAILED_ERROR
+                            print(f"State set to FAILED_ERROR due to critical refresh error.")
                     else:
                         # _handle_login now prints its own failure reasons.
                         # print("Auto-login failed. Check selectors or page structure.") # Redundant

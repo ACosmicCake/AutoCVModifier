@@ -74,9 +74,11 @@ class MVPSeleniumWrapper:
             print(f"MVPSeleniumWrapper: Timeout while trying to navigate to {url}.")
             return False
         except WebDriverException as e:
+            print(f"MVPSeleniumWrapper: WebDriverException in navigate_to_url for '{url}'. Driver state: {self.driver}")
             print(f"MVPSeleniumWrapper: Error navigating to URL '{url}': {e}")
             return False
         except Exception as e:
+            print(f"MVPSeleniumWrapper: Unexpected Exception in navigate_to_url for '{url}'. Driver state: {self.driver}")
             print(f"MVPSeleniumWrapper: An unexpected error occurred during navigation to '{url}': {e}")
             return False
 
@@ -104,9 +106,11 @@ class MVPSeleniumWrapper:
             print(f"MVPSeleniumWrapper: Page state captured for URL: {current_url}")
             return current_url, screenshot_bytes, dom_string
         except WebDriverException as e:
+            print(f"MVPSeleniumWrapper: WebDriverException in get_page_state. Current URL: {self.driver.current_url if self.driver else 'N/A'}. Driver state: {self.driver}")
             print(f"MVPSeleniumWrapper: Error getting page state: {e}")
             return None, None, None
         except Exception as e:
+            print(f"MVPSeleniumWrapper: Unexpected Exception in get_page_state. Current URL: {self.driver.current_url if self.driver else 'N/A'}. Driver state: {self.driver}")
             print(f"MVPSeleniumWrapper: An unexpected error occurred while getting page state: {e}")
             return None, None, None
 
