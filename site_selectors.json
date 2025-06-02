@@ -96,7 +96,7 @@
     },
     "post_login_apply_button": {
       "type": "xpath",
-      "value": "//*[@id='jobs-apply-button-id']"
+      "value": "//div[contains(@class,'jobs-apply-button--top-card')]//button[contains(@class, 'jobs-apply-button')]"
     }
   },
   "indeed.com": {
