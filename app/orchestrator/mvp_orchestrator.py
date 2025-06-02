@@ -252,20 +252,68 @@ class MVCOrchestrator:
 
         # Attempt to click post-login apply button
         apply_button_config = linkedin_selectors.get("post_login_apply_button")
+        apply_click_success = False # Initialize success flag
+
         if self._validate_selector_config(apply_button_config, "post_login_apply_button (LinkedIn)"):
-            # Type assertion for type checker
             apply_button_config_typed = apply_button_config
-            print(f"LinkedIn Login: Attempting to click post-login apply button: {apply_button_config_typed}")
-            time.sleep(1) # Allow page to settle after login before clicking apply
+            print(f"LinkedIn Login: Attempting to click post-login apply button with primary config: {apply_button_config_typed}")
+            # Increased sleep and timeout from previous step
+            time.sleep(3)
             apply_click_success = self.browser_wrapper.click_element(
-                selector=apply_button_config_typed['value'], find_by=apply_button_config_typed['type']
+                selector=apply_button_config_typed['value'],
+                find_by=apply_button_config_typed['type'],
+                timeout=20
             )
             if apply_click_success:
-                print("LinkedIn Login: Successfully clicked post-login apply button.")
+                print("LinkedIn Login: Successfully clicked post-login apply button (primary selector).")
             else:
-                print("LinkedIn Login: Failed to click post-login apply button.")
+                print("LinkedIn Login: Primary selector failed for post-login apply button. Trying fallbacks...")
         else:
-            print("LinkedIn Login: 'post_login_apply_button' selector missing or invalid in site_selectors.json. Skipping apply button click.")
+            print("LinkedIn Login: 'post_login_apply_button' selector missing or invalid in site_selectors.json. Proceeding to fallbacks.")
+
+        # Fallback 1: Try finding by text "Easy Apply"
+        if not apply_click_success:
+            print("LinkedIn Login: Attempting fallback selector for 'Easy Apply' button.")
+            easy_apply_xpath = "//button[contains(normalize-space(.), 'Easy Apply') and not(@disabled)]"
+            apply_click_success = self.browser_wrapper.click_element(
+                selector=easy_apply_xpath,
+                find_by='xpath',
+                timeout=10 # Shorter timeout for fallbacks
+            )
+            if apply_click_success:
+                print("LinkedIn Login: Successfully clicked post-login apply button (fallback 'Easy Apply').")
+            else:
+                print("LinkedIn Login: Fallback selector for 'Easy Apply' failed.")
+
+        # Fallback 2: Try finding by text "Apply" (more generic), ensuring it's not an "Easy Apply" already tried
+        if not apply_click_success:
+            print("LinkedIn Login: Attempting fallback selector for 'Apply' button (excluding 'Easy Apply').")
+            # This XPath tries to find "Apply" but not "Easy Apply" to avoid redundancy if "Easy Apply" contains "Apply"
+            apply_xpath = "//button[contains(normalize-space(.), 'Apply') and not(contains(normalize-space(.), 'Easy Apply')) and not(@disabled)]"
+            apply_click_success = self.browser_wrapper.click_element(
+                selector=apply_xpath,
+                find_by='xpath',
+                timeout=10 # Shorter timeout for fallbacks
+            )
+            if apply_click_success:
+                print("LinkedIn Login: Successfully clicked post-login apply button (fallback 'Apply').")
+            else:
+                # If the above specific "Apply" (not "Easy Apply") fails, try a broader "Apply" as a last resort for this text
+                print("LinkedIn Login: Fallback selector for 'Apply' (excluding 'Easy Apply') failed. Trying broader 'Apply'.")
+                broad_apply_xpath = "//button[contains(normalize-space(.), 'Apply') and not(@disabled)]"
+                apply_click_success = self.browser_wrapper.click_element(
+                    selector=broad_apply_xpath,
+                    find_by='xpath',
+                    timeout=10 # Shorter timeout for fallbacks
+                )
+                if apply_click_success:
+                    print("LinkedIn Login: Successfully clicked post-login apply button (fallback broad 'Apply').")
+                else:
+                    print("LinkedIn Login: Fallback selector for broad 'Apply' also failed.")
+
+        if not apply_click_success:
+            print("LinkedIn Login: All attempts (primary and fallbacks) to click a post-login apply button failed.")
+        # The function will then continue to the `return True` statement at the end of _handle_linkedin_login
 
         return True # Return True because login was successful, apply button is best-effort
 
