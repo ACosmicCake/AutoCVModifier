@@ -82,28 +82,37 @@ class MVPSeleniumWrapper:
             print(f"MVPSeleniumWrapper: An unexpected error occurred during navigation to '{url}': {e}")
             return False
 
-    def get_page_state(self) -> Tuple[Optional[str], Optional[bytes], Optional[str]]:
+    def get_page_state(self, get_screenshot: bool = True, get_dom: bool = True) -> Tuple[Optional[str], Optional[bytes], Optional[str]]:
         """
-        Captures the current page state including URL, a viewport screenshot, and the full DOM.
+        Captures the current page state including URL, a viewport screenshot (optional), and the full DOM (optional).
         The screenshot is of the current viewport only.
+
+        Args:
+            get_screenshot (bool): Whether to capture the screenshot. Defaults to True.
+            get_dom (bool): Whether to capture the DOM. Defaults to True.
 
         Returns:
             Tuple[Optional[str], Optional[bytes], Optional[str]]:
-                (current_url, viewport_screenshot_bytes, dom_string).
-            Returns (None, None, None) if an error occurs or driver not initialized.
+                (current_url, screenshot_bytes, dom_string).
+            Returns (None, None, None) for values if an error occurs or driver not initialized,
+            or if specific capture is disabled. current_url should still be returned if possible.
         """
         if not self.driver:
             print("MVPSeleniumWrapper: Driver not initialized.")
             return None, None, None
         try:
             current_url = self.driver.current_url
-            # It's good practice to ensure the page has settled a bit before screenshot/DOM capture
-            # WebDriverWait(self.driver, 5).until(lambda d: d.execute_script('return document.readyState') == 'complete')
-            time.sleep(0.5) # Small fixed delay, more robust waits are better for real apps
+            time.sleep(0.5) # Small fixed delay
 
-            screenshot_bytes = self.driver.get_screenshot_as_png()
-            dom_string = self.driver.page_source
-            print(f"MVPSeleniumWrapper: Page state captured for URL: {current_url}")
+            screenshot_bytes = None
+            if get_screenshot:
+                screenshot_bytes = self.driver.get_screenshot_as_png()
+
+            dom_string = None
+            if get_dom:
+                dom_string = self.driver.page_source
+
+            print(f"MVPSeleniumWrapper: Page state captured for URL: {current_url}. Screenshot taken: {get_screenshot}, DOM captured: {get_dom}")
             return current_url, screenshot_bytes, dom_string
         except WebDriverException as e:
             print(f"MVPSeleniumWrapper: WebDriverException in get_page_state. Current URL: {self.driver.current_url if self.driver else 'N/A'}. Driver state: {self.driver}")
