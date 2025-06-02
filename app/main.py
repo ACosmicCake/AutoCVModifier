@@ -483,32 +483,54 @@ def create_app(test_config=None):
 
                 pdf_generation_success = generate_cv_pdf_from_json_string(tailored_cv_json_str, full_pdf_path)
 
-                if pdf_generation_success:
-                    # Save to generated_cvs table
+                # Also save the tailored_cv_json_str as a .json file
+                json_filename = os.path.splitext(unique_pdf_filename_only)[0] + ".json"
+                full_json_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], json_filename)
+                json_saved_successfully = False
+                try:
+                    with open(full_json_path, 'w', encoding='utf-8') as f_json:
+                        f_json.write(tailored_cv_json_str)
+                    print(f"Successfully saved CV JSON to {full_json_path}"); sys.stdout.flush()
+                    json_saved_successfully = True
+                except IOError as e_json_save:
+                    print(f"Error saving CV JSON file {full_json_path}: {e_json_save}"); sys.stdout.flush()
+                    # This error will be implicitly part of the result if pdf_generation_success is true
+                    # but the JSON file is needed by the /api/auto-apply endpoint later.
+
+                if pdf_generation_success: # We primarily key off PDF success for now for the DB record
+                    # Save to generated_cvs table (this function might need adjustment if it expects only PDF info)
+                    # For now, it only stores pdf_filename and the json_string itself, so it's okay.
                     try:
                         save_generated_cv(job_id_int, unique_pdf_filename_only, tailored_cv_json_str)
-                        results.append({
+                        # Include info about JSON save status in the result
+                        result_payload = {
                             "job_id": job_id_int,
                             "job_title_summary": job_title_summary,
-                            "status": "success",
-                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}"
-                        })
+                            "status": "success", # Overall status primarily reflects PDF generation and DB save
+                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}",
+                            "json_saved": json_saved_successfully,
+                            "json_filename": json_filename if json_saved_successfully else None
+                        }
+                        if not json_saved_successfully:
+                             result_payload["message"] = "PDF generated and DB record saved, but corresponding JSON file failed to save."
+                        results.append(result_payload)
                     except Exception as e_db_save:
-                        print(f"Error saving generated CV to database for job ID {job_id_int}: {e_db_save}")
+                        print(f"Error saving generated CV to database for job ID {job_id_int}: {e_db_save}"); sys.stdout.flush()
                         results.append({
                             "job_id": job_id_int,
                             "job_title_summary": job_title_summary,
                             "status": "error",
-                            "message": "CV generated and PDF created, but failed to save record to database.",
-                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}" # Still provide URL if PDF was made
+                            "message": "CV PDF generated, but failed to save record to database." + (" JSON also failed to save." if not json_saved_successfully else ""),
+                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}",
+                            "json_saved": json_saved_successfully
                         })
-                else:
+                else: # PDF generation failed
                     results.append({
                         "job_id": job_id_int,
                         "job_title_summary": job_title_summary,
                         "status": "error",
-                        "message": "Tailored, but PDF generation failed."
-                        # Optionally include tailored_cv_json_str here if useful for debugging
+                        "message": "Tailored, but PDF generation failed." + (" JSON also failed to save." if not json_saved_successfully else (" JSON was saved: " + json_filename if json_saved_successfully else "")),
+                        "json_saved": json_saved_successfully
                     })
 
             except Exception as e_proc:
