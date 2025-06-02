@@ -37,8 +37,6 @@ class OrchestratorState:
     AWAITING_LOGIN_APPROVAL = "AWAITING_LOGIN_APPROVAL" # New state
     EXECUTING_LOGIN = "EXECUTING_LOGIN" # New state
     CALLING_AI_CORE = "CALLING_AI_CORE"
-    AWAITING_APPLY_BUTTON_APPROVAL = "AWAITING_APPLY_BUTTON_APPROVAL" # New state
-    EXECUTING_APPLY_BUTTON_CLICK = "EXECUTING_APPLY_BUTTON_CLICK" # New state
     AWAITING_USER_APPROVAL = "AWAITING_USER_APPROVAL"
     EXECUTING_AUTOMATION = "EXECUTING_AUTOMATION"
     COMPLETED_SUCCESS = "COMPLETED_SUCCESS"
@@ -399,33 +397,6 @@ class MVCOrchestrator:
     # Its logic has been integrated into _handle_unknown_site_login.
     # def _find_and_click_login_button_dynamically(self) -> bool: ... (entire method removed)
 
-    def _handle_auto_click_apply(self) -> bool:
-        """
-        Attempts to find and click an "apply" button using a specific CSS selector.
-        Returns True if the button is found and clicked successfully, False otherwise.
-        """
-        print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Attempting to auto-click 'apply' button...")
-        if not self.browser_wrapper or not self.browser_wrapper.driver:
-            print("Error: Browser wrapper not available for auto-click apply.")
-            return False
-
-        apply_button_selector = 'button[aria-label*="Apply"]'
-
-        # Assuming click_element uses 'css_selector' by default if find_by is not specified,
-        # or that it correctly interprets the selector.
-        # For clarity, it's better to be explicit if the wrapper supports it.
-        # Let's assume it needs explicit find_by for CSS selectors if not xpath.
-        # The original code had `find_by="css_selector"` but the method signature expects `xpath` and then `find_by`.
-        # This seems like a bug in the original `_handle_auto_click_apply`.
-        # Correcting it to pass selector as the first argument, then find_by.
-        if self.browser_wrapper.click_element(selector=apply_button_selector, find_by="css_selector"):
-            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Successfully clicked 'apply' button (selector: {apply_button_selector}).")
-            time.sleep(2)
-            return True
-        else:
-            print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): Could not find or click 'apply' button (selector: {apply_button_selector}).")
-            return False
-
     def _call_ai_core(self, page_state: Dict[str, Any], user_profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         print(f"Orchestrator ({'AutoApply' if self.auto_apply_mode else 'Manual'}): AI Core processing started for {page_state.get('url')}.")
         logging.debug(f"Page state received (screenshot type): { {k: (type(v) if k=='screenshot_bytes' else v) for k,v in page_state.items()} }")
@@ -718,8 +689,8 @@ class MVCOrchestrator:
                         if login_choice == 'y':
                             self.current_state = OrchestratorState.EXECUTING_LOGIN
                         elif login_choice == 'n':
-                            print("Skipping auto-login. Proceeding to apply button check.")
-                            self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL
+                            print("Skipping auto-login. Proceeding to AI Core analysis.")
+                            self.current_state = OrchestratorState.CALLING_AI_CORE
                         elif login_choice == 'quit':
                             self.current_state = OrchestratorState.IDLE
                         else:
@@ -743,8 +714,8 @@ class MVCOrchestrator:
                             else:
                                 self.page_data_cache = self._load_page_data(url_to_load_after_login)
                                 if self.page_data_cache:
-                                    print("Page data refreshed. Proceeding to apply button check.")
-                                    self.current_state = OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL
+                                    print("Page data refreshed. Proceeding to AI Core analysis.")
+                                    self.current_state = OrchestratorState.CALLING_AI_CORE
                                 else:
                                     print("Error: Failed to reload page data after login.")
                                     self.current_state = OrchestratorState.FAILED_ERROR
@@ -775,45 +746,6 @@ class MVCOrchestrator:
                     else:
                         print("Error: AI Core processing failed to return any recommendations.")
                         self.current_state = OrchestratorState.FAILED_ERROR
-                    print(f"State: {self.current_state}")
-
-                elif self.current_state == OrchestratorState.AWAITING_APPLY_BUTTON_APPROVAL:
-                    if self.auto_apply_mode:
-                        print("AutoApply Mode: Attempting to auto-click 'apply' button...")
-                        self.current_state = OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK
-                    else:
-                        apply_choice = input("Attempt to auto-click an 'apply' button on this page? (y/n/quit): ").lower()
-                        if apply_choice == 'y':
-                            self.current_state = OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK
-                        elif apply_choice == 'n':
-                            print("Skipping auto-click of 'apply' button. Proceeding to AI Core analysis for form filling.")
-                            self.current_state = OrchestratorState.CALLING_AI_CORE
-                        elif apply_choice == 'quit':
-                            self.current_state = OrchestratorState.IDLE
-                        else:
-                            print("Invalid input. Please enter 'y', 'n', or 'quit'.")
-                    print(f"State: {self.current_state}")
-
-                elif self.current_state == OrchestratorState.EXECUTING_APPLY_BUTTON_CLICK:
-                    print("Executing auto-click 'apply' button...")
-                    apply_clicked_successfully = self._handle_auto_click_apply()
-                    if apply_clicked_successfully:
-                        print("Auto-click 'apply' successful. Refreshing page data and re-running AI Core...")
-                        current_url_after_apply, _, _ = self.browser_wrapper.get_page_state(get_screenshot=False, get_dom=False)
-                        url_to_load_after_apply = current_url_after_apply or self.job_url
-                        if not url_to_load_after_apply:
-                             print("Error: Could not determine URL after apply click. Critical state.")
-                             self.current_state = OrchestratorState.FAILED_ERROR
-                        else:
-                            self.page_data_cache = self._load_page_data(url_to_load_after_apply)
-                            if self.page_data_cache:
-                                self.current_state = OrchestratorState.CALLING_AI_CORE
-                            else:
-                                print("Error: Failed to reload page data after 'apply' click.")
-                                self.current_state = OrchestratorState.FAILED_ERROR
-                    else:
-                        print("Auto-click 'apply' button failed or button not found. Proceeding to AI Core analysis of current page.")
-                        self.current_state = OrchestratorState.CALLING_AI_CORE
                     print(f"State: {self.current_state}")
 
                 elif self.current_state == OrchestratorState.AWAITING_USER_APPROVAL:

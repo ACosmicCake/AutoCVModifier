@@ -228,21 +228,21 @@ class MVPSeleniumWrapper:
             print("MVPSeleniumWrapper: Driver not initialized.")
             return False
 
-        by_strategy = By.XPATH  # Default strategy
-        log_strategy_name = "xpath" # For logging purposes
+        log_strategy_name = find_by.lower() if find_by else 'xpath' # Prepare log name
 
-        if find_by == 'css':
+        if log_strategy_name == 'css' or log_strategy_name == 'css_selector':
             by_strategy = By.CSS_SELECTOR
-            log_strategy_name = "css"
-        elif find_by == 'id':
+            log_strategy_name = 'css' # Normalize for logging
+        elif log_strategy_name == 'id':
             by_strategy = By.ID
-            log_strategy_name = "id"
-        elif find_by == 'xpath':
+        elif log_strategy_name == 'xpath':
             by_strategy = By.XPATH
-            # log_strategy_name is already "xpath"
-        elif find_by is not None: # find_by is something else
-            print(f"MVPSeleniumWrapper: WARNING - Unrecognized find_by strategy '{find_by}'. Defaulting to By.XPATH for selector '{selector}'.")
-            # by_strategy is already By.XPATH, log_strategy_name is already "xpath"
+        else:
+            # Handles None or any other unrecognized strategy string
+            if find_by is not None: # Only warn if it was an actual unrecognized string
+                 print(f"MVPSeleniumWrapper: WARNING - Unrecognized find_by strategy '{find_by}'. Defaulting to By.XPATH for selector '{selector}'.")
+            by_strategy = By.XPATH
+            log_strategy_name = 'xpath' # Normalize for logging
 
         try:
             wait = WebDriverWait(self.driver, timeout)
@@ -282,21 +282,21 @@ class MVPSeleniumWrapper:
             print("MVPSeleniumWrapper: Driver not initialized.")
             return False
 
-        by_strategy = By.XPATH  # Default strategy
-        log_strategy_name = "xpath" # For logging purposes
+        log_strategy_name = find_by.lower() if find_by else 'xpath' # Prepare log name
 
-        if find_by == 'css':
+        if log_strategy_name == 'css' or log_strategy_name == 'css_selector':
             by_strategy = By.CSS_SELECTOR
-            log_strategy_name = "css"
-        elif find_by == 'id':
+            log_strategy_name = 'css' # Normalize for logging
+        elif log_strategy_name == 'id':
             by_strategy = By.ID
-            log_strategy_name = "id"
-        elif find_by == 'xpath':
+        elif log_strategy_name == 'xpath':
             by_strategy = By.XPATH
-            # log_strategy_name is already "xpath"
-        elif find_by is not None: # find_by is something else
-            print(f"MVPSeleniumWrapper: WARNING - Unrecognized find_by strategy '{find_by}'. Defaulting to By.XPATH for selector '{selector}'.")
-            # by_strategy is already By.XPATH, log_strategy_name is already "xpath"
+        else:
+            # Handles None or any other unrecognized strategy string
+            if find_by is not None: # Only warn if it was an actual unrecognized string
+                 print(f"MVPSeleniumWrapper: WARNING - Unrecognized find_by strategy '{find_by}'. Defaulting to By.XPATH for selector '{selector}'.")
+            by_strategy = By.XPATH
+            log_strategy_name = 'xpath' # Normalize for logging
 
         try:
             wait = WebDriverWait(self.driver, timeout)
