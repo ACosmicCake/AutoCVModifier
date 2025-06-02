@@ -95,8 +95,8 @@
       "value": "#base-sign-in-modal > div > section > div > div > form > div.flex.justify-between.sign-in-form__footer--full-width > button"
     },
     "post_login_apply_button": {
-      "type": "css",
-      "value": "#jobs-apply-button-id > svg"
+      "type": "xpath",
+      "value": "//*[@id='jobs-apply-button-id']"
     }
   },
   "indeed.com": {
