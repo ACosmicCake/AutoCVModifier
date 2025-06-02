@@ -129,6 +129,72 @@
             </div>
         </section>
 
+        <!-- User Profile Section -->
+        <section id="user-profile-section" class="bg-white p-6 rounded-lg shadow-lg mb-8">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4">User Profile</h2>
+            <form id="userProfileForm">
+                <div class="mb-4">
+                    <label for="currentLocation" class="block text-gray-700 text-sm font-bold mb-2">Current Location:</label>
+                    <input type="text" id="currentLocation" name="currentLocation" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label for="currentCompany" class="block text-gray-700 text-sm font-bold mb-2">Current Company:</label>
+                    <input type="text" id="currentCompany" name="currentCompany" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label for="linkedinUrl" class="block text-gray-700 text-sm font-bold mb-2">LinkedIn URL:</label>
+                    <input type="text" id="linkedinUrl" name="linkedinUrl" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label for="twitterUrl" class="block text-gray-700 text-sm font-bold mb-2">Twitter URL:</label>
+                    <input type="text" id="twitterUrl" name="twitterUrl" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label for="githubUrl" class="block text-gray-700 text-sm font-bold mb-2">GitHub URL:</label>
+                    <input type="text" id="githubUrl" name="githubUrl" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label for="portfolioUrl" class="block text-gray-700 text-sm font-bold mb-2">Portfolio URL:</label>
+                    <input type="text" id="portfolioUrl" name="portfolioUrl" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label for="otherWebsiteUrl" class="block text-gray-700 text-sm font-bold mb-2">Other Website URL:</label>
+                    <input type="text" id="otherWebsiteUrl" name="otherWebsiteUrl" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">NYC Intern Qualifications:</label>
+                    <fieldset class="mt-2">
+                        <legend class="sr-only">NYC Intern Qualifications</legend>
+                        <div class="mb-2">
+                            <p class="text-gray-600 text-sm mb-1">Are you able to commute to the Flatiron, NYC location 3 days/week?</p>
+                            <label for="commuteYes" class="inline-flex items-center mr-4">
+                                <input type="radio" id="commuteYes" name="commuteToFlatiron" value="true" class="form-radio h-4 w-4 text-blue-600">
+                                <span class="ml-2 text-gray-700">Yes</span>
+                            </label>
+                            <label for="commuteNo" class="inline-flex items-center">
+                                <input type="radio" id="commuteNo" name="commuteToFlatiron" value="false" class="form-radio h-4 w-4 text-blue-600">
+                                <span class="ml-2 text-gray-700">No</span>
+                            </label>
+                        </div>
+                        <div>
+                            <p class="text-gray-600 text-sm mb-1">Are you able to commit to a 6-12 month internship?</p>
+                            <label for="commitYes" class="inline-flex items-center mr-4">
+                                <input type="radio" id="commitYes" name="commitToInternship" value="true" class="form-radio h-4 w-4 text-blue-600">
+                                <span class="ml-2 text-gray-700">Yes</span>
+                            </label>
+                            <label for="commitNo" class="inline-flex items-center">
+                                <input type="radio" id="commitNo" name="commitToInternship" value="false" class="form-radio h-4 w-4 text-blue-600">
+                                <span class="ml-2 text-gray-700">No</span>
+                            </label>
+                        </div>
+                    </fieldset>
+                </div>
+                <button type="button" id="generateProfileButton" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Generate User Profile JSON
+                </button>
+            </form>
+        </section>
+
         <!-- Loading Indicator -->
         <div id="loadingIndicator" class="fixed top-0 left-0 w-full h-full bg-gray-900 bg-opacity-50 flex justify-center items-center z-50 hidden">
             <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-32 w-32"></div>

@@ -488,6 +488,61 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- User Profile Form ---
+    const userProfileForm = document.getElementById('userProfileForm');
+    const generateProfileButton = document.getElementById('generateProfileButton');
+
+    if (generateProfileButton && userProfileForm) {
+        generateProfileButton.addEventListener('click', () => {
+            const userProfileData = {};
+
+            // Populate with values from the form fields
+            userProfileData.CurrentLocation = document.getElementById('currentLocation').value;
+            userProfileData.CurrentCompany = document.getElementById('currentCompany').value;
+            userProfileData.LinkedInURL = document.getElementById('linkedinUrl').value;
+            userProfileData.TwitterURL = document.getElementById('twitterUrl').value;
+            userProfileData.GitHubURL = document.getElementById('githubUrl').value;
+            userProfileData.PortfolioURL = document.getElementById('portfolioUrl').value;
+            userProfileData.OtherWebsiteURL = document.getElementById('otherWebsiteUrl').value;
+
+            // NYC Intern Qualifications
+            userProfileData.NYCInternQualifications = {};
+            const commuteYes = document.getElementById('commuteYes').checked;
+            const commuteNo = document.getElementById('commuteNo').checked;
+            if (commuteYes) {
+                userProfileData.NYCInternQualifications.CommuteToFlatiron = true;
+            } else if (commuteNo) {
+                userProfileData.NYCInternQualifications.CommuteToFlatiron = false;
+            } else {
+                userProfileData.NYCInternQualifications.CommuteToFlatiron = null;
+            }
+
+            const commitYes = document.getElementById('commitYes').checked;
+            const commitNo = document.getElementById('commitNo').checked;
+            if (commitYes) {
+                userProfileData.NYCInternQualifications.CommitToInternshipDuration = true;
+            } else if (commitNo) {
+                userProfileData.NYCInternQualifications.CommitToInternshipDuration = false;
+            } else {
+                userProfileData.NYCInternQualifications.CommitToInternshipDuration = null;
+            }
+
+            // Convert to JSON string
+            const jsonString = JSON.stringify(userProfileData, null, 2);
+
+            // Trigger download
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const href = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = href;
+            link.download = 'User_profile.json';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(href);
+        });
+    }
+
     // --- Initial Load ---
     if (jobResultsDiv) { // Basic check, specific elements for filters/batch are checked inside their setup.
         fetchAndDisplayJobs();
