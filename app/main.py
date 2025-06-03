@@ -631,11 +631,18 @@ def create_app(test_config=None):
 
         def tool_output_callback(tool_result, tool_id):
             # tool_result is ToolResult object
-            print(f"Tool Output Callback - ID: {tool_id}, Name: {tool_result.name}", flush=True)
-            if tool_result.output:
-                print(f"Tool Output: {tool_result.output[:200]}...", flush=True)
-            if tool_result.error:
-                print(f"Tool Error: {tool_result.error}", flush=True)
+            # Safely access attributes as tool_result might be a ToolFailure object
+            # or another type that doesn't have all attributes of a successful ToolResult.
+            tool_name_for_log = getattr(tool_result, 'name', 'N/A')
+            print(f"Tool Output Callback - ID: {tool_id}, Name: {tool_name_for_log}", flush=True)
+
+            result_output = getattr(tool_result, 'output', None)
+            if result_output is not None: # Check for None, as empty string can be valid output
+                print(f"Tool Output: {str(result_output)[:200]}...", flush=True)
+
+            result_error = getattr(tool_result, 'error', None)
+            if result_error is not None: # Check for None
+                print(f"Tool Error: {str(result_error)}", flush=True)
 
         def api_response_callback(request_obj, response_obj, exception_obj):
             print("API Response Callback:", flush=True)
@@ -675,7 +682,7 @@ Use the provided tools to navigate to the job URL, fill out the application form
         try:
             # Call sampling_loop
             final_messages = await sampling_loop(
-                model="claude-3-opus-20240229", # Or a recommended Sonnet model
+                model="claude-sonnet-4-20250514", # Or a recommended Sonnet model
                 provider=APIProvider.ANTHROPIC,
                 system_prompt_suffix="", # Or add specific instructions if needed
                 messages=messages,
