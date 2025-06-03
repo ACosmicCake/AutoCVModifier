@@ -2,9 +2,8 @@ import asyncio
 import base64
 import os
 import shlex
-import platform
 import shutil
-from strenum import StrEnum # Corrected import for Py<3.11
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal, TypedDict, cast, get_args
 from uuid import uuid4
@@ -115,19 +114,12 @@ class BaseComputerTool:
         self.width = int(os.getenv("WIDTH") or 0)
         self.height = int(os.getenv("HEIGHT") or 0)
         assert self.width and self.height, "WIDTH, HEIGHT must be set"
-        self._display_prefix = "" 
-        self.display_num = None # Initialize display_num
-
-        if platform.system() != "Windows":
-            if (display_num_env := os.getenv("DISPLAY_NUM")) is not None:
-                try:
-                    self.display_num = int(display_num_env)
-                    self._display_prefix = f"DISPLAY=:{self.display_num} "
-                except ValueError:
-                    print(f"Warning: Invalid DISPLAY_NUM environment variable: {display_num_env}. Not setting display prefix.")
-                    # self.display_num remains None, _display_prefix remains ""
-            # If DISPLAY_NUM is not set on non-Windows, display_num remains None and _display_prefix remains ""
-        # On Windows, self.display_num remains None and _display_prefix remains ""
+        if (display_num := os.getenv("DISPLAY_NUM")) is not None:
+            self.display_num = int(display_num)
+            self._display_prefix = f"DISPLAY=:{self.display_num} "
+        else:
+            self.display_num = None
+            self._display_prefix = ""
 
         self.xdotool = f"{self._display_prefix}xdotool"
 
@@ -233,22 +225,14 @@ class BaseComputerTool:
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / f"screenshot_{uuid4().hex}.png"
 
-        screenshot_cmd = None
-        if platform.system() == "Windows":
-            raise ToolError(
-                "Screenshot functionality using gnome-screenshot or scrot is not supported on Windows with the current tools."
-            )
-        elif shutil.which("gnome-screenshot"):
+        # Try gnome-screenshot first
+        if shutil.which("gnome-screenshot"):
             screenshot_cmd = f"{self._display_prefix}gnome-screenshot -f {path} -p"
-        elif shutil.which("scrot"):
+        else:
             # Fall back to scrot if gnome-screenshot isn't available
             screenshot_cmd = f"{self._display_prefix}scrot -p {path}"
-        else:
-            raise ToolError(
-                "No suitable screenshot utility (gnome-screenshot or scrot) found on this system."
-            )
 
-        result = await self.shell(screenshot_cmd, take_screenshot=False) # type: ignore
+        result = await self.shell(screenshot_cmd, take_screenshot=False)
         if self._scaling_enabled:
             x, y = self.scale_coordinates(
                 ScalingSource.COMPUTER, self.width, self.height

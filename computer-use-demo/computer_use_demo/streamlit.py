@@ -10,7 +10,7 @@ import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from strenum import StrEnum # Corrected import for Py<3.11
+from enum import StrEnum
 from functools import partial
 from pathlib import PosixPath
 from typing import cast, get_args
