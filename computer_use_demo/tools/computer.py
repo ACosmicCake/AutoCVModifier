@@ -3,7 +3,7 @@ import base64
 import os
 import shlex
 import shutil
-from enum import StrEnum
+from strenum import StrEnum # Corrected import for Py<3.11
 from pathlib import Path
 from typing import Literal, TypedDict, cast, get_args
 from uuid import uuid4

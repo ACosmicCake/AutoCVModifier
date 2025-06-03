@@ -4,11 +4,13 @@ import sys # Added for sys.path modification
 import uuid
 import json # For get_cv_content_from_file if handling JSON CVs directly
 import secrets # For generating a fallback SECRET_KEY
-import asyncio # Added for async endpoint
-import httpx # For making async HTTP requests to AI service
+import asyncio
+import httpx # Will be removed for the new implementation
+import json # For reading json files and returning json responses
+import os # Already used, but ensure it's available for path joining
+from werkzeug.utils import secure_filename # Already used
 
 from flask import Flask, request, jsonify, send_file, render_template
-from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
 # --- Define project root path ---
@@ -30,17 +32,18 @@ else:
 # --- Import from computer_use_demo and other specifics ---
 try:
     # Now import from the inner computer_use_demo directory
-    from computer_use_demo.loop import sampling_loop # APIProvider was removed from here, it's a Literal type hint now
-    from computer_use_demo.tools import ToolVersion # This is a Literal
-    from computer_use_demo.tools.computer import ComputerTool20250124
+    from computer_use_demo.loop import sampling_loop, APIProvider, SYSTEM_PROMPT
+    from computer_use_demo.tools.groups import ToolVersion # Corrected path
+    # from computer_use_demo.tools.computer import ComputerTool20250124 # Not directly used in endpoint
     # from anthropic.types.beta import BetaMessageParam # For stricter typing if needed
     print("Successfully imported computer_use_demo components for auto-apply.")
 except ImportError as e:
     print(f"Failed to import computer_use_demo components. Detailed error: {e!r}")
     sampling_loop = None
-    # APIProvider = None # No longer needed as it's not a class
-    ToolVersion = None # Literal, so None is just a placeholder
-    ComputerTool20250124 = None
+    APIProvider = None
+    ToolVersion = None
+    SYSTEM_PROMPT = None # Ensure it's defined even if import fails
+    # ComputerTool20250124 = None
     # BetaMessageParam = None
 
 # --- Import refactored utility functions ---
@@ -553,110 +556,145 @@ def create_app(test_config=None):
 
     @app.route('/api/auto-apply', methods=['POST'])
     async def auto_apply_endpoint():
+        # Ensure sampling_loop and other necessary components are loaded
+        if not all([sampling_loop, APIProvider, ToolVersion, SYSTEM_PROMPT]):
+            print("Error: Core components for auto-apply are not available due to import failure."); sys.stdout.flush()
+            return jsonify({"error": "Server misconfiguration: Auto-apply feature disabled."}), 503
+
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON payload received"}), 400
 
         job_url = data.get('job_url')
-        # cv_json_path from request is actually the base filename, e.g., "cv_123.pdf" or "cv_xyz.json"
-        # For this task, we assume it's the PDF filename, and derive JSON from it.
-        cv_pdf_filename_from_request = data.get('cv_pdf_path') # This is the tailored PDF filename
-        profile_json_filename = data.get('profile_json_path') # This is User_profile.json or user selected
+        # cv_pdf_path is the filename of the PDF, e.g., "tailored_cv_xyz.pdf"
+        # The corresponding JSON filename will be "tailored_cv_xyz.json"
+        cv_pdf_filename = data.get('cv_pdf_path')
+        profile_json_filename = data.get('profile_json_path') # e.g., "User_profile.json"
 
         missing_params = []
         if not job_url: missing_params.append('job_url')
-        if not cv_pdf_filename_from_request: missing_params.append('cv_pdf_path (for deriving CV JSON and PDF names)')
+        if not cv_pdf_filename: missing_params.append('cv_pdf_path (to derive CV JSON filename)')
         if not profile_json_filename: missing_params.append('profile_json_path')
 
         if missing_params:
             return jsonify({"error": f"Missing required parameters: {', '.join(missing_params)}"}), 400
 
         # Derive CV JSON filename from CV PDF filename
-        # e.g., if cv_pdf_filename_from_request is "tailored_cv_xyz.pdf", json is "tailored_cv_xyz.json"
-        if '.' in cv_pdf_filename_from_request:
-            base_name = cv_pdf_filename_from_request.rsplit('.', 1)[0]
+        if '.' in cv_pdf_filename:
+            base_name = cv_pdf_filename.rsplit('.', 1)[0]
             cv_json_filename = f"{base_name}.json"
         else:
-            # Should not happen if filenames are correct from UI
             return jsonify({"error": "Invalid cv_pdf_path format, cannot derive CV JSON filename."}), 400
 
-        # --- Read CV JSON content ---
-        cv_json_content_str = None
-        # Tailored CVs (JSON and PDF) are in GENERATED_PDFS_FOLDER
-        # The cv_json_path from the request was actually the PDF filename. We use the derived cv_json_filename.
+        # Securely construct full paths
+        # CV JSON file is in GENERATED_PDFS_FOLDER
         full_cv_json_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], secure_filename(cv_json_filename))
+        # Profile JSON file is in UPLOAD_FOLDER
+        full_profile_json_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(profile_json_filename))
+
+        # Read CV JSON content
         try:
             with open(full_cv_json_path, 'r', encoding='utf-8') as f:
                 cv_json_content_str = f.read()
-            # Optionally, validate if it's valid JSON here: json.loads(cv_json_content_str)
+            cv_data = json.loads(cv_json_content_str) # Parse to ensure it's valid JSON
         except FileNotFoundError:
-            print(f"Error: CV JSON file not found at {full_cv_json_path}"); sys.stdout.flush()
-            return jsonify({"error": "CV JSON file not found.", "path": full_cv_json_path}), 404
+            return jsonify({"error": "CV JSON file not found.", "path_searched": full_cv_json_path}), 404
+        except json.JSONDecodeError:
+            return jsonify({"error": "Invalid JSON format in CV file.", "path": full_cv_json_path}), 400
         except IOError as e:
-            print(f"Error reading CV JSON file at {full_cv_json_path}: {e}"); sys.stdout.flush()
-            return jsonify({"error": "CV JSON file unreadable.", "path": full_cv_json_path, "details": str(e)}), 500
+            return jsonify({"error": f"Could not read CV JSON file: {e}", "path": full_cv_json_path}), 500
 
-        # --- Read User Profile JSON content ---
-        profile_json_content_str = None
-        # User profile is assumed to be in UPLOAD_FOLDER (or could be instance folder or other configured path)
-        full_profile_json_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(profile_json_filename))
+        # Read Profile JSON content
         try:
             with open(full_profile_json_path, 'r', encoding='utf-8') as f:
                 profile_json_content_str = f.read()
-            # Optionally, validate if it's valid JSON here
+            profile_data = json.loads(profile_json_content_str) # Parse
         except FileNotFoundError:
-            print(f"Error: User Profile JSON file not found at {full_profile_json_path}"); sys.stdout.flush()
-            return jsonify({"error": "User Profile JSON file not found.", "path": full_profile_json_path}), 404
+            return jsonify({"error": "Profile JSON file not found.", "path_searched": full_profile_json_path}), 404
+        except json.JSONDecodeError:
+            return jsonify({"error": "Invalid JSON format in profile file.", "path": full_profile_json_path}), 400
         except IOError as e:
-            print(f"Error reading User Profile JSON file at {full_profile_json_path}: {e}"); sys.stdout.flush()
-            return jsonify({"error": "User Profile JSON file unreadable.", "path": full_profile_json_path, "details": str(e)}), 500
+            return jsonify({"error": f"Could not read profile JSON file: {e}", "path": full_profile_json_path}), 500
 
-        # --- Get ANTHROPIC_API_KEY ---
+        # Fetch ANTHROPIC_API_KEY
         anthropic_api_key = os.environ.get('ANTHROPIC_API_KEY')
         if not anthropic_api_key:
-            print("Error: ANTHROPIC_API_KEY not found in environment variables."); sys.stdout.flush()
-            return jsonify({"error": "Server configuration error: Missing ANTHROPIC_API_KEY"}), 500
+            return jsonify({"error": "Server configuration error: ANTHROPIC_API_KEY not found."}), 500
 
-        # --- Prepare payload for AI Service ---
-        ai_service_payload = {
-            "job_url": job_url,
-            "cv_json_content": cv_json_content_str,
-            "cv_pdf_filename": secure_filename(cv_pdf_filename_from_request), # Send the original PDF filename
-            "profile_json_content": profile_json_content_str,
-            "anthropic_api_key": anthropic_api_key
-            # Add any other necessary parameters like model_name, tool_version if the AI service expects them
-        }
+        # Define callbacks for sampling_loop
+        def output_callback(content_block):
+            # For BetaContentBlockParam which can be TextBlock or ToolUseBlock
+            block_type = content_block.get('type') if isinstance(content_block, dict) else 'unknown'
+            print(f"Output Callback - Type: {block_type}", flush=True)
+            if block_type == 'text':
+                print(f"Text: {content_block.get('text')}", flush=True)
 
-        ai_service_url = app.config.get('AI_SERVICE_URL')
-        if not ai_service_url:
-            print("Error: AI_SERVICE_URL not configured in the application."); sys.stdout.flush()
-            return jsonify({"error": "Server configuration error: AI Service URL is not set."}), 500
+        def tool_output_callback(tool_result, tool_id):
+            # tool_result is ToolResult object
+            print(f"Tool Output Callback - ID: {tool_id}, Name: {tool_result.name}", flush=True)
+            if tool_result.output:
+                print(f"Tool Output: {tool_result.output[:200]}...", flush=True)
+            if tool_result.error:
+                print(f"Tool Error: {tool_result.error}", flush=True)
+
+        def api_response_callback(request_obj, response_obj, exception_obj):
+            print("API Response Callback:", flush=True)
+            if exception_obj:
+                print(f"  Exception: {exception_obj!r}", flush=True)
+            else:
+                print(f"  Request: {request_obj.method} {request_obj.url}", flush=True)
+                if response_obj:
+                    print(f"  Response Status: {response_obj.status_code}", flush=True)
+
+        # Construct initial messages
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"""Please apply for the job at the following URL: {job_url}
+
+Here is my CV (in JSON format):
+<cv_json>
+{cv_json_content_str}
+</cv_json>
+
+Here is my user profile (in JSON format), containing personal information and potentially some preferences:
+<profile_json>
+{profile_json_content_str}
+</profile_json>
+
+Use the provided tools to navigate to the job URL, fill out the application form using the information from my CV and profile, and submit the application. Prioritize using the tailored CV content. If you need to upload the CV, the filename is {secure_filename(cv_pdf_filename)}. You should find this file in your environment if tools allow file system access and upload.
+"""
+                    }
+                ]
+            }
+        ]
         
-        print(f"Forwarding auto-apply request to AI service at {ai_service_url}"); sys.stdout.flush()
-
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client: # Increased timeout
-                ai_response = await client.post(ai_service_url, json=ai_service_payload)
-            
-            print(f"AI Service responded with status: {ai_response.status_code}"); sys.stdout.flush()
-            # Forward the AI service's response (JSON and status code)
-            return jsonify(ai_response.json()), ai_response.status_code
+            # Call sampling_loop
+            final_messages = await sampling_loop(
+                model="claude-3-opus-20240229", # Or a recommended Sonnet model
+                provider=APIProvider.ANTHROPIC,
+                system_prompt_suffix="", # Or add specific instructions if needed
+                messages=messages,
+                output_callback=output_callback,
+                tool_output_callback=tool_output_callback,
+                api_response_callback=api_response_callback,
+                api_key=anthropic_api_key,
+                tool_version="computer_use_20250124", # As per requirement
+                max_tokens=4096,
+                # thinking_budget=1024 # Optional: if model supports it
+            )
+            # Return the final state of messages or a summary
+            # The last message is usually from the assistant.
+            last_message_summary = final_messages[-1].get("content", "No content in last message.") if final_messages else "No messages."
+            return jsonify({"application_status": "completed_sampling_loop", "final_messages": last_message_summary})
 
-        except httpx.RequestError as e:
-            print(f"Error connecting to AI service: {e}"); sys.stdout.flush()
-            error_details = f"Error connecting to AI service: {type(e).__name__} - {str(e)}"
-            return jsonify({"error": "Failed to connect to AI service", "details": error_details}), 503
-        except json.JSONDecodeError as e_json: # If AI service response is not valid JSON
-            print(f"AI Service response was not valid JSON: {e_json}. Response text: {ai_response.text[:200]}..."); sys.stdout.flush()
-            return jsonify({
-                "error": "AI service returned non-JSON response", 
-                "ai_service_status": ai_response.status_code,
-                "ai_service_response_snippet": ai_response.text[:200] + "..."
-            }), 502 # Bad Gateway
-        except Exception as e: # Catch-all for other unexpected errors during the call
-            print(f"Unexpected error during AI service call: {e!r}"); sys.stdout.flush()
-            return jsonify({"error": "An unexpected error occurred while calling the AI service", "details": str(e)}), 500
-
+        except Exception as e:
+            print(f"Error during sampling_loop execution: {e!r}", flush=True)
+            return jsonify({"error": "An error occurred during the auto-application process.", "details": str(e)}), 500
 
     @app.route('/api/download-cv/<filename>', methods=['GET'])
     def download_cv(filename):

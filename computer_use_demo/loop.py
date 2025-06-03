@@ -5,7 +5,7 @@ Agentic sampling loop that calls the Anthropic API and local implementation of a
 import platform
 from collections.abc import Callable
 from datetime import datetime
-from enum import StrEnum
+from strenum import StrEnum # Corrected import for Py<3.11
 from typing import Any, cast
 
 import httpx
