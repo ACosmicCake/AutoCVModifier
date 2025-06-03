@@ -79,7 +79,7 @@ def create_app(test_config=None):
     # Configuration for AI Service URL
     # Define AI_SERVICE_URL (e.g., from environment or default)
     # Defaulting to a placeholder. This should be configured for a real deployment.
-    AI_SERVICE_URL = os.environ.get('AI_SERVICE_URL', 'http://localhost:8081/execute-auto-apply')
+    AI_SERVICE_URL = os.environ.get('AI_SERVICE_URL', 'http://localhost:8080')
     app.config['AI_SERVICE_URL'] = AI_SERVICE_URL
     print(f"AI Service URL configured to: {app.config['AI_SERVICE_URL']}")
 
