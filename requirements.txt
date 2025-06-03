@@ -10,3 +10,5 @@ pytest-mock
 anthropic[bedrock,vertex]>=0.39.0
 StrEnum # For Python 3.10 compatibility with computer-use-demo
 httpx # For making async HTTP requests to the AI service
+pyautogui
+Pillow

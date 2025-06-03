@@ -1,7 +1,7 @@
 # app/main.py
 import os
 import sys # Added for sys.path modification
-import traceback # Added for detailed error logging
+# import traceback # Removed: No longer needed after reverting detailed logging
 import uuid
 import json # For get_cv_content_from_file if handling JSON CVs directly
 import secrets # For generating a fallback SECRET_KEY
@@ -39,10 +39,7 @@ try:
     # from anthropic.types.beta import BetaMessageParam # For stricter typing if needed
     print("Successfully imported computer_use_demo components for auto-apply.")
 except ImportError as e:
-    print(f"Failed to import computer_use_demo components. Basic error: {e!r}")
-    print("---------------- DETAILED TRACEBACK ----------------")
-    traceback.print_exc()
-    print("----------------------------------------------------")
+    print(f"Failed to import computer_use_demo components. Detailed error: {e!r}") # Reverted to original message
     sampling_loop = None
     APIProvider = None
     ToolVersion = None
