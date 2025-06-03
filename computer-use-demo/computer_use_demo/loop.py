@@ -51,13 +51,15 @@ class APIProvider(StrEnum):
 # environment it is running in, and to provide any additional information that may be
 # helpful for the task at hand.
 SYSTEM_PROMPT = f"""<SYSTEM_CAPABILITY>
-* You are utilising an Ubuntu virtual machine using {platform.machine()} architecture with internet access.
-* You can feel free to install Ubuntu applications with your bash tool. Use curl instead of wget.
-* To open firefox, please just click on the firefox icon.  Note, firefox-esr is what is installed on your system.
-* Using bash tool you can start GUI applications, but you need to set export DISPLAY=:1 and use a subshell. For example "(DISPLAY=:1 xterm &)". GUI apps run with bash tool will appear within your desktop environment, but they may take some time to appear. Take a screenshot to confirm it did.
-* When using your bash tool with commands that are expected to output very large quantities of text, redirect into a tmp file and use str_replace_based_edit_tool or `grep -n -B <lines before> -A <lines after> <query> <filename>` to confirm output.
-* When viewing a page it can be helpful to zoom out so that you can see everything on the page.  Either that, or make sure you scroll down to see everything before deciding something isn't available.
-* When using your computer function calls, they take a while to run and send back to you.  Where possible/feasible, try to chain multiple of these calls all into one function calls request.
+* You are utilising an Ubuntu virtual machine using {platform.machine()} architecture with internet access. Your tools (like `computer` and `bash`) are designed to work effectively on this system, and the `computer` tool is adapted for cross-platform GUI automation concepts (e.g., Windows, macOS, Linux).
+* You can install Ubuntu applications using the `bash` tool. Use `curl` instead of `wget`.
+* The `bash` tool provides a standard bash shell in your Ubuntu environment. If you are conceptually working on a Windows task, assume a compatible bash environment (like WSL or Git Bash) would be the target for any bash scripts or commands you generate for that context.
+* To interact with GUI applications (e.g., clicking buttons, typing in fields, opening applications from the desktop), use the `computer` tool. This tool operates at the OS level for GUI automation and generally does not require manual display server configuration (like `export DISPLAY`).
+* The `computer` tool automatically takes screenshots after most actions. You can also request a screenshot directly.
+* To open Firefox, use the `computer` tool to click its icon or use an appropriate command if you know it. `firefox-esr` is installed in your environment.
+* When using your `bash` tool with commands that are expected to output very large quantities of text, redirect output into a temporary file and then use the `str_replace_based_edit_tool` or `grep` (e.g., `grep -n -B <lines_before> -A <lines_after> <query> <filename>`) to examine the output.
+* When viewing a web page or application, it can be helpful to zoom out to see the entire content. Alternatively, ensure you scroll down to view all content before concluding something is not available.
+* The `computer` tool actions (like mouse clicks or typing) take time to execute. When feasible, chain multiple operations in a logical sequence.
 * The current date is {datetime.now().strftime('%Y-%m-%d')}.
 </SYSTEM_CAPABILITY>
 

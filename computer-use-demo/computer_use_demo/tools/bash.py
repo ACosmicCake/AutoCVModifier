@@ -1,5 +1,7 @@
 import asyncio
 import os
+import platform
+import asyncio.subprocess
 from typing import Any, Literal
 
 from .base import BaseAnthropicTool, CLIResult, ToolError, ToolResult
@@ -24,9 +26,19 @@ class _BashSession:
         if self._started:
             return
 
+        system = platform.system()
+        preexec_fn = None
+        creationflags = 0
+
+        if system == "Windows":
+            creationflags = asyncio.subprocess.CREATE_NEW_PROCESS_GROUP
+        elif system in ("Linux", "Darwin"):
+            preexec_fn = os.setsid
+
         self._process = await asyncio.create_subprocess_shell(
             self.command,
-            preexec_fn=os.setsid,
+            preexec_fn=preexec_fn,
+            creationflags=creationflags,
             shell=True,
             bufsize=0,
             stdin=asyncio.subprocess.PIPE,

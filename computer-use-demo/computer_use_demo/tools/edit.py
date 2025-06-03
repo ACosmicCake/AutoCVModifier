@@ -1,3 +1,5 @@
+import os
+import platform
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal, get_args
@@ -90,10 +92,9 @@ class EditTool20250124(BaseAnthropicTool):
         Check that the path/command combination is valid.
         """
         # Check if its an absolute path
-        if not path.is_absolute():
-            suggested_path = Path("") / path
+        if not os.path.isabs(str(path)):
             raise ToolError(
-                f"The path {path} is not an absolute path, it should start with `/`. Maybe you meant {suggested_path}?"
+                f"The path '{path}' is not an absolute path. Please provide an absolute path (e.g., 'C:\\Users\\...' on Windows or '/home/...' on Linux)."
             )
         # Check if path exists
         if not path.exists() and command != "create":
@@ -119,12 +120,28 @@ class EditTool20250124(BaseAnthropicTool):
                     "The `view_range` parameter is not allowed when `path` points to a directory."
                 )
 
-            _, stdout, stderr = await run(
-                rf"find {path} -maxdepth 2 -not -path '*/\.*'"
-            )
-            if not stderr:
-                stdout = f"Here's the files and directories up to 2 levels deep in {path}, excluding hidden items:\n{stdout}\n"
-            return CLIResult(output=stdout, error=stderr)
+            output_lines = []
+            for root, dirs, files in os.walk(str(path)):
+                # Calculate depth
+                depth = root[len(str(path)) :].count(os.sep)
+
+                if depth >= 2:
+                    # Prune dirs to prevent descending further if we are already at depth 2 or more
+                    # os.walk behavior: modifying dirs in-place will prune the traversal
+                    dirs[:] = []
+
+                # Exclude hidden files and directories
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+                files = [f for f in files if not f.startswith('.')]
+
+                if depth < 2: # Add current level items
+                    for name in dirs:
+                        output_lines.append(os.path.join(root, name))
+                    for name in files:
+                        output_lines.append(os.path.join(root, name))
+
+            stdout = f"Here's the files and directories up to 2 levels deep in {path}, excluding hidden items:\n" + "\n".join(output_lines) + "\n"
+            return CLIResult(output=stdout, error=None) # os.walk doesn't produce stderr in the same way as `find`
 
         file_content = self.read_file(path)
         init_line = 1
@@ -362,10 +379,9 @@ class EditTool20250429(BaseAnthropicTool):
         Check that the path/command combination is valid.
         """
         # Check if its an absolute path
-        if not path.is_absolute():
-            suggested_path = Path("") / path
+        if not os.path.isabs(str(path)):
             raise ToolError(
-                f"The path {path} is not an absolute path, it should start with `/`. Maybe you meant {suggested_path}?"
+                f"The path '{path}' is not an absolute path. Please provide an absolute path (e.g., 'C:\\Users\\...' on Windows or '/home/...' on Linux)."
             )
         # Check if path exists
         if not path.exists() and command != "create":
@@ -391,12 +407,37 @@ class EditTool20250429(BaseAnthropicTool):
                     "The `view_range` parameter is not allowed when `path` points to a directory."
                 )
 
-            _, stdout, stderr = await run(
-                rf"find {path} -maxdepth 2 -not -path '*/\.*'"
-            )
-            if not stderr:
-                stdout = f"Here's the files and directories up to 2 levels deep in {path}, excluding hidden items:\n{stdout}\n"
-            return CLIResult(output=stdout, error=stderr)
+            output_lines = []
+            # Correctly store the initial path string for depth calculation
+            path_str = str(path)
+            for root, dirs, files in os.walk(path_str):
+                # Calculate depth relative to the initial path
+                # Adding os.sep to path_str if it's not there ensures `rel_path` starts correctly
+                # and avoids negative depth or incorrect depth for path itself.
+                # However, os.walk(path_str) means `root` will be `path_str` in the first iteration.
+                # So, rel_path for the first level items should be their names.
+                # A simpler way is to count separators in `root` relative to `path_str`
+                rel_path = root[len(path_str):]
+                current_depth = rel_path.count(os.sep)
+                if rel_path and not rel_path.startswith(os.sep): # ensure rel_path starts with sep if not empty
+                    current_depth +=1
+
+
+                # Exclude hidden directories from further traversal and from listing
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+
+                if current_depth < 2:
+                    for name in dirs:
+                        output_lines.append(os.path.join(root, name))
+                    for name in [f for f in files if not f.startswith('.')]:
+                         output_lines.append(os.path.join(root, name))
+                elif current_depth == 2: # For depth 2, only list files, and stop further dir traversal
+                    for name in [f for f in files if not f.startswith('.')]:
+                         output_lines.append(os.path.join(root, name))
+                    dirs[:] = [] # Prune directory traversal beyond depth 2
+
+            stdout = f"Here's the files and directories up to 2 levels deep in {path}, excluding hidden items:\n" + "\n".join(output_lines) + "\n"
+            return CLIResult(output=stdout, error=None)
 
         file_content = self.read_file(path)
         init_line = 1
