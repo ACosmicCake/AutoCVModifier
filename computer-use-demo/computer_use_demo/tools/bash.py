@@ -2,6 +2,7 @@ import asyncio
 import os
 import platform
 import asyncio.subprocess
+import subprocess
 from typing import Any, Literal
 
 from .base import BaseAnthropicTool, CLIResult, ToolError, ToolResult
@@ -31,7 +32,7 @@ class _BashSession:
         creationflags = 0
 
         if system == "Windows":
-            creationflags = asyncio.subprocess.CREATE_NEW_PROCESS_GROUP
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
         elif system in ("Linux", "Darwin"):
             preexec_fn = os.setsid
 
