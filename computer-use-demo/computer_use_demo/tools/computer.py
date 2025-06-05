@@ -1,12 +1,13 @@
 import asyncio
 import base64
+import math
 import os
 import platform # Added
 import shlex
 import shutil
 from PIL import Image, ImageGrab # Added
 import pyautogui # Added: New dependency for GUI automation
-from enum import StrEnum
+from strenum import StrEnum # Changed for Python 3.10 compatibility
 from pathlib import Path
 from typing import Literal, TypedDict, cast, get_args
 from uuid import uuid4
@@ -313,29 +314,87 @@ class BaseComputerTool:
         return ToolResult(output=stdout, error=stderr, base64_image=base64_image)
 
     def scale_coordinates(self, source: ScalingSource, x: int, y: int):
-        """Scale coordinates to a target maximum resolution."""
         if not self._scaling_enabled:
             return x, y
-        ratio = self.width / self.height
-        target_dimension = None
-        for dimension in MAX_SCALING_TARGETS.values():
-            # allow some error in the aspect ratio - not ratios are exactly 16:9
-            if abs(dimension["width"] / dimension["height"] - ratio) < 0.02:
-                if dimension["width"] < self.width:
-                    target_dimension = dimension
-                break
-        if target_dimension is None:
+
+        current_w, current_h = self.width, self.height
+        if current_w <= 0 or current_h <= 0:
             return x, y
-        # should be less than 1
-        x_scaling_factor = target_dimension["width"] / self.width
-        y_scaling_factor = target_dimension["height"] / self.height
+
+        original_aspect_ratio = current_w / current_h
+
+        # Ensure MAX_SCALING_TARGETS is defined in the scope and has these keys
+        xga_spec = MAX_SCALING_TARGETS["XGA"]
+        wxga_spec = MAX_SCALING_TARGETS["WXGA"]
+
+        target_bound_w = current_w
+        target_bound_h = current_h
+        must_scale = False
+
+        if current_w > wxga_spec["width"] or current_h > wxga_spec["height"]:
+            xga_aspect = xga_spec["width"] / xga_spec["height"]
+            wxga_aspect = wxga_spec["width"] / wxga_spec["height"]
+
+            diff_xga = abs(original_aspect_ratio - xga_aspect)
+            diff_wxga = abs(original_aspect_ratio - wxga_aspect)
+
+            if diff_wxga <= diff_xga:
+                target_bound_w, target_bound_h = wxga_spec["width"], wxga_spec["height"]
+            else:
+                target_bound_w, target_bound_h = xga_spec["width"], xga_spec["height"]
+            must_scale = True
+
+        elif current_w > xga_spec["width"] or current_h > xga_spec["height"]:
+            target_bound_w, target_bound_h = xga_spec["width"], xga_spec["height"]
+            must_scale = True
+
+        else:
+            return x, y
+
+        if not must_scale:
+            return x,y
+
+        scaled_w = target_bound_w
+        scaled_h = int(target_bound_w / original_aspect_ratio) if original_aspect_ratio != 0 else target_bound_h
+
+        if scaled_h > target_bound_h:
+            scaled_h = target_bound_h
+            scaled_w = int(target_bound_h * original_aspect_ratio)
+
+        final_scaled_w = min(scaled_w, target_bound_w)
+        final_scaled_h = min(scaled_h, target_bound_h)
+
+        if final_scaled_w < 1 and target_bound_w >=1 : final_scaled_w = 1
+        if final_scaled_h < 1 and target_bound_h >=1 : final_scaled_h = 1
+
         if source == ScalingSource.API:
-            if x > self.width or y > self.height:
-                raise ToolError(f"Coordinates {x}, {y} are out of bounds")
-            # scale up
-            return round(x / x_scaling_factor), round(y / y_scaling_factor)
-        # scale down
-        return round(x * x_scaling_factor), round(y * y_scaling_factor)
+            if x > final_scaled_w or y > final_scaled_h:
+                raise ToolError(f"Coordinates {x}, {y} are out of bounds for scaled display {final_scaled_w}x{final_scaled_h}")
+
+            if final_scaled_w <= 0 or final_scaled_h <= 0:
+                return x, y
+
+            x_scale_factor = current_w / final_scaled_w
+            y_scale_factor = current_h / final_scaled_h
+
+            return math.ceil(x * x_scale_factor), math.ceil(y * y_scale_factor)
+
+        else: # ScalingSource.COMPUTER
+            if current_w <= 0 or current_h <= 0:
+                return x,y
+
+            # If final_scaled_w or final_scaled_h is zero, scaling factor calculation would lead to error or incorrect values.
+            # This can happen if original_aspect_ratio is extreme or zero, leading to one scaled dim being zero.
+            if final_scaled_w <= 0 or final_scaled_h <= 0 : # effectively means no valid scaled image
+                 # In this case, perhaps return unscaled coordinates or a defined error/default.
+                 # For now, returning unscaled if scaled dimensions are not positive.
+                return x,y
+
+
+            x_scale_factor = final_scaled_w / current_w
+            y_scale_factor = final_scaled_h / current_h
+
+            return math.floor(x * x_scale_factor), math.floor(y * y_scale_factor)
 
 
 class ComputerTool20241022(BaseComputerTool, BaseAnthropicTool):
