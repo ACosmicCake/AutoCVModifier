@@ -17,6 +17,11 @@ from anthropic.types.beta import BetaToolComputerUse20241022Param, BetaToolUnion
 from .base import BaseAnthropicTool, ToolError, ToolResult
 from .run import run
 
+VALID_MODIFIER_KEYS = {'alt', 'ctrl', 'shift', 'cmd', 'command', 'option', 'win',
+                           'control', 'left_shift', 'right_shift', 'left_alt', 'right_alt',
+                           'left_ctrl', 'right_ctrl', 'left_cmd', 'right_cmd',
+                           'left_command', 'right_command', 'left_win', 'right_win', 'windows'}
+
 OUTPUT_DIR = "/tmp/outputs"
 
 TYPING_DELAY_MS = 12
@@ -425,6 +430,15 @@ class ComputerTool20250124(BaseComputerTool, BaseAnthropicTool):
         key: str | None = None,
         **kwargs,
     ):
+        validated_key = None
+        if key is not None:
+            processed_key = key.lower() # Process once
+            if processed_key in VALID_MODIFIER_KEYS:
+                validated_key = processed_key
+            else:
+                # Optional: print(f"Warning: Invalid modifier key '{key}' provided. Ignoring.")
+                pass # validated_key remains None
+
         try:
             if action == "left_mouse_down":
                 if coordinate is not None: # xdotool allowed this, but pyautogui.mouseDown does not take coords. Move first.
@@ -464,11 +478,11 @@ class ComputerTool20250124(BaseComputerTool, BaseAnthropicTool):
                     pyautogui.hscroll(scroll_amount)  # Positive for right
                     return await self.screenshot()
 
-                if key: # Modifier for scroll, e.g. Ctrl+scroll to zoom
-                    pyautogui.keyDown(key)
+                if validated_key: # Modifier for scroll, e.g. Ctrl+scroll to zoom
+                    pyautogui.keyDown(validated_key)
                 pyautogui.scroll(scroll_val)
-                if key:
-                    pyautogui.keyUp(key)
+                if validated_key:
+                    pyautogui.keyUp(validated_key)
                 return await self.screenshot()
 
             elif action == "hold_key":
@@ -494,23 +508,23 @@ class ComputerTool20250124(BaseComputerTool, BaseAnthropicTool):
                 if coordinate is not None:
                     x, y = self.validate_and_get_coordinates(coordinate)
                     pyautogui.moveTo(x, y)
-                if key:
-                    pyautogui.keyDown(key)
+                if validated_key:
+                    pyautogui.keyDown(validated_key)
                 pyautogui.tripleClick(button='left') # PyAutoGUI has tripleClick
-                if key:
-                    pyautogui.keyUp(key)
+                if validated_key:
+                    pyautogui.keyUp(validated_key)
                 return await self.screenshot()
 
             # For other click actions (left_click, right_click, etc.),
             # they are handled by BaseComputerTool.__call__, but we need to pass `key` if present.
             elif action in ("left_click", "right_click", "double_click", "middle_click"):
                  # The base class __call__ is already set up to look for 'key' in kwargs
-                return await super().__call__(action=action, text=text, coordinate=coordinate, key=key, **kwargs)
+                return await super().__call__(action=action, text=text, coordinate=coordinate, key=validated_key, **kwargs)
 
             # Fallback to base class for actions not specifically handled here but are part of Action_20250124
             # (e.g., basic key, type, mouse_move, screenshot, cursor_position if they were not overridden)
             else:
-                return await super().__call__(action=action, text=text, coordinate=coordinate, key=key, **kwargs)
+                return await super().__call__(action=action, text=text, coordinate=coordinate, key=validated_key, **kwargs)
 
         except ImportError:
             raise ToolError("PyAutoGUI is required for GUI automation but not installed.")

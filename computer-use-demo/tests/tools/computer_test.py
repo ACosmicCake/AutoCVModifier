@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, call
 import math # Added
 import pytest
 
@@ -174,3 +174,93 @@ async def test_computer_tool_missing_coordinate(computer_tool):
 async def test_computer_tool_missing_text(computer_tool):
     with pytest.raises(ToolError, match="text is required for type"):
         await computer_tool(action="type")
+
+
+@pytest.mark.asyncio
+async def test_invalid_modifier_key_for_scroll():
+    tool = ComputerTool20250124()
+    with patch('computer_use_demo.tools.computer.pyautogui.keyDown') as mock_keyDown, \
+         patch('computer_use_demo.tools.computer.pyautogui.keyUp') as mock_keyUp, \
+         patch('computer_use_demo.tools.computer.pyautogui.scroll') as mock_scroll, \
+         patch.object(tool, 'screenshot', new_callable=AsyncMock) as mock_screenshot:
+
+        mock_screenshot.return_value = ToolResult(base64_image="fake_screenshot")
+        # Provide width and height to tool instance, otherwise scale_coordinates might fail if they are not set
+        tool.width = 1920
+        tool.height = 1080
+        await tool(action="scroll", scroll_direction="up", scroll_amount=10, key="a")
+
+        mock_keyDown.assert_not_called()
+        mock_keyUp.assert_not_called()
+        mock_scroll.assert_called_once_with(10)
+        mock_screenshot.assert_called()
+
+@pytest.mark.asyncio
+async def test_valid_modifier_key_for_scroll():
+    tool = ComputerTool20250124()
+    with patch('computer_use_demo.tools.computer.pyautogui.keyDown') as mock_keyDown, \
+         patch('computer_use_demo.tools.computer.pyautogui.keyUp') as mock_keyUp, \
+         patch('computer_use_demo.tools.computer.pyautogui.scroll') as mock_scroll, \
+         patch.object(tool, 'screenshot', new_callable=AsyncMock) as mock_screenshot:
+
+        mock_screenshot.return_value = ToolResult(base64_image="fake_screenshot")
+        tool.width = 1920
+        tool.height = 1080
+        await tool(action="scroll", scroll_direction="down", scroll_amount=20, key="ctrl")
+
+        mock_keyDown.assert_called_once_with("ctrl")
+        mock_keyUp.assert_called_once_with("ctrl")
+        mock_scroll.assert_called_once_with(-20) # scroll_amount for 'down' is negative
+        mock_screenshot.assert_called()
+
+@pytest.mark.asyncio
+async def test_invalid_modifier_key_for_base_action():
+    tool = ComputerTool20250124()
+    with patch('computer_use_demo.tools.computer.pyautogui.keyDown') as mock_keyDown, \
+         patch('computer_use_demo.tools.computer.pyautogui.keyUp') as mock_keyUp, \
+         patch('computer_use_demo.tools.computer.pyautogui.click') as mock_click, \
+         patch('computer_use_demo.tools.computer.pyautogui.moveTo') as mock_moveTo, \
+         patch.object(tool, 'screenshot', new_callable=AsyncMock) as mock_screenshot:
+
+        mock_screenshot.return_value = ToolResult(base64_image="fake_screenshot")
+        tool.width = 1920
+        tool.height = 1080
+        # Scale coordinates for (10,10) based on 1920x1080 which scales to 1280x720 for API
+        # Expected scaled_x = math.ceil(10 * 1920 / 1280) = math.ceil(10 * 1.5) = 15
+        # Expected scaled_y = math.ceil(10 * 1080 / 720) = math.ceil(10 * 1.5) = 15
+        # However, the tool.validate_and_get_coordinates will handle this.
+        # The key thing is that pyautogui.click is called with appropriate final coordinates.
+
+        await tool(action="left_click", key="a", coordinate=[10,10])
+
+        mock_keyDown.assert_not_called()
+        mock_keyUp.assert_not_called()
+        # Check if moveTo was called with the scaled coordinates
+        # For 1920x1080, scaled to 1280x720, API (10,10) becomes (15,15)
+        scaled_x, scaled_y = tool.scale_coordinates(ScalingSource.API, 10, 10)
+        mock_moveTo.assert_called_once_with(scaled_x, scaled_y)
+        mock_click.assert_called_once_with(button="left")
+        mock_screenshot.assert_called()
+
+@pytest.mark.asyncio
+async def test_valid_modifier_key_for_base_action():
+    tool = ComputerTool20250124()
+    with patch('computer_use_demo.tools.computer.pyautogui.keyDown') as mock_keyDown, \
+         patch('computer_use_demo.tools.computer.pyautogui.keyUp') as mock_keyUp, \
+         patch('computer_use_demo.tools.computer.pyautogui.click') as mock_click, \
+         patch('computer_use_demo.tools.computer.pyautogui.moveTo') as mock_moveTo, \
+         patch.object(tool, 'screenshot', new_callable=AsyncMock) as mock_screenshot:
+
+        mock_screenshot.return_value = ToolResult(base64_image="fake_screenshot")
+        tool.width = 1920
+        tool.height = 1080
+
+        await tool(action="left_click", key="shift", coordinate=[20,20])
+
+        # For 1920x1080, scaled to 1280x720, API (20,20) becomes (30,30)
+        scaled_x, scaled_y = tool.scale_coordinates(ScalingSource.API, 20, 20)
+        mock_moveTo.assert_called_once_with(scaled_x, scaled_y)
+        mock_keyDown.assert_called_once_with("shift")
+        mock_click.assert_called_once_with(button="left")
+        mock_keyUp.assert_called_once_with("shift")
+        mock_screenshot.assert_called()
