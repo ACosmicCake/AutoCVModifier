@@ -144,11 +144,11 @@ def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_templat
     # cv_template_content_str can be empty, so no check for it here.
 
     prompt_text = f"""
-You are an expert CV tailoring assistant. Your task is to rewrite the provided CV to be perfectly tailored for the given job description.
+You are an world class CV tailoring expert. Your task is to rewrite the provided CV to be perfectly tailored for the given job description. This person HAS to get a job, or else he will be deported from the US and lose the love of his life.
 
 Follow these instructions carefully:
 1.  Analyze the job description for key skills, experience, and keywords.
-2.  Rewrite the CV's summary, work experience, and other relevant sections to highlight these aspects.
+2.  Rewrite the CV's summary, sections, and pick four most relevant work experience to highlight these aspects.
 3.  Use strong action verbs and quantify achievements where possible.
 4.  Ensure the tone is professional and matches the industry.
 5.  For the skills section, only generate a few skills, focus on keywords. 
