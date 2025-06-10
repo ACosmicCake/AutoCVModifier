@@ -20,7 +20,7 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv # Added save_generated_cv
+from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv, job_url_exists # Added job_url_exists
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -267,47 +267,90 @@ def create_app(test_config=None):
         site_names_list = [name.strip() for name in site_names_str.split(',') if name.strip()]
         search_term = request.args.get('search_term', 'software engineer')
         location = request.args.get('location', 'USA')
-        results_wanted = request.args.get('results_wanted', 5, type=int)
         country_indeed = request.args.get('country_indeed', 'USA') # Example site-specific param
 
         if not site_names_list:
             return jsonify({"error": "No site names provided for scraping."}), 400
 
-        jobs = scrape_online_jobs(
-            site_names=site_names_list,
-            search_term=search_term,
-            location=location,
-            results_wanted=results_wanted,
-            country_indeed=country_indeed
-        )
-        if jobs is not None: # scrape_online_jobs returns [] for no jobs, None for error
-            # --- Save jobs to database ---
-            if isinstance(jobs, list) and jobs: # Ensure jobs is a list and not empty
-                for job in jobs:
-                    # Assuming scrape_online_jobs returns a list of dicts
-                    # and each dict contains the necessary fields for save_job.
-                    # 'source' might need to be inferred or passed along from scrape_online_jobs
-                    # For now, let's assume 'source' is part of the job dict from the scraper.
-                    # The jobspy library returns 'site' as the source name.
-                    # We'll map it to 'source' for our database schema and also add raw_job_data.
+        results_wanted_int = request.args.get('results_wanted', 5, type=int)
+        new_jobs_found = []
+        processed_urls_this_session = set()
+        batch_fetch_size = 15  # How many to request per API call to jobspy
+        max_iterations = 10    # Max number of scraping batches
+        iterations_done = 0
+
+        while len(new_jobs_found) < results_wanted_int and iterations_done < max_iterations:
+            iterations_done += 1
+            num_to_fetch_this_batch = batch_fetch_size
+
+            print(f"Scraping iteration {iterations_done}, attempting to fetch {num_to_fetch_this_batch} jobs...")
+
+            current_batch_jobs = scrape_online_jobs(
+                site_names=site_names_list,
+                search_term=search_term,
+                location=location,
+                results_wanted=num_to_fetch_this_batch,
+                country_indeed=country_indeed
+            )
+
+            if current_batch_jobs is None: # Scraper error
+                if iterations_done == 1: # First iteration failed
+                    return jsonify({"error": "Failed to scrape jobs: scraper error on first attempt"}), 500
+                print("Scraper error occurred after some iterations. Returning what was found so far.")
+                break # from while loop, return what we have
+
+            if not current_batch_jobs: # Empty list from scraper, presumably exhausted for this query
+                print("Scraper returned no more jobs for this query.")
+                break # from while loop
+
+            # found_new_in_this_batch = False # Optional: for early exit if a batch yields nothing
+            for job_data in current_batch_jobs:
+                job_url = job_data.get('job_url')
+
+                if not job_url:
+                    print("Skipping job due to missing URL in scraped data.")
+                    continue
+
+                if job_url in processed_urls_this_session:
+                    continue
+                processed_urls_this_session.add(job_url)
+
+                if not job_url_exists(job_url):
                     db_job_data = {
-                        'title': job.get('title'),
-                        'company': job.get('company'),
-                        'location': job.get('location'),
-                        'description': job.get('description'),
-                        'url': job.get('job_url'), # jobspy uses 'job_url'
-                        'source': job.get('site'), # jobspy uses 'site'
-                        # date_scraped is handled by the database
-                        'raw_job_data': job # Store the original job dict from the scraper
+                        'title': job_data.get('title'),
+                        'company': job_data.get('company'),
+                        'location': job_data.get('location'),
+                        'description': job_data.get('description'),
+                        'url': job_url,
+                        'source': job_data.get('site'),
+                        'raw_job_data': job_data
                     }
-                    # Ensure essential fields like URL and source are present before saving
+
                     if db_job_data['url'] and db_job_data['source']:
                         save_job(db_job_data)
+                        new_jobs_found.append(job_data)
+                        # found_new_in_this_batch = True
                     else:
-                        print(f"Skipping job due to missing URL or source: {job.get('title')}")
-            return jsonify({"jobs": jobs})
-        else:
-            return jsonify({"error": "Failed to scrape jobs or an error occurred"}), 500
+                        print(f"Skipping saving job due to missing URL or source after mapping: {job_data.get('title')}")
+
+                    if len(new_jobs_found) >= results_wanted_int:
+                        break # from for loop (batch processing)
+
+            # After processing a batch
+            if len(new_jobs_found) >= results_wanted_int:
+                print(f"Found {results_wanted_int} new jobs. Stopping.")
+                break # from while loop (main fetching loop)
+
+            # Optional: Early exit if a batch yielded no new jobs
+            # if not found_new_in_this_batch and results_wanted_int - len(new_jobs_found) > batch_fetch_size:
+            #     print("Current batch yielded no new jobs, and still far from target. Stopping early.")
+            #     break
+
+        # After loop finishes
+        if iterations_done >= max_iterations and len(new_jobs_found) < results_wanted_int:
+            print(f"Warning: Job scraping reached max_iterations ({max_iterations}) before finding all {results_wanted_int} desired jobs. Found {len(new_jobs_found)}.")
+
+        return jsonify({"jobs": new_jobs_found})
 
     @app.route('/api/jobs', methods=['GET'])
     def api_get_jobs():
