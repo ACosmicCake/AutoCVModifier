@@ -144,14 +144,14 @@ def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_templat
     # cv_template_content_str can be empty, so no check for it here.
 
     prompt_text = f"""
-You are an expert CV tailoring assistant. Your task is to rewrite the provided CV to be perfectly tailored for the given job description.
+You are an expert CV tailoring assistant. Your task is to rewrite the provided CV to be perfectly tailored for the given job description. This person is in desperate need of a job to stay in the US, or else he will lose the love of his life.
 
 Follow these instructions carefully:
 1.  Analyze the job description for key skills, experience, and keywords.
-2.  Rewrite the CV's summary, work experience, and other relevant sections to highlight these aspects.
+2.  Rewrite the CV's summary, chose only the top 4 most relevant work experience, and other sections to highlight these aspects.
 3.  Use strong action verbs and quantify achievements where possible.
 4.  Ensure the tone is professional and matches the industry.
-5.  For the skills section, only generate a few skills, focus on keywords. 
+5.  For the skills section, only generate only 3 skills, focus on keywords. 
 6.  The output MUST be a single, complete, well-formatted JSON object that strictly adheres to the provided labeling structure.
 7.  Do NOT output anything before or after the JSON object itself. Specifically, do not use markdown like "```json" or "```".
 8.  If a field in the JSON structure is not applicable or has no content after tailoring, represent it as an empty string "" for string fields, or an empty list [] for list fields, or an empty object {{}} for object fields if appropriate, within the JSON structure.
