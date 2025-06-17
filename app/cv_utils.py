@@ -100,7 +100,7 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
     try:
         client = genai.Client(api_key=api_key)
         # Model name as specified by user, without "models/" prefix for client.models.generate_content
-        model_to_use = "gemini-2.5-flash-preview-05-20"
+        model_to_use = "gemini-2.5-flash"
 
         response = client.models.generate_content( # Changed to client.models.generate_content
             model=model_to_use,
@@ -144,17 +144,46 @@ def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_templat
     # cv_template_content_str can be empty, so no check for it here.
 
     prompt_text = f"""
-You are an expert CV tailoring assistant. Your task is to rewrite the provided CV to be perfectly tailored for the given job description. This person is in desperate need of a job to stay in the US, or else he will lose the love of his life.
+You are an elite, Tier-1 technical recruiter and career strategist, operating with the precision of a surgeon. Your task is to re-architect the provided CV into an interview-generating machine, meticulously populating the target JSON structure.
 
-Follow these instructions carefully:
-1.  Analyze the job description for key skills, experience, and keywords.
-2.  Rewrite the CV's summary, chose only the top 4 most relevant work experience, and other sections to highlight these aspects.
-3.  Use strong action verbs and quantify achievements where possible.
-4.  Ensure the tone is professional and matches the industry.
-5.  For the skills section, only generate only 3 skills, focus on keywords. 
-6.  The output MUST be a single, complete, well-formatted JSON object that strictly adheres to the provided labeling structure.
-7.  Do NOT output anything before or after the JSON object itself. Specifically, do not use markdown like "```json" or "```".
-8.  If a field in the JSON structure is not applicable or has no content after tailoring, represent it as an empty string "" for string fields, or an empty list [] for list fields, or an empty object {{}} for object fields if appropriate, within the JSON structure.
+**Guiding Principle: Dual-Optimization**
+The resulting CV must succeed on two fronts simultaneously:
+1.  **ATS Dominance**: Achieve a high relevance score by embedding essential keywords from the job description into the correct fields of the JSON structure.
+2.  **Human Persuasion**: Captivate the human reader within 7 seconds by presenting a clear, compelling narrative of value and impact.
+
+**Phase 1: Intelligence Gathering (Job Description Deconstruction)**
+Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
+* **Dealbreaker Qualifications**: The absolute, must-have skills, certifications, or years of experience.
+* **Primary Directives**: The top 3-4 key responsibilities of the role.
+* **Underlying Business Goal**: The core business problem this role solves (e.g., increase market share, reduce technical debt).
+* **High-Value Keywords**: Technical terms, methodologies (e.g., Agile, Scrum), and tools mentioned repeatedly.
+
+**Phase 2: Narrative Engineering (Candidate Re-Positioning)**
+1.  **Define the Core Narrative**: Formulate a single, powerful sentence that defines the candidate's professional story for this specific role.
+2.  **Establish the Unique Value Proposition (UVP)**: Condense the narrative into a headline that will serve as the opening of the summary.
+
+**Phase 3: Content Re-Engineering (Populating the JSON)**
+1.  **High-Impact Summary**: Rewrite the summary as a dense, 3-4 line paragraph that maps the candidate's qualifications to the "Primary Directives." The final text must populate the `CV.SummaryOrObjective.Statement` field.
+
+2.  **Experience Section**: Select the 2-3 most relevant roles to feature in the `CV.ProfessionalExperience` array. For each role, transform the bullet points using the **Impact-First C.A.R.L. Method (Context, Action, Result, Learning)**.
+    * **Start with the Result**: Lead with a quantifiable outcome (e.g., "Increased API response time by 40%...").
+    * Each generated achievement statement must be a string within the `ResponsibilitiesAndAchievements` array for that specific job object.
+
+3.  **Project Highlights**: If relevant, populate the `CV.Projects` section. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
+
+4.  **Strategic Skills Matrix**: This is critical. You must format the skills according to the target structure.
+    * Populate the `CV.Skills` array with a list of 3 key objects.
+    * For each object, define a `SkillCategory` (e.g., "Programming Languages", "Cloud & DevOps", "Databases", "Frameworks & Libraries", "Methodologies").
+    * In the corresponding `Skill` array, list the specific skills the candidate possesses that are relevant to the job, drawn from your "High-Value Keywords" list.
+
+5.  **Remaining Sections**: Accurately transfer the `PersonalInformation`, `Education`, and `Certifications` from the original CV into their corresponding sections in the JSON structure. Ensure formatting is clean and professional.
+
+**Final Mandates & Output Format**:
+* **Raw JSON Output**: The final output MUST be a single, raw, and valid JSON object. Do not include any text, comments, or markdown formatting (like ```json) before or after the JSON.
+* **Strict Structural Adherence**: The final output must be a single JSON object that strictly follows the provided `LABELING STRUCTURE`, starting with the top-level `CV` key. All generated content must be placed in the correct nested fields as described above (e.g., `CV.SummaryOrObjective.Statement`, `CV.ProfessionalExperience[0].ResponsibilitiesAndAchievements`, `CV.Skills[0].Skill`).
+* **Handle Empty Fields**: Use `""`, `[]`, or `{{}}` for any fields that are not applicable after tailoring, as specified in the structure.
+
+
 
 Here is the original CV (which could be plain text, or a JSON string itself):
 --- BEGIN CV ---
@@ -171,7 +200,7 @@ Generate the tailored CV based on this labeling structure. Ensure the output is 
 {cv_template_content_str}
 --- END LABELING STRUCTURE ---
 
-Now, provide the tailored CV as a valid JSON object:
+Generate the hyper-optimized CV as a single, valid JSON object now.
 """
     # For debugging, you might want to log the prompt:
     # print(f"Prompt for Gemini: {prompt_text[:300]}...")
