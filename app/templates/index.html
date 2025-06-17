@@ -49,7 +49,7 @@
         <section id="job-scraping" class="bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-2xl font-semibold text-gray-700 mb-4">Scrape Jobs Online</h2>
             <form id="jobScrapeForm">
-                <div class="grid md:grid-cols-4 gap-4 mb-4"> <!-- Changed to 4 cols for results_wanted -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-4"> <!-- Changed to 5 cols for results_wanted -->
                     <div>
                         <label for="searchTerm" class="block text-gray-700 text-sm font-bold mb-1">Search Term:</label>
                         <input type="text" id="searchTerm" name="search_term" value="software engineer" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
@@ -57,6 +57,22 @@
                     <div>
                         <label for="location" class="block text-gray-700 text-sm font-bold mb-1">Location:</label>
                         <input type="text" id="location" name="location" value="USA" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+                    </div>
+                    <div>
+                        <label for="jobType" class="block text-gray-700 text-sm font-bold mb-1">Job Type:</label>
+                        <input type="text" id="jobType" name="job_type" placeholder="e.g., fulltime, parttime, internship" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+                    </div>
+                    <div>
+                        <label for="distance" class="block text-gray-700 text-sm font-bold mb-1">Distance (miles):</label>
+                        <input type="number" id="distance" name="distance" value="50" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+                    </div>
+                    <div>
+                        <label for="hoursOld" class="block text-gray-700 text-sm font-bold mb-1">Posted Within (hrs):</label>
+                        <input type="number" id="hoursOld" name="hours_old" placeholder="e.g., 24" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+                    </div>
+                    <div class="flex items-center mt-5 sm:mt-7"> <!-- Added mt-5 sm:mt-7 for alignment with other fields that have labels above -->
+                        <input type="checkbox" id="isRemote" name="is_remote" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2">
+                        <label for="isRemote" class="text-gray-700 text-sm font-bold">Remote Only</label>
                     </div>
                     <div>
                         <label for="siteNames" class="block text-gray-700 text-sm font-bold mb-1">Sites (comma-sep):</label>

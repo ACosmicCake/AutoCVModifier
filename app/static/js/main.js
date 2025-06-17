@@ -333,7 +333,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 search_term: document.getElementById('searchTerm').value,
                 location: document.getElementById('location').value,
                 site_names: document.getElementById('siteNames').value,
-                results_wanted: document.getElementById('resultsWanted').value || 5
+                results_wanted: document.getElementById('resultsWanted').value || 5,
+                job_type: document.getElementById('jobType').value,
+                distance: document.getElementById('distance').value,
+                is_remote: document.getElementById('isRemote').checked.toString(),
+                hours_old: document.getElementById('hoursOld').value
             });
 
             try {

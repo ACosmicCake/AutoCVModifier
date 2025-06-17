@@ -268,6 +268,11 @@ def create_app(test_config=None):
         search_term = request.args.get('search_term', 'software engineer')
         location = request.args.get('location', 'USA')
         country_indeed = request.args.get('country_indeed', 'USA') # Example site-specific param
+        job_type_param = request.args.get('job_type')
+        distance_param = request.args.get('distance', default=50, type=int)
+        is_remote_param_str = request.args.get('is_remote', default='false', type=str)
+        is_remote_param = is_remote_param_str.lower() == 'true'
+        hours_old_param = request.args.get('hours_old', default=None, type=int)
 
         if not site_names_list:
             return jsonify({"error": "No site names provided for scraping."}), 400
@@ -283,14 +288,18 @@ def create_app(test_config=None):
             iterations_done += 1
             num_to_fetch_this_batch = batch_fetch_size
 
-            print(f"Scraping iteration {iterations_done}, attempting to fetch {num_to_fetch_this_batch} jobs...")
+            print(f"Scraping iteration {iterations_done}, fetching a batch of up to {num_to_fetch_this_batch} jobs. Target for this session: {results_wanted_int} new jobs. Currently found: {len(new_jobs_found)}.")
 
             current_batch_jobs = scrape_online_jobs(
                 site_names=site_names_list,
                 search_term=search_term,
                 location=location,
                 results_wanted=num_to_fetch_this_batch,
-                country_indeed=country_indeed
+                country_indeed=country_indeed,
+                job_type=job_type_param,
+                distance=distance_param,
+                is_remote=is_remote_param,
+                hours_old=hours_old_param
             )
 
             if current_batch_jobs is None: # Scraper error
