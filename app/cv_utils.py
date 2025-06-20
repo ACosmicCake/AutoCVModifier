@@ -172,7 +172,7 @@ Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence
 3.  **Project Highlights**: If relevant, populate the `CV.Projects` section. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
 
 4.  **Strategic Skills Matrix**: This is critical. You must format the skills according to the target structure.
-    * Populate the `CV.Skills` array with a list of 3 key objects.
+    * Populate the `CV.Skills` array with a list of 2 key objects.
     * For each object, define a `SkillCategory` (e.g., "Programming Languages", "Cloud & DevOps", "Databases", "Frameworks & Libraries", "Methodologies").
     * In the corresponding `Skill` array, list the specific skills the candidate possesses that are relevant to the job, drawn from your "High-Value Keywords" list.
 

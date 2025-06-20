@@ -87,48 +87,32 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
     # --- Summary/Objective ---
     summary_data = data.get("SummaryOrObjective", {})
     if isinstance(summary_data, dict) and summary_data.get("Statement"):
-        story.append(Paragraph("Summary", styles['TemplateSectionTitle']))
-        story.append(KeepTogether([Paragraph(summary_data["Statement"], styles['SummaryStyle'])]))
+        # Wrap summary and its title together
+        summary_block = [
+            Paragraph("Summary", styles['TemplateSectionTitle']),
+            Paragraph(summary_data["Statement"], styles['SummaryStyle'])
+        ]
+        story.append(KeepTogether(summary_block))
+
 
     # --- Generic Section Renderer ---
     def render_section(title, items_data, render_item_func, section_key):
-        if not (isinstance(items_data, list) and items_data):
-            return
+        if isinstance(items_data, list) and items_data:
+            for i, item in enumerate(items_data):
+                if isinstance(item, dict):
+                     # Pass the title only to the first item's render function
+                     section_title = title if i == 0 else None
+                     render_item_func(item, section_title=section_title)
+                     if i < len(items_data) - 1: story.append(Spacer(1, 0.05*inch))
+                else:
+                    print(f"Warning: Item in section '{section_key}' is not a dictionary: {item}")
+            story.append(Spacer(1, 0.05*inch))
 
-        # Render all item flowables first so we can manipulate them
-        rendered_items = []
-        for item in items_data:
-            if isinstance(item, dict):
-                # Item renderers now return flowable objects
-                rendered_items.append(render_item_func(item))
-            else:
-                print(f"Warning: Item in section '{section_key}' is not a dictionary: {item}")
-
-        if not rendered_items:
-            return
-
-        title_p = Paragraph(title, styles['TemplateSectionTitle'])
-
-        # For "Projects", keep the title with the first entry. For others, add title separately.
-        if section_key == "Projects":
-            story.append(KeepTogether([title_p, rendered_items[0]]))
-            # Add the rest of the items, with spacers before them
-            for item_flowable in rendered_items[1:]:
-                story.append(Spacer(1, 0.05 * inch))
-                story.append(item_flowable)
-        else:
-            story.append(title_p)
-            # Add the first item, then the rest with spacers between them
-            story.append(rendered_items[0])
-            for item_flowable in rendered_items[1:]:
-                story.append(Spacer(1, 0.05 * inch))
-                story.append(item_flowable)
-
-        story.append(Spacer(1, 0.05 * inch))
-
-
-    def render_education_item(entry):
+    def render_education_item(entry, section_title=None):
         entry_flowables = []
+        if section_title:
+            entry_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
+
         left_col_text = f"{entry.get('InstitutionName', 'N/A')}"
         if entry.get('Location'): left_col_text += f", {entry.get('Location', '')}"
         right_col_text = entry.get('GraduationDateOrExpected', '')
@@ -140,10 +124,13 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
         entry_flowables.append(Paragraph(degree_major, styles['EntrySubHeader']))
         for honor in entry.get("HonorsAndAwardsOrRelevantCoursework", []):
             entry_flowables.append(Paragraph(f"<i>{honor}</i>" if "thesis:" in str(honor).lower() else str(honor), styles['SubDetail']))
-        return KeepTogether(entry_flowables)
+        story.append(KeepTogether(entry_flowables))
 
-    def render_experience_item(job):
+    def render_experience_item(job, section_title=None):
         job_flowables = []
+        if section_title:
+            job_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
+
         left_col_text = f"{job.get('CompanyName', 'N/A')}"
         if job.get('Location'): left_col_text += f", {job.get('Location', '')}"
         right_col_text = job.get("EmploymentDates", "")
@@ -153,10 +140,13 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
         job_flowables.append(Paragraph(job.get("JobTitle", "N/A"), styles['EntrySubHeader']))
         for resp in job.get("ResponsibilitiesAndAchievements", []):
             job_flowables.append(Paragraph(str(resp), styles['TemplateBullet'], bulletText='•'))
-        return KeepTogether(job_flowables)
+        story.append(KeepTogether(job_flowables))
 
-    def render_project_item(proj):
+    def render_project_item(proj, section_title=None):
         project_flowables = []
+        if section_title:
+            project_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
+
         left_col_text = proj.get("ProjectName", "N/A")
         right_col_text = proj.get("DatesOrDuration", "")
         date_p = Paragraph(right_col_text, styles['DateLocation']) if right_col_text and str(right_col_text).strip().lower() not in ["", "dates not specified"] else Paragraph("", styles['DateLocation'])
@@ -165,10 +155,13 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
         if proj.get("Description"): project_flowables.append(Paragraph(proj.get("Description"), styles['EntrySubHeader']))
         for contrib in proj.get("KeyContributionsOrTechnologiesUsed", []):
             project_flowables.append(Paragraph(str(contrib), styles['TemplateBullet'], bulletText='•'))
-        return KeepTogether(project_flowables)
+        story.append(KeepTogether(project_flowables))
 
-    def render_volunteer_item(vol_entry):
+    def render_volunteer_item(vol_entry, section_title=None):
         volunteer_flowables = []
+        if section_title:
+            volunteer_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
+            
         org_name = vol_entry.get("OrganizationName", "N/A")
         dates = vol_entry.get("Dates", "")
         date_p = Paragraph(dates, styles['DateLocation']) if dates and str(dates).strip().lower() not in ["", "dates not specified"] else Paragraph("", styles['DateLocation'])
@@ -176,7 +169,7 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
         volunteer_flowables.append(header_table)
         if vol_entry.get("Role"): volunteer_flowables.append(Paragraph(vol_entry.get("Role"), styles['EntrySubHeader']))
         if vol_entry.get("Description"): volunteer_flowables.append(Paragraph(vol_entry.get("Description"), styles['SubDetail']))
-        return KeepTogether(volunteer_flowables)
+        story.append(KeepTogether(volunteer_flowables))
 
     # --- Render Sections ---
     render_section("Education", data.get("Education", []), render_education_item, "Education")
@@ -186,10 +179,10 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
     # --- Skills Section (Variable multiple column layout per category for compactness) ---
     skills_data = data.get("Skills", [])
     if isinstance(skills_data, list) and skills_data:
-        story.append(Paragraph("Skills", styles['TemplateSectionTitle']))
+        skills_block = [Paragraph("Skills", styles['TemplateSectionTitle'])]
         for skill_item in skills_data:
             if isinstance(skill_item, dict):
-                story.append(Paragraph(skill_item.get("SkillCategory", "General Skills"), styles['SkillsCategory']))
+                skills_block.append(Paragraph(skill_item.get("SkillCategory", "General Skills"), styles['SkillsCategory']))
                 
                 skills_list = skill_item.get("Skill", [])
                 if isinstance(skills_list, list) and skills_list:
@@ -222,25 +215,28 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
                             ('TOPPADDING', (0,0), (-1,-1), 1),
                         ])
                         skill_table.setStyle(skills_table_style)
-                        story.append(skill_table)
-                        story.append(Spacer(1, 0.02*inch)) # Reduced spacer after each skill category's table
+                        skills_block.append(skill_table)
+                        skills_block.append(Spacer(1, 0.02*inch)) # Reduced spacer after each skill category's table
                 else:
                     print(f"Warning: 'Skill' field in Skills section is not a list or is empty for category '{skill_item.get('SkillCategory', 'Unknown')}': {skills_list}")
             else:
                 print(f"Warning: Item in Skills section is not a dictionary: {skill_item}")
+        
+        story.append(KeepTogether(skills_block))
         story.append(Spacer(1, 0.05*inch)) 
 
     # --- Certifications & Awards ---
     def render_simple_list_section(title, items_data, fields, section_key):
         if isinstance(items_data, list) and items_data:
-            story.append(Paragraph(title, styles['TemplateSectionTitle']))
+            section_block = [Paragraph(title, styles['TemplateSectionTitle'])]
             for item in items_data:
                  if isinstance(item, dict):
                     text_parts = [str(item.get(f)) for f in fields if item.get(f)]
                     item_paragraph = Paragraph(" - ".join(text_parts), styles['SubDetail'])
-                    story.append(KeepTogether([item_paragraph]))
+                    section_block.append(item_paragraph)
                  else:
                     print(f"Warning: Item in section '{section_key}' is not a dictionary: {item}")
+            story.append(KeepTogether(section_block))
             story.append(Spacer(1, 0.05*inch))
 
     render_simple_list_section("Certifications", data.get("Certifications", []), ["CertificationName", "IssuingOrganization"], "Certifications")
@@ -317,7 +313,7 @@ if __name__ == "__main__":
             },
             {
                 "ProjectName": "E-commerce Platform Testing", "DatesOrDuration": "2021",
-                "Description": "Comprehensive testing of a new e-commerce website.",
+                "Description": "Lead QA for a new e-commerce platform launch.",
                 "KeyContributionsOrTechnologiesUsed": ["JIRA, Selenium, Postman API Testing"]
             }
         ],
@@ -358,15 +354,7 @@ if __name__ == "__main__":
     test_output_filepath = os.path.join(test_output_dir, "test_generated_cv_variable_skills_compact.pdf")
 
     print(f"Generating test PDF at: {test_output_filepath}")
-    # Added a second project to the JSON to test the new logic
-    example_cv_dict = json.loads(example_cv_json_str)
-    example_cv_dict["CV"]["Projects"].append({
-        "ProjectName": "Second Project To Test Spacing", "DatesOrDuration": "2023",
-        "Description": "This is another project to ensure it appears correctly after the first one.",
-        "KeyContributionsOrTechnologiesUsed": ["ReportLab", "Python"]
-    })
-    
-    success = generate_cv_pdf_from_json_string(json.dumps(example_cv_dict), test_output_filepath)
+    success = generate_cv_pdf_from_json_string(example_cv_json_str, test_output_filepath)
 
     if success:
         print(f"Test PDF generated successfully: {test_output_filepath}")
