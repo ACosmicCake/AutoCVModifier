@@ -100,7 +100,7 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
     try:
         client = genai.Client(api_key=api_key)
         # Model name as specified by user, without "models/" prefix for client.models.generate_content
-        model_to_use = "gemini-2.5-flash"
+        model_to_use = "gemini-2.5-pro"
 
         response = client.models.generate_content( # Changed to client.models.generate_content
             model=model_to_use,
@@ -149,7 +149,7 @@ You are an elite, Tier-1 technical recruiter and career strategist, operating wi
 **Guiding Principle: Dual-Optimization**
 The resulting CV must succeed on two fronts simultaneously:
 1.  **ATS Dominance**: Achieve a high relevance score by embedding essential keywords from the job description into the correct fields of the JSON structure.
-2.  **Human Persuasion**: Captivate the human reader within 7 seconds by presenting a clear, compelling narrative of value and impact.
+2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is natural and engaging, do not use general jargon such as "stakeholder", ensure the CV stands out in a sea of applicants.
 
 **Phase 1: Intelligence Gathering (Job Description Deconstruction)**
 Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
@@ -168,11 +168,12 @@ Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence
 2.  **Experience Section**: Select the 2-3 most relevant roles to feature in the `CV.ProfessionalExperience` array. For each role, transform the bullet points using the **Impact-First C.A.R.L. Method (Context, Action, Result, Learning)**.
     * **Start with the Result**: Lead with a quantifiable outcome (e.g., "Increased API response time by 40%...").
     * Each generated achievement statement must be a string within the `ResponsibilitiesAndAchievements` array for that specific job object.
+    * Make sure to edit the Experience section so that is it embellishing job titles and responsibilities, inflating the candidate's skills and accomplishments.
 
-3.  **Project Highlights**: If relevant, populate the `CV.Projects` section. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
+3.  **Project Highlights**: If relevant, populate the `CV.Projects` section information that might impress the recruiter. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
 
 4.  **Strategic Skills Matrix**: This is critical. You must format the skills according to the target structure.
-    * Populate the `CV.Skills` array with a list of 2 key objects.
+    * Populate the `CV.Skills` array with a list of 2-3 key objects.
     * For each object, define a `SkillCategory` (e.g., "Programming Languages", "Cloud & DevOps", "Databases", "Frameworks & Libraries", "Methodologies").
     * In the corresponding `Skill` array, list the specific skills the candidate possesses that are relevant to the job, drawn from your "High-Value Keywords" list.
 
