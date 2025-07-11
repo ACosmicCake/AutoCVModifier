@@ -20,13 +20,14 @@ from .cv_utils import (
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv # Added save_generated_cv
+from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv, job_url_exists # Added job_url_exists
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
 # So, when app is created, app.instance_path will be '.../cv_tailor_project/instance'
 UPLOAD_FOLDER_NAME = 'uploads'
 GENERATED_PDFS_FOLDER_NAME = 'generated_pdfs'
+GENERATED_JSONS_FOLDER_NAME = 'generated_jsons' # New folder for JSONs
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'docx', 'json'}
 CV_FORMAT_FILENAME = 'CV_format.json' # Path relative to project root
 
@@ -58,6 +59,7 @@ def create_app(test_config=None):
         SECRET_KEY=secret_key,
         UPLOAD_FOLDER=os.path.join(app.instance_path, UPLOAD_FOLDER_NAME),
         GENERATED_PDFS_FOLDER=os.path.join(app.instance_path, GENERATED_PDFS_FOLDER_NAME),
+        GENERATED_JSONS_FOLDER=os.path.join(app.instance_path, GENERATED_JSONS_FOLDER_NAME), # New config
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16 MB upload limit
         CV_FORMAT_FILE_PATH=os.path.join(project_root, CV_FORMAT_FILENAME) # Path to CV_format.json at project root
     )
@@ -69,8 +71,10 @@ def create_app(test_config=None):
     try:
         os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
         os.makedirs(app.config['GENERATED_PDFS_FOLDER'], exist_ok=True)
+        os.makedirs(app.config['GENERATED_JSONS_FOLDER'], exist_ok=True) # Create new folder
         print(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
         print(f"Generated PDFs folder: {app.config['GENERATED_PDFS_FOLDER']}")
+        print(f"Generated JSONs folder: {app.config['GENERATED_JSONS_FOLDER']}") # Print new folder path
     except OSError as e:
         print(f"Error creating instance folders: {e}")
         # Depending on severity, might want to raise an error here
@@ -184,25 +188,74 @@ def create_app(test_config=None):
             if not tailored_cv_json_str:
                 return jsonify({"error": "Failed to tailor CV using Gemini API"}), 500
 
-            # --- PDF Generation ---
-            unique_pdf_filename = f"tailored_cv_{uuid.uuid4()}.pdf"
-            full_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], unique_pdf_filename)
+            # --- PDF Generation & Naming Logic ---
+            try:
+                cv_data = json.loads(tailored_cv_json_str)
+                applicant_name = cv_data.get("CV", {}).get("PersonalInformation", {}).get("Name", "UnknownApplicant")
+                safe_applicant_name = secure_filename(applicant_name) if applicant_name else "UnknownApplicant"
+            except json.JSONDecodeError:
+                # If JSON is invalid, this is a server-side issue with Gemini's output or our processing
+                print(f"Error: Failed to parse tailored_cv_json_str: {tailored_cv_json_str[:200]}...") # Log snippet
+                return jsonify({"error": "Failed to process tailored CV data (JSON parsing error)"}), 500
+            except Exception as e_parse: # Catch any other unexpected errors during parsing/name extraction
+                print(f"Error extracting data from tailored CV JSON: {e_parse}")
+                # Fallback to generic naming if specific fields can't be parsed
+                safe_applicant_name = "UnknownApplicant"
+                cv_data = {} # Ensure cv_data is defined for the final jsonify
+
+            job_title_form = request.form.get('job_title', 'Application')
+            safe_job_title = secure_filename(job_title_form) if job_title_form else "Application"
+
+            base_pdf_filename = f"CV_{safe_job_title}_{safe_applicant_name}.pdf"
+            pdf_folder = app.config['GENERATED_PDFS_FOLDER']
+
+            final_pdf_filename = base_pdf_filename
+            counter = 1
+            # Loop to find a unique filename
+            while os.path.exists(os.path.join(pdf_folder, final_pdf_filename)):
+                final_pdf_filename = f"CV_{safe_job_title}_{safe_applicant_name}_{counter}.pdf"
+                counter += 1
+
+            full_pdf_path = os.path.join(pdf_folder, final_pdf_filename)
+
+            # --- Save Tailored JSON File ---
+            base_json_filename = f"CV_{safe_job_title}_{safe_applicant_name}.json"
+            json_folder = app.config['GENERATED_JSONS_FOLDER']
+            final_json_filename = base_json_filename
+            json_counter = 1
+            while os.path.exists(os.path.join(json_folder, final_json_filename)):
+                final_json_filename = f"CV_{safe_job_title}_{safe_applicant_name}_{json_counter}.json"
+                json_counter += 1
+
+            full_json_path = os.path.join(json_folder, final_json_filename)
+            try:
+                with open(full_json_path, 'w', encoding='utf-8') as f_json:
+                    f_json.write(tailored_cv_json_str)
+                print(f"Tailored JSON saved: {full_json_path}")
+            except IOError as e_json_save:
+                print(f"Error saving JSON file {full_json_path}: {e_json_save}")
+                # For now, only print error, don't alter API response for this
 
             pdf_generation_success = generate_cv_pdf_from_json_string(tailored_cv_json_str, full_pdf_path)
+
+            # Prepare response JSON (cv_data might be from the try block or the except block if parsing failed)
+            # If cv_data is empty due to parsing error, json.loads(tailored_cv_json_str) will be used if PDF fails,
+            # or cv_data (which would be the parsed one) if PDF succeeds.
+            # For consistency, always use the initially parsed cv_data if successful, or load it again if it failed.
+            response_cv_json = cv_data if cv_data else json.loads(tailored_cv_json_str) # Fallback if initial parse failed
 
             if pdf_generation_success:
                 return jsonify({
                     "message": "CV Tailored and PDF Generated!",
-                    "pdf_download_url": f"/api/download-cv/{unique_pdf_filename}",
-                    "tailored_cv_json": json.loads(tailored_cv_json_str) # Return parsed JSON
+                    "pdf_download_url": f"/api/download-cv/{final_pdf_filename}",
+                    "tailored_cv_json": response_cv_json
                 })
             else:
-                # Still return the JSON CV even if PDF fails, with a warning.
                 return jsonify({
                     "message": "CV Tailored, but PDF generation failed.",
                     "error_pdf": "Failed to generate PDF from tailored CV. JSON is available.",
-                    "tailored_cv_json": json.loads(tailored_cv_json_str)
-                }), 500 # Or 207 Multi-Status if preferred for partial success
+                    "tailored_cv_json": response_cv_json # Use the same JSON structure
+                }), 500
         else:
             return jsonify({"error": "Invalid file type for CV"}), 400
 
@@ -214,47 +267,90 @@ def create_app(test_config=None):
         site_names_list = [name.strip() for name in site_names_str.split(',') if name.strip()]
         search_term = request.args.get('search_term', 'software engineer')
         location = request.args.get('location', 'USA')
-        results_wanted = request.args.get('results_wanted', 5, type=int)
         country_indeed = request.args.get('country_indeed', 'USA') # Example site-specific param
 
         if not site_names_list:
             return jsonify({"error": "No site names provided for scraping."}), 400
 
-        jobs = scrape_online_jobs(
-            site_names=site_names_list,
-            search_term=search_term,
-            location=location,
-            results_wanted=results_wanted,
-            country_indeed=country_indeed
-        )
-        if jobs is not None: # scrape_online_jobs returns [] for no jobs, None for error
-            # --- Save jobs to database ---
-            if isinstance(jobs, list) and jobs: # Ensure jobs is a list and not empty
-                for job in jobs:
-                    # Assuming scrape_online_jobs returns a list of dicts
-                    # and each dict contains the necessary fields for save_job.
-                    # 'source' might need to be inferred or passed along from scrape_online_jobs
-                    # For now, let's assume 'source' is part of the job dict from the scraper.
-                    # The jobspy library returns 'site' as the source name.
-                    # We'll map it to 'source' for our database schema and also add raw_job_data.
+        results_wanted_int = request.args.get('results_wanted', 5, type=int)
+        new_jobs_found = []
+        processed_urls_this_session = set()
+        batch_fetch_size = 15  # How many to request per API call to jobspy
+        max_iterations = 10    # Max number of scraping batches
+        iterations_done = 0
+
+        while len(new_jobs_found) < results_wanted_int and iterations_done < max_iterations:
+            iterations_done += 1
+            num_to_fetch_this_batch = batch_fetch_size
+
+            print(f"Scraping iteration {iterations_done}, attempting to fetch {num_to_fetch_this_batch} jobs...")
+
+            current_batch_jobs = scrape_online_jobs(
+                site_names=site_names_list,
+                search_term=search_term,
+                location=location,
+                results_wanted=num_to_fetch_this_batch,
+                country_indeed=country_indeed
+            )
+
+            if current_batch_jobs is None: # Scraper error
+                if iterations_done == 1: # First iteration failed
+                    return jsonify({"error": "Failed to scrape jobs: scraper error on first attempt"}), 500
+                print("Scraper error occurred after some iterations. Returning what was found so far.")
+                break # from while loop, return what we have
+
+            if not current_batch_jobs: # Empty list from scraper, presumably exhausted for this query
+                print("Scraper returned no more jobs for this query.")
+                break # from while loop
+
+            # found_new_in_this_batch = False # Optional: for early exit if a batch yields nothing
+            for job_data in current_batch_jobs:
+                job_url = job_data.get('job_url')
+
+                if not job_url:
+                    print("Skipping job due to missing URL in scraped data.")
+                    continue
+
+                if job_url in processed_urls_this_session:
+                    continue
+                processed_urls_this_session.add(job_url)
+
+                if not job_url_exists(job_url):
                     db_job_data = {
-                        'title': job.get('title'),
-                        'company': job.get('company'),
-                        'location': job.get('location'),
-                        'description': job.get('description'),
-                        'url': job.get('job_url'), # jobspy uses 'job_url'
-                        'source': job.get('site'), # jobspy uses 'site'
-                        # date_scraped is handled by the database
-                        'raw_job_data': job # Store the original job dict from the scraper
+                        'title': job_data.get('title'),
+                        'company': job_data.get('company'),
+                        'location': job_data.get('location'),
+                        'description': job_data.get('description'),
+                        'url': job_url,
+                        'source': job_data.get('site'),
+                        'raw_job_data': job_data
                     }
-                    # Ensure essential fields like URL and source are present before saving
+
                     if db_job_data['url'] and db_job_data['source']:
                         save_job(db_job_data)
+                        new_jobs_found.append(job_data)
+                        # found_new_in_this_batch = True
                     else:
-                        print(f"Skipping job due to missing URL or source: {job.get('title')}")
-            return jsonify({"jobs": jobs})
-        else:
-            return jsonify({"error": "Failed to scrape jobs or an error occurred"}), 500
+                        print(f"Skipping saving job due to missing URL or source after mapping: {job_data.get('title')}")
+
+                    if len(new_jobs_found) >= results_wanted_int:
+                        break # from for loop (batch processing)
+
+            # After processing a batch
+            if len(new_jobs_found) >= results_wanted_int:
+                print(f"Found {results_wanted_int} new jobs. Stopping.")
+                break # from while loop (main fetching loop)
+
+            # Optional: Early exit if a batch yielded no new jobs
+            # if not found_new_in_this_batch and results_wanted_int - len(new_jobs_found) > batch_fetch_size:
+            #     print("Current batch yielded no new jobs, and still far from target. Stopping early.")
+            #     break
+
+        # After loop finishes
+        if iterations_done >= max_iterations and len(new_jobs_found) < results_wanted_int:
+            print(f"Warning: Job scraping reached max_iterations ({max_iterations}) before finding all {results_wanted_int} desired jobs. Found {len(new_jobs_found)}.")
+
+        return jsonify({"jobs": new_jobs_found})
 
     @app.route('/api/jobs', methods=['GET'])
     def api_get_jobs():
@@ -377,6 +473,12 @@ def create_app(test_config=None):
                 os.remove(temp_cv_filepath)
             return jsonify({"error": "Server configuration error: Could not read CV format file."}), 500
 
+        # Initialize applicant name variables - will be extracted from the first successfully tailored CV
+        applicant_name_from_cv = "UnknownApplicant" # Full name, potentially with spaces
+        safe_applicant_name = "UnknownApplicant"    # Filename-safe version
+
+        pdf_folder = app.config['GENERATED_PDFS_FOLDER']
+
         # Process each job description
         for index, jd_content in enumerate(job_descriptions):
             job_title_summary = job_titles[index] if index < len(job_titles) else f"Job Description {index + 1}"
@@ -387,7 +489,7 @@ def create_app(test_config=None):
             except ValueError:
                 print(f"Error: Invalid job_id format '{current_job_id_str}' for job '{job_title_summary}'. Skipping.")
                 results.append({
-                    "job_id": current_job_id_str, # Keep original string for reference in result
+                    "job_id": current_job_id_str,
                     "job_title_summary": job_title_summary,
                     "status": "error",
                     "message": f"Invalid job_id format: {current_job_id_str}. Must be an integer."
@@ -405,8 +507,8 @@ def create_app(test_config=None):
 
             try:
                 tailored_cv_json_str = process_cv_and_jd(
-                    cv_content_str, # Processed CV text
-                    jd_content,     # Current job description
+                    cv_content_str,
+                    jd_content,
                     cv_template_content_str,
                     current_api_key
                 )
@@ -420,23 +522,63 @@ def create_app(test_config=None):
                     })
                     continue
 
-                # PDF Generation for this tailored CV
-                safe_title_part = secure_filename(job_title_summary)[:30] if job_title_summary else "job"
-                # Ensure unique_pdf_filename is just the name, not the full path
-                unique_pdf_filename_only = f"tailored_cv_{safe_title_part}_{job_id_int}_{uuid.uuid4()}.pdf"
-                full_pdf_path = os.path.join(app.config['GENERATED_PDFS_FOLDER'], unique_pdf_filename_only)
+                # Extract ApplicantName from the first successfully tailored CV
+                if applicant_name_from_cv == "UnknownApplicant": # Check if it's still the initial default
+                    try:
+                        first_cv_data = json.loads(tailored_cv_json_str)
+                        extracted_name = first_cv_data.get("CV", {}).get("PersonalInformation", {}).get("Name", "UnknownApplicant")
+                        if extracted_name and extracted_name != "UnknownApplicant": # Check if a valid name was extracted
+                            applicant_name_from_cv = extracted_name # Store the full name
+                            # Sanitize for filename, ensure default if empty after sanitize
+                            temp_safe_name = secure_filename(applicant_name_from_cv)
+                            safe_applicant_name = temp_safe_name if temp_safe_name else "UnknownApplicant"
+                    except json.JSONDecodeError:
+                        # Keep default "UnknownApplicant" if parsing fails, will be used for all subsequent filenames
+                        print(f"Warning: Could not parse first tailored CV JSON to extract applicant name for job ID {job_id_int}.")
+                        pass # safe_applicant_name remains "UnknownApplicant"
+
+                # PDF Generation Naming
+                # Sanitize job_title_summary for filename, ensure default if empty
+                temp_safe_job_title = secure_filename(job_title_summary)
+                safe_job_title = temp_safe_job_title if temp_safe_job_title else "Application"
+
+                base_pdf_filename = f"CV_{safe_job_title}_{safe_applicant_name}.pdf"
+                final_pdf_filename_only = base_pdf_filename
+                counter = 1
+                while os.path.exists(os.path.join(pdf_folder, final_pdf_filename_only)):
+                    final_pdf_filename_only = f"CV_{safe_job_title}_{safe_applicant_name}_{counter}.pdf"
+                    counter += 1
+
+                full_pdf_path = os.path.join(pdf_folder, final_pdf_filename_only)
+
+                # --- Save Tailored JSON File for Batch Item ---
+                json_folder_batch = app.config['GENERATED_JSONS_FOLDER'] # Already available via app.config
+                base_json_filename_batch = f"CV_{safe_job_title}_{safe_applicant_name}.json"
+                final_json_filename_batch = base_json_filename_batch
+                json_counter_batch = 1
+                while os.path.exists(os.path.join(json_folder_batch, final_json_filename_batch)):
+                    final_json_filename_batch = f"CV_{safe_job_title}_{safe_applicant_name}_{json_counter_batch}.json"
+                    json_counter_batch += 1
+
+                full_json_path_batch = os.path.join(json_folder_batch, final_json_filename_batch)
+                try:
+                    with open(full_json_path_batch, 'w', encoding='utf-8') as f_json_batch:
+                        f_json_batch.write(tailored_cv_json_str)
+                    print(f"Tailored JSON saved for job ID {job_id_int}: {full_json_path_batch}")
+                except IOError as e_json_save_batch:
+                    print(f"Error saving JSON file for job ID {job_id_int} ({full_json_path_batch}): {e_json_save_batch}")
+                    # For now, only print error. Could add to results if critical.
 
                 pdf_generation_success = generate_cv_pdf_from_json_string(tailored_cv_json_str, full_pdf_path)
 
                 if pdf_generation_success:
-                    # Save to generated_cvs table
                     try:
-                        save_generated_cv(job_id_int, unique_pdf_filename_only, tailored_cv_json_str)
+                        save_generated_cv(job_id_int, final_pdf_filename_only, tailored_cv_json_str)
                         results.append({
                             "job_id": job_id_int,
                             "job_title_summary": job_title_summary,
                             "status": "success",
-                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}"
+                            "pdf_url": f"/api/download-cv/{final_pdf_filename_only}"
                         })
                     except Exception as e_db_save:
                         print(f"Error saving generated CV to database for job ID {job_id_int}: {e_db_save}")
@@ -445,7 +587,7 @@ def create_app(test_config=None):
                             "job_title_summary": job_title_summary,
                             "status": "error",
                             "message": "CV generated and PDF created, but failed to save record to database.",
-                            "pdf_url": f"/api/download-cv/{unique_pdf_filename_only}" # Still provide URL if PDF was made
+                            "pdf_url": f"/api/download-cv/{final_pdf_filename_only}"
                         })
                 else:
                     results.append({

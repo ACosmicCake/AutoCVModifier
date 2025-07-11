@@ -236,6 +236,29 @@ def get_generated_cv_by_job_id(job_id: int) -> dict | None:
         if conn:
             conn.close()
 
+def job_url_exists(url: str) -> bool:
+    """Checks if a job URL already exists in the database.
+
+    Args:
+        url: The job URL to check.
+
+    Returns:
+        True if the URL exists, False otherwise.
+    """
+    conn = None  # Initialize conn to None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM jobs WHERE url = ? LIMIT 1", (url,))
+        result = cursor.fetchone()
+        return result is not None
+    except sqlite3.Error as e:
+        print(f"Database error while checking if URL exists {url}: {e}")
+        return False # Or re-raise, depending on desired error handling for the caller
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == '__main__':
     # For testing or manual initialization
     init_db()
