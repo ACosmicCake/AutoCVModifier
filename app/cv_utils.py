@@ -126,109 +126,180 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
         print(traceback.format_exc())
         return None
 
-def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str) -> str | None:
+def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str, iterations: int = 1) -> str | None:
     """
     Processes the CV and Job Description using the Gemini API to tailor the CV.
+    If iterations > 1, it generates multiple variations and then synthesizes them.
     Returns the tailored CV as a JSON string, or None on failure.
-    The cv_template_content_str is the content of CV_format.json.
     """
-    if not cv_content_str:
-        print("Error: CV content is missing for processing.")
+    if not all([cv_content_str, job_description_text, api_key]):
+        print("Error: CV content, job description, or API key is missing.")
         return None
-    if not job_description_text:
-        print("Error: Job Description is missing for processing.")
+
+    if iterations == 1:
+        # Existing logic for a single generation
+        prompt_text = f"""
+        You are an elite, Tier-1 technical recruiter and career strategist, operating with the precision of a surgeon. Your task is to re-architect the provided CV into an interview-generating machine, meticulously populating the target JSON structure.
+
+        **Guiding Principle: Dual-Optimization**
+        The resulting CV must succeed on two fronts simultaneously:
+        1.  **ATS Dominance**: Achieve a high relevance score by embedding essential keywords from the job description into the correct fields of the JSON structure.
+        2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is natural and engaging, do not use general jargon such as "stakeholder", ensure the CV stands out in a sea of applicants.
+
+        **Phase 1: Intelligence Gathering (Job Description Deconstruction)**
+        Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
+        * **Dealbreaker Qualifications**: The absolute, must-have skills, certifications, or years of experience.
+        * **Primary Directives**: The top 3-4 key responsibilities of the role.
+        * **Underlying Business Goal**: The core business problem this role solves (e.g., increase market share, reduce technical debt).
+        * **High-Value Keywords**: Technical terms, methodologies (e.g., Agile, Scrum), and tools mentioned repeatedly.
+
+        **Phase 2: Narrative Engineering (Candidate Re-Positioning)**
+        1.  **Define the Core Narrative**: Formulate a single, powerful sentence that defines the candidate's professional story for this specific role.
+        2.  **Establish the Unique Value Proposition (UVP)**: Condense the narrative into a headline that will serve as the opening of the summary.
+
+        **Phase 3: Content Re-Engineering (Populating the JSON)**
+        1.  **High-Impact Summary**: Rewrite the summary as a dense, 3-4 line paragraph that maps the candidate's qualifications to the "Primary Directives." The final text must populate the `CV.SummaryOrObjective.Statement` field.
+
+        2.  **Experience Section**: Select relevant roles to feature in the `CV.ProfessionalExperience` array. For each role, transform the bullet points using the **Impact-First C.A.R.L. Method (Context, Action, Result, Learning)**.
+            * **Start with the Result**: Lead with a quantifiable outcome (e.g., "Increased API response time by 40%...").
+            * Each generated achievement statement must be a string within the `ResponsibilitiesAndAchievements` array for that specific job object.
+            * Make sure to edit the Experience section so that is it embellishing job titles and responsibilities, inflating the candidate's skills and accomplishments.
+
+        3.  **Project Highlights**: Populate the `CV.Projects` section with relevant projects that will impress the recruiter. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
+
+        4.  **Strategic Skills Matrix**: This is critical. You must format the skills according to the target structure.
+            * Populate the `CV.Skills` array with a list of 2-3 key objects.
+            * For each object, define a `SkillCategory` (e.g., "Programming Languages", "Cloud & DevOps", "Databases", "Frameworks & Libraries", "Methodologies").
+            * In the corresponding `Skill` array, list the specific skills the candidate possesses that are relevant to the job, drawn from your "High-Value Keywords" list.
+
+        5.  **Remaining Sections**: Accurately transfer the `PersonalInformation`, `Education`, and `Certifications` from the original CV into their corresponding sections in the JSON structure. Ensure formatting is clean and professional.
+
+        **Final Mandates & Output Format**:
+        * **Raw JSON Output**: The final output MUST be a single, raw, and valid JSON object. Do not include any text, comments, or markdown formatting (like ```json) before or after the JSON.
+        * **Strict Structural Adherence**: The final output must be a single JSON object that strictly follows the provided `LABELING STRUCTURE`, starting with the top-level `CV` key. All generated content must be placed in the correct nested fields as described above (e.g., `CV.SummaryOrObjective.Statement`, `CV.ProfessionalExperience[0].ResponsibilitiesAndAchievements`, `CV.Skills[0].Skill`).
+        * **Handle Empty Fields**: Use `""`, `[]`, or `{{}}` for any fields that are not applicable after tailoring, as specified in the structure.
+        * **Length**: The final CV PDF should be concise yet comprehensive, exactly 2 pages when printed (or around 900 words), the JSON structure should not be artificially limited in length.
+
+
+        Here is the original CV (which could be plain text, or a JSON string itself):
+        --- BEGIN CV ---
+        {cv_content_str}
+        --- END CV ---
+
+        Here is the target job description:
+        --- BEGIN JOB DESCRIPTION ---
+        {job_description_text}
+        --- END JOB DESCRIPTION ---
+
+        Generate the tailored CV based on this labeling structure. Ensure the output is ONLY the JSON object:
+        --- BEGIN LABELING STRUCTURE ---
+        {cv_template_content_str}
+        --- END LABELING STRUCTURE ---
+
+        Generate the hyper-optimized CV as a single, valid JSON object now.
+        """
+        tailored_cv_output = call_gemini_api(api_key, prompt_text)
+        return _clean_and_validate_json(tailored_cv_output)
+
+    # New logic for multi-step generation
+    generated_variations = []
+    for i in range(iterations):
+        print(f"Generating CV variation {i+1}/{iterations}...")
+        prompt_text = f"""
+        You are an expert CV tailoring assistant. Your task is to rewrite the provided CV to be perfectly tailored for the given job description.
+
+        Follow these instructions carefully:
+        1.  Analyze the job description for key skills, experience, and keywords.
+        2.  Rewrite the CV's summary, work experience, and other relevant sections to highlight these aspects.
+        3.  Use strong action verbs and quantify achievements where possible.
+        4.  Ensure the tone is professional and matches the industry.
+        5.  For the skills section, only generate a few skills, focus on keywords.
+        6.  The output MUST be a single, complete, well-formatted JSON object that strictly adheres to the provided labeling structure.
+        7.  Do NOT output anything before or after the JSON object itself. Specifically, do not use markdown like "```json" or "```".
+        8.  If a field in the JSON structure is not applicable or has no content after tailoring, represent it as an empty string "" for string fields, or an empty list [] for list fields, or an empty object {{{{}}}} for object fields if appropriate, within the JSON structure.
+
+        Here is the original CV (which could be plain text, or a JSON string itself):
+        --- BEGIN CV ---
+        {cv_content_str}
+        --- END CV ---
+
+        Here is the target job description:
+        --- BEGIN JOB DESCRIPTION ---
+        {job_description_text}
+        --- END JOB DESCRIPTION ---
+
+        Generate the tailored CV based on this labeling structure. Ensure the output is ONLY the JSON object:
+        --- BEGIN LABELING STRUCTURE ---
+        {cv_template_content_str}
+        --- END LABELING STRUCTURE ---
+
+        Now, provide the tailored CV as a valid JSON object:
+        """
+        variation = call_gemini_api(api_key, prompt_text)
+        if variation:
+            cleaned_variation = _clean_and_validate_json(variation)
+            if cleaned_variation:
+                generated_variations.append(cleaned_variation)
+
+    if not generated_variations:
+        print("Failed to generate any valid CV variations.")
         return None
-    if not api_key:
-        print("Error: API key is missing for processing.")
+
+    # Synthesis Step
+    print(f"Synthesizing final CV from {len(generated_variations)} variations...")
+    synthesis_prompt = f"""
+    You are an expert CV editor with a keen eye for detail and professional presentation.
+    You have been provided with {len(generated_variations)} different versions of a CV, all tailored for the same job description.
+    Your task is to analyze all versions, identify the best parts of each, and synthesize them into a single, final, superior CV.
+
+    Instructions:
+    1.  **Compare Summaries:** Choose the most impactful and well-written summary statement.
+    2.  **Combine Experiences:** For each role in the professional experience section, select the most powerful and achievement-oriented bullet points from all versions. You can merge and rephrase points to create the strongest possible description of responsibilities and achievements.
+    3.  **Select Best Skills:** Consolidate the skills sections to create a concise yet comprehensive list that is highly relevant to the job description.
+    4.  **Ensure Cohesion:** The final CV must be coherent, with a consistent tone and style. It should not look like a patchwork of different documents.
+    5.  **Strict JSON Output:** The final output MUST be a single, complete, well-formatted JSON object that strictly adheres to the provided labeling structure. Do not output any text before or after the JSON object.
+
+    Here are the CV variations:
+    --- BEGIN CV VARIATIONS ---
+    """
+    for i, var in enumerate(generated_variations):
+        synthesis_prompt += f"\n--- VARIATION {i+1} ---\n{var}\n"
+    synthesis_prompt += "--- END CV VARIATIONS ---\n"
+
+    synthesis_prompt += f"""
+    Here is the labeling structure you MUST follow for the final output:
+    --- BEGIN LABELING STRUCTURE ---
+    {cv_template_content_str}
+    --- END LABELING STRUCTURE ---
+
+    Now, provide the final, synthesized CV as a single, valid JSON object:
+    """
+
+    final_cv = call_gemini_api(api_key, synthesis_prompt)
+    return _clean_and_validate_json(final_cv)
+
+def _clean_and_validate_json(json_string: str | None) -> str | None:
+    """Helper function to clean and validate a JSON string from the API."""
+    if not json_string:
         return None
-    # cv_template_content_str can be empty, so no check for it here.
 
-    prompt_text = f"""
-You are an elite, Tier-1 technical recruiter and career strategist, operating with the precision of a surgeon. Your task is to re-architect the provided CV into an interview-generating machine, meticulously populating the target JSON structure. 
+    cleaned_output = json_string.strip()
 
-**Guiding Principle: Dual-Optimization**
-The resulting CV must succeed on two fronts simultaneously:
-1.  **ATS Dominance**: Achieve a high relevance score by embedding essential keywords from the job description into the correct fields of the JSON structure.
-2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is natural and engaging, do not use general jargon such as "stakeholder", ensure the CV stands out in a sea of applicants. 
+    # More robust cleaning for potential markdown and other unwanted prefixes/suffixes
+    if cleaned_output.startswith("```json"):
+        cleaned_output = cleaned_output[len("```json"):]
+    elif cleaned_output.startswith("```"): # Catch if only ``` is present
+        cleaned_output = cleaned_output[len("```"):]
 
-**Phase 1: Intelligence Gathering (Job Description Deconstruction)**
-Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
-* **Dealbreaker Qualifications**: The absolute, must-have skills, certifications, or years of experience.
-* **Primary Directives**: The top 3-4 key responsibilities of the role.
-* **Underlying Business Goal**: The core business problem this role solves (e.g., increase market share, reduce technical debt).
-* **High-Value Keywords**: Technical terms, methodologies (e.g., Agile, Scrum), and tools mentioned repeatedly.
+    if cleaned_output.endswith("```"):
+        cleaned_output = cleaned_output[:-len("```")]
 
-**Phase 2: Narrative Engineering (Candidate Re-Positioning)**
-1.  **Define the Core Narrative**: Formulate a single, powerful sentence that defines the candidate's professional story for this specific role.
-2.  **Establish the Unique Value Proposition (UVP)**: Condense the narrative into a headline that will serve as the opening of the summary.
+    cleaned_output = cleaned_output.strip() # Strip again after potential modifications
 
-**Phase 3: Content Re-Engineering (Populating the JSON)**
-1.  **High-Impact Summary**: Rewrite the summary as a dense, 3-4 line paragraph that maps the candidate's qualifications to the "Primary Directives." The final text must populate the `CV.SummaryOrObjective.Statement` field.
-
-2.  **Experience Section**: Select relevant roles to feature in the `CV.ProfessionalExperience` array. For each role, transform the bullet points using the **Impact-First C.A.R.L. Method (Context, Action, Result, Learning)**.
-    * **Start with the Result**: Lead with a quantifiable outcome (e.g., "Increased API response time by 40%...").
-    * Each generated achievement statement must be a string within the `ResponsibilitiesAndAchievements` array for that specific job object.
-    * Make sure to edit the Experience section so that is it embellishing job titles and responsibilities, inflating the candidate's skills and accomplishments.
-
-3.  **Project Highlights**: Populate the `CV.Projects` section with relevant projects that will impress the recruiter. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
-
-4.  **Strategic Skills Matrix**: This is critical. You must format the skills according to the target structure.
-    * Populate the `CV.Skills` array with a list of 2-3 key objects.
-    * For each object, define a `SkillCategory` (e.g., "Programming Languages", "Cloud & DevOps", "Databases", "Frameworks & Libraries", "Methodologies").
-    * In the corresponding `Skill` array, list the specific skills the candidate possesses that are relevant to the job, drawn from your "High-Value Keywords" list.
-
-5.  **Remaining Sections**: Accurately transfer the `PersonalInformation`, `Education`, and `Certifications` from the original CV into their corresponding sections in the JSON structure. Ensure formatting is clean and professional.
-
-**Final Mandates & Output Format**:
-* **Raw JSON Output**: The final output MUST be a single, raw, and valid JSON object. Do not include any text, comments, or markdown formatting (like ```json) before or after the JSON.
-* **Strict Structural Adherence**: The final output must be a single JSON object that strictly follows the provided `LABELING STRUCTURE`, starting with the top-level `CV` key. All generated content must be placed in the correct nested fields as described above (e.g., `CV.SummaryOrObjective.Statement`, `CV.ProfessionalExperience[0].ResponsibilitiesAndAchievements`, `CV.Skills[0].Skill`).
-* **Handle Empty Fields**: Use `""`, `[]`, or `{{}}` for any fields that are not applicable after tailoring, as specified in the structure.
-* **Length**: The final CV PDF should be concise yet comprehensive, exactly 2 pages when printed (or around 900 words), the JSON structure should not be artificially limited in length. 
-
-
-Here is the original CV (which could be plain text, or a JSON string itself):
---- BEGIN CV ---
-{cv_content_str}
---- END CV ---
-
-Here is the target job description:
---- BEGIN JOB DESCRIPTION ---
-{job_description_text}
---- END JOB DESCRIPTION ---
-
-Generate the tailored CV based on this labeling structure. Ensure the output is ONLY the JSON object:
---- BEGIN LABELING STRUCTURE ---
-{cv_template_content_str}
---- END LABELING STRUCTURE ---
-
-Generate the hyper-optimized CV as a single, valid JSON object now.
-"""
-    # For debugging, you might want to log the prompt:
-    # print(f"Prompt for Gemini: {prompt_text[:300]}...")
-
-    tailored_cv_output = call_gemini_api(api_key, prompt_text)
-
-    if tailored_cv_output:
-        cleaned_output = tailored_cv_output.strip()
-
-        # More robust cleaning for potential markdown and other unwanted prefixes/suffixes
-        if cleaned_output.startswith("```json"):
-            cleaned_output = cleaned_output[len("```json"):]
-        elif cleaned_output.startswith("```"): # Catch if only ``` is present
-            cleaned_output = cleaned_output[len("```"):]
-
-        if cleaned_output.endswith("```"):
-            cleaned_output = cleaned_output[:-len("```")]
-
-        cleaned_output = cleaned_output.strip() # Strip again after potential modifications
-
-        try:
-            json.loads(cleaned_output) # Validate if the cleaned output is valid JSON
-            return cleaned_output
-        except json.JSONDecodeError as e:
-            print(f"Error: Gemini API output was not valid JSON after cleaning: {e}")
-            print(f"Problematic output (first 500 chars): {cleaned_output[:500]}")
-            return None
-    else:
-        print("Failed to get tailored CV from API in process_cv_and_jd (output was None).")
+    try:
+        json.loads(cleaned_output) # Validate if the cleaned output is valid JSON
+        return cleaned_output
+    except json.JSONDecodeError as e:
+        print(f"Error: API output was not valid JSON after cleaning: {e}")
+        print(f"Problematic output (first 500 chars): {cleaned_output[:500]}")
         return None

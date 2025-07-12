@@ -178,11 +178,19 @@ def create_app(test_config=None):
                 print(f"Error reading CV format file: {e_format}")
                 return jsonify({"error": f"Server configuration error: Could not read CV format file."}), 500
 
+            try:
+                iterations = int(request.form.get('generation_iterations', 1))
+                if not 1 <= iterations <= 5:
+                    iterations = 1
+            except (ValueError, TypeError):
+                iterations = 1
+
             tailored_cv_json_str = process_cv_and_jd(
                 cv_content_str,
                 job_description,
                 cv_template_content_str,
-                current_api_key
+                current_api_key,
+                iterations
             )
 
             if not tailored_cv_json_str:

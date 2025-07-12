@@ -33,6 +33,11 @@
                     <label for="jobDescription" class="block text-gray-700 text-sm font-bold mb-2">Paste Job Description:</label>
                     <textarea id="jobDescription" name="job_description" rows="8" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required></textarea>
                 </div>
+                <div class="mb-4">
+                    <label for="generationIterations" class="block text-gray-700 text-sm font-bold mb-2">Number of Generation Iterations:</label>
+                    <input type="number" id="generationIterations" name="generation_iterations" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" value="1" min="1" max="5">
+                    <p class="text-xs text-gray-600 mt-1">Specify how many times the AI should generate a CV. More iterations can lead to a better result but will take longer. (1-5)</p>
+                </div>
                 <div class="flex items-center justify-between">
                     <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
                         Tailor CV & Generate PDF
