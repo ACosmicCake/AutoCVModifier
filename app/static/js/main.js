@@ -87,7 +87,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cvTailorForm) {
         cvTailorForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            showLoading('Tailoring CV and generating PDF...');
+            const cyclesInput = document.getElementById('generationCycles');
+            const cycles = cyclesInput ? cyclesInput.value : 'default'; // Fallback if input not found
+            showLoading(`Performing ${cycles}-cycle agentic CV generation... This may take a moment.`);
             if (tailorResultDiv) tailorResultDiv.innerHTML = '';
             if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
             if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear batch results too

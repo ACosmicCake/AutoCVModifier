@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 # Assuming these files are in the same directory 'app'
 from .cv_utils import (
     get_api_key,
-    process_cv_and_jd,
+    process_cv_and_jd, # Will be replaced by agentic_cv_generation_loop in tailor_cv_endpoint
+    agentic_cv_generation_loop, # New import
     get_cv_from_text_file,
     get_cv_from_pdf_file,
     get_cv_from_docx_file,
@@ -178,15 +179,30 @@ def create_app(test_config=None):
                 print(f"Error reading CV format file: {e_format}")
                 return jsonify({"error": f"Server configuration error: Could not read CV format file."}), 500
 
-            tailored_cv_json_str = process_cv_and_jd(
-                cv_content_str,
-                job_description,
-                cv_template_content_str,
-                current_api_key
+            # Get generation_cycles from form, default to 3
+            try:
+                generation_cycles = int(request.form.get('generation_cycles', 3))
+                if not (1 <= generation_cycles <= 5): # Validate range
+                    print(f"Warning: generation_cycles value {generation_cycles} out of range (1-5). Defaulting to 3.")
+                    generation_cycles = 3
+            except ValueError:
+                print(f"Warning: Invalid generation_cycles value from form. Defaulting to 3.")
+                generation_cycles = 3
+
+            print(f"Using {generation_cycles} generation cycles for tailoring.")
+
+            # Call the new agentic loop
+            tailored_cv_json_str, _ = agentic_cv_generation_loop(
+                cv_content_str=cv_content_str,
+                job_description_text=job_description,
+                cv_template_content_str=cv_template_content_str,
+                api_key=current_api_key,
+                generation_cycles=generation_cycles
             )
 
             if not tailored_cv_json_str:
-                return jsonify({"error": "Failed to tailor CV using Gemini API"}), 500
+                # agentic_cv_generation_loop might have printed more specific errors
+                return jsonify({"error": "Failed to tailor CV using the agentic process. See server logs for details."}), 500
 
             # --- PDF Generation & Naming Logic ---
             try:
@@ -506,21 +522,37 @@ def create_app(test_config=None):
                 continue
 
             try:
-                tailored_cv_json_str = process_cv_and_jd(
-                    cv_content_str,
-                    jd_content,
-                    cv_template_content_str,
-                    current_api_key
+                # Get generation_cycles for each call in batch.
+                # This could also be a global setting for batch, but for now, try to get from form.
+                # If not present in batch form, it will default to 3.
+                try:
+                    generation_cycles_batch = int(request.form.get('generation_cycles', 3))
+                    if not (1 <= generation_cycles_batch <= 5):
+                        generation_cycles_batch = 3
+                except ValueError:
+                    generation_cycles_batch = 3
+
+                print(f"Batch: Using {generation_cycles_batch} generation cycles for job ID {job_id_int}.")
+
+                final_cv_json_str, intermediate_versions_json_str = agentic_cv_generation_loop(
+                    cv_content_str=cv_content_str,
+                    job_description_text=jd_content,
+                    cv_template_content_str=cv_template_content_str,
+                    api_key=current_api_key,
+                    generation_cycles=generation_cycles_batch
                 )
 
-                if not tailored_cv_json_str:
+                if not final_cv_json_str:
                     results.append({
                         "job_id": job_id_int,
                         "job_title_summary": job_title_summary,
                         "status": "error",
-                        "message": "Failed to tailor CV (API processing failed)."
+                        "message": "Failed to tailor CV via agentic process (final CV is None)."
                     })
                     continue
+
+                # Use final_cv_json_str as tailored_cv_json_str for subsequent logic
+                tailored_cv_json_str = final_cv_json_str
 
                 # Extract ApplicantName from the first successfully tailored CV
                 if applicant_name_from_cv == "UnknownApplicant": # Check if it's still the initial default
@@ -573,7 +605,8 @@ def create_app(test_config=None):
 
                 if pdf_generation_success:
                     try:
-                        save_generated_cv(job_id_int, final_pdf_filename_only, tailored_cv_json_str)
+                        # Pass intermediate_versions_json_str to save_generated_cv
+                        save_generated_cv(job_id_int, final_pdf_filename_only, tailored_cv_json_str, intermediate_versions_json_str)
                         results.append({
                             "job_id": job_id_int,
                             "job_title_summary": job_title_summary,

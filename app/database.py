@@ -65,6 +65,18 @@ def init_db():
     # Commit the CREATE TABLE and CREATE INDEX statements for generated_cvs
     conn.commit()
 
+    # Add 'intermediate_versions_json' column to 'generated_cvs' table
+    try:
+        cursor.execute("ALTER TABLE generated_cvs ADD COLUMN intermediate_versions_json TEXT;")
+        conn.commit()
+        print("Column 'intermediate_versions_json' added to 'generated_cvs' table.")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower():
+            print("Column 'intermediate_versions_json' already exists in 'generated_cvs' table.")
+        else:
+            print(f"An unexpected SQLite OperationalError occurred while updating 'generated_cvs' table: {e}")
+            # raise # Decide if re-raising is appropriate
+
     # Attempt to add the 'applied' column if it doesn't exist (for existing databases)
     # This is a common pattern for simple schema migrations in SQLite.
     try:
@@ -181,24 +193,25 @@ def toggle_applied_status(job_id: int) -> dict | None:
             conn.close()
         raise # Re-raise the exception to be handled by the caller (API endpoint)
 
-def save_generated_cv(job_id: int, cv_filename: str, tailored_cv_json: str):
+def save_generated_cv(job_id: int, cv_filename: str, tailored_cv_json: str, intermediate_versions_json: str = None):
     """Saves a generated CV record to the database.
 
     Args:
         job_id: The ID of the job this CV is associated with.
         cv_filename: The filename of the generated CV PDF.
         tailored_cv_json: The JSON string of the tailored CV data.
+        intermediate_versions_json (str, optional): JSON string of intermediate CV versions. Defaults to None.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("PRAGMA foreign_keys = ON;") # Ensure FK support is on for this connection
         cursor.execute('''
-            INSERT INTO generated_cvs (job_id, cv_filename, tailored_cv_json)
-            VALUES (?, ?, ?)
-        ''', (job_id, cv_filename, tailored_cv_json))
+            INSERT INTO generated_cvs (job_id, cv_filename, tailored_cv_json, intermediate_versions_json)
+            VALUES (?, ?, ?, ?)
+        ''', (job_id, cv_filename, tailored_cv_json, intermediate_versions_json))
         conn.commit()
-        print(f"Generated CV for job ID {job_id} saved: {cv_filename}")
+        print(f"Generated CV for job ID {job_id} saved (with intermediate versions if provided): {cv_filename}")
     except sqlite3.Error as e:
         print(f"Database error while saving generated CV for job ID {job_id}: {e}")
         # Optionally, re-raise the exception if the caller needs to handle it

@@ -29,6 +29,11 @@
                     <label for="cvFile" class="block text-gray-700 text-sm font-bold mb-2">Upload Your CV (PDF, DOCX, TXT, JSON):</label>
                     <input type="file" id="cvFile" name="cv_file" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required accept=".pdf,.docx,.txt,.json">
                 </div>
+                <div class="mb-4">
+                    <label for="generationCycles" class="block text-gray-700 text-sm font-bold mb-2">Generation Cycles (1-5):</label>
+                    <input type="number" id="generationCycles" name="generation_cycles" value="3" min="1" max="5" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                    <p class="text-xs text-gray-600 mt-1">Defines how many CV versions are generated and evaluated. More cycles can improve results but increase processing time.</p>
+                </div>
                 <div class="mb-6">
                     <label for="jobDescription" class="block text-gray-700 text-sm font-bold mb-2">Paste Job Description:</label>
                     <textarea id="jobDescription" name="job_description" rows="8" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required></textarea>
