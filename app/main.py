@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 # Assuming these files are in the same directory 'app'
 from .cv_utils import (
     get_api_key,
+    generate_additional_content,
     process_cv_and_jd,
     get_cv_from_text_file,
     get_cv_from_pdf_file,
@@ -258,6 +259,53 @@ def create_app(test_config=None):
                 }), 500
         else:
             return jsonify({"error": "Invalid file type for CV"}), 400
+
+    @app.route('/api/generate-content', methods=['POST'])
+    def generate_content_endpoint():
+        current_api_key = app.config.get('GOOGLE_API_KEY')
+        if not current_api_key:
+            return jsonify({"error": "Server configuration error: API key not available"}), 500
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid request: No JSON body provided"}), 400
+
+        tailored_cv_json = data.get('tailored_cv_json')
+        job_description = data.get('job_description')
+        task = data.get('task') # e.g., 'cover_letter' or 'answer_questions'
+        questions = data.get('questions') # For the 'answer_questions' task
+
+        if not all([tailored_cv_json, job_description, task]):
+            return jsonify({"error": "Missing required fields: tailored_cv_json, job_description, and task are required."}), 400
+
+        # Convert tailored_cv_json dict back to a string for the prompt
+        tailored_cv_json_str = json.dumps(tailored_cv_json, indent=2)
+
+        # Define the specific task prompt for the LLM
+        if task == 'cover_letter':
+            task_prompt = "Generate a professional, compelling, and concise cover letter. The letter should highlight the candidate's most relevant skills and experiences from their CV and align them with the requirements in the job description. Address it to the 'Hiring Team' if no specific name is available."
+        elif task == 'answer_questions':
+            if not questions:
+                return jsonify({"error": "The 'answer_questions' task requires a 'questions' field."}), 400
+            task_prompt = f"Answer the following job application questions based on the provided CV and job description. Provide clear, concise, and strong answers for each question.\n\nQuestions:\n{questions}"
+        else:
+            return jsonify({"error": f"Invalid task specified: {task}"}), 400
+
+        # Call the new utility function
+        generated_content = generate_additional_content(
+            current_api_key,
+            tailored_cv_json_str,
+            job_description,
+            task_prompt
+        )
+
+        if generated_content:
+            return jsonify({
+                "message": "Content generated successfully!",
+                "generated_content": generated_content
+            })
+        else:
+            return jsonify({"error": "Failed to generate content using the API."}), 500
 
     # CV Analysis endpoint removed
 

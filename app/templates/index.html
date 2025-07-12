@@ -41,6 +41,27 @@
             </form>
             <div id="tailorResult" class="mt-4"></div>
             <div id="pdfDownloadLink" class="mt-4"></div>
+
+            <div id="postGenerationActions" class="mt-6 p-4 border-t border-gray-300 hidden">
+                <h3 class="text-xl font-semibold text-gray-700 mb-3">Next Steps</h3>
+                <div class="space-y-4">
+                    <div>
+                        <button id="generateCoverLetterBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                            Generate Cover Letter
+                        </button>
+                        <div id="coverLetterResult" class="mt-2 p-2 bg-gray-50 rounded border hidden"></div>
+                    </div>
+
+                    <div>
+                        <label for="applicationQuestions" class="block text-gray-700 text-sm font-bold mb-2">Or, Answer Application Questions:</label>
+                        <textarea id="applicationQuestions" rows="4" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Paste any questions from the application here..."></textarea>
+                        <button id="generateAnswersBtn" class="mt-2 bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                            Generate Answers
+                        </button>
+                        <div id="answersResult" class="mt-2 p-2 bg-gray-50 rounded border hidden"></div>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- CV Analysis Section Removed -->

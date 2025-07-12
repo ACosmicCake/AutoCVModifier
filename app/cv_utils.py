@@ -232,3 +232,55 @@ Generate the hyper-optimized CV as a single, valid JSON object now.
     else:
         print("Failed to get tailored CV from API in process_cv_and_jd (output was None).")
         return None
+
+def generate_additional_content(api_key: str, tailored_cv_json_str: str, job_description_text: str, task_prompt: str) -> str | None:
+    """
+    Generates additional content (like a cover letter or answers to questions)
+    using the Gemini API, based on a tailored CV and a job description.
+
+    Args:
+        api_key: The Google API key.
+        tailored_cv_json_str: The JSON string of the tailored CV.
+        job_description_text: The text of the job description.
+        task_prompt: The specific instructions for the generation task.
+
+    Returns:
+        The generated content as a string, or None on failure.
+    """
+    if not all([api_key, tailored_cv_json_str, job_description_text, task_prompt]):
+        print("Error: Missing one or more required arguments for content generation.")
+        return None
+
+    # Construct a comprehensive prompt for the LLM
+    prompt_text = f"""
+    You are an expert career coach and writer. Your task is to assist a job applicant.
+    You have been provided with their tailored CV (in JSON format) and the job description for the role they are applying for.
+    Use these two documents as the primary source of truth to complete the following task.
+
+    **TASK:**
+    {task_prompt}
+
+    **TAILORED CV (JSON):**
+    --- BEGIN CV ---
+    {tailored_cv_json_str}
+    --- END CV ---
+
+    **JOB DESCRIPTION:**
+    --- BEGIN JOB DESCRIPTION ---
+    {job_description_text}
+    --- END JOB DESCRIPTION ---
+
+    Generate a well-written, professional, and helpful response that directly addresses the task.
+    The tone should be professional yet personable, tailored to the company and role described.
+    Do not add any extra commentary or introductory phrases like "Here is the content you requested:".
+    Output only the raw text requested by the task.
+    """
+
+    # We can reuse the existing call_gemini_api function
+    generated_text = call_gemini_api(api_key, prompt_text)
+
+    if generated_text:
+        return generated_text.strip()
+    else:
+        print("Failed to get additional content from API.")
+        return None

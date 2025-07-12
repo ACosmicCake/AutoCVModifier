@@ -1,5 +1,8 @@
 // app/static/js/main.js
 document.addEventListener('DOMContentLoaded', () => {
+    let tailoredCvJsonData = null;
+    let jobDescriptionData = null;
+
     const cvTailorForm = document.getElementById('cvTailorForm');
     const cvFileInput = document.getElementById('cvFile');
     const tailorResultDiv = document.getElementById('tailorResult');
@@ -91,6 +94,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tailorResultDiv) tailorResultDiv.innerHTML = '';
             if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
             if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear batch results too
+            document.getElementById('postGenerationActions').classList.add('hidden');
+            document.getElementById('coverLetterResult').classList.add('hidden').innerHTML = '';
+            document.getElementById('answersResult').classList.add('hidden').innerHTML = '';
+            tailoredCvJsonData = null;
+            jobDescriptionData = null;
 
             const formData = new FormData(cvTailorForm);
 
@@ -106,6 +114,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok) {
                     if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-green-600">Success: ${escapeHtml(result.message || 'CV Tailored!')}</p>`;
                     if (result.tailored_cv_json && tailorResultDiv) {
+                        // Store the data for later use
+                        tailoredCvJsonData = result.tailored_cv_json;
+                        jobDescriptionData = cvTailorForm.querySelector('#jobDescription').value;
+
+                        // Show the post-generation actions panel
+                        document.getElementById('postGenerationActions').classList.remove('hidden');
                         const formattedJson = JSON.stringify(result.tailored_cv_json, null, 2);
                         tailorResultDiv.innerHTML += `<h4 class="font-semibold mt-2">Tailored CV (JSON Preview):</h4><pre class="whitespace-pre-wrap text-xs">${escapeHtml(formattedJson)}</pre>`;
                     }
@@ -495,4 +509,101 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn("jobResultsDiv not found on page load. Initial job fetch skipped.");
     }
     updateBatchButtonState(); // Initial state for the batch button
+
+    const generateCoverLetterBtn = document.getElementById('generateCoverLetterBtn');
+    const coverLetterResultDiv = document.getElementById('coverLetterResult');
+    const generateAnswersBtn = document.getElementById('generateAnswersBtn');
+    const applicationQuestionsTextarea = document.getElementById('applicationQuestions');
+    const answersResultDiv = document.getElementById('answersResult');
+
+    if (generateCoverLetterBtn) {
+        generateCoverLetterBtn.addEventListener('click', async () => {
+            if (!tailoredCvJsonData || !jobDescriptionData) {
+                alert('Please tailor a CV first.');
+                return;
+            }
+
+            showLoading('Generating Cover Letter...');
+            coverLetterResultDiv.classList.add('hidden');
+            coverLetterResultDiv.innerHTML = '';
+
+            const requestBody = {
+                tailored_cv_json: tailoredCvJsonData,
+                job_description: jobDescriptionData,
+                task: 'cover_letter'
+            };
+
+            try {
+                const response = await fetch('/api/generate-content', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                const result = await response.json();
+                hideLoading();
+
+                if (response.ok) {
+                    // Use a <pre> tag to preserve formatting like line breaks
+                    coverLetterResultDiv.innerHTML = `<pre class="whitespace-pre-wrap">${escapeHtml(result.generated_content)}</pre>`;
+                    coverLetterResultDiv.classList.remove('hidden');
+                } else {
+                    coverLetterResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error)}</p>`;
+                    coverLetterResultDiv.classList.remove('hidden');
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Cover Letter Generation Error:', error);
+                coverLetterResultDiv.innerHTML = `<p class="text-red-600">An unexpected client-side error occurred.</p>`;
+                coverLetterResultDiv.classList.remove('hidden');
+            }
+        });
+    }
+
+    if (generateAnswersBtn) {
+        generateAnswersBtn.addEventListener('click', async () => {
+            const questions = applicationQuestionsTextarea.value.trim();
+            if (!tailoredCvJsonData || !jobDescriptionData) {
+                alert('Please tailor a CV first.');
+                return;
+            }
+            if (!questions) {
+                alert('Please enter the questions from the application.');
+                return;
+            }
+
+            showLoading('Generating Answers...');
+            answersResultDiv.classList.add('hidden');
+            answersResultDiv.innerHTML = '';
+
+            const requestBody = {
+                tailored_cv_json: tailoredCvJsonData,
+                job_description: jobDescriptionData,
+                task: 'answer_questions',
+                questions: questions
+            };
+
+             try {
+                const response = await fetch('/api/generate-content', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                const result = await response.json();
+                hideLoading();
+
+                if (response.ok) {
+                    answersResultDiv.innerHTML = `<pre class="whitespace-pre-wrap">${escapeHtml(result.generated_content)}</pre>`;
+                    answersResultDiv.classList.remove('hidden');
+                } else {
+                    answersResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error)}</p>`;
+                    answersResultDiv.classList.remove('hidden');
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Answer Generation Error:', error);
+                answersResultDiv.innerHTML = `<p class="text-red-600">An unexpected client-side error occurred.</p>`;
+                answersResultDiv.classList.remove('hidden');
+            }
+        });
+    }
 });
