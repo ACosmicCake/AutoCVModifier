@@ -91,8 +91,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tailorResultDiv) tailorResultDiv.innerHTML = '';
             if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
             if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear batch results too
+            if (followUpActionsDiv) followUpActionsDiv.classList.add('hidden');
+
 
             const formData = new FormData(cvTailorForm);
+            const selectedJob = document.querySelector('.job-select-checkbox:checked');
+            if (selectedJob) {
+                formData.append('job_id', selectedJob.value);
+            }
+
 
             try {
                 const response = await fetch('/api/tailor-cv', {
@@ -115,6 +122,10 @@ document.addEventListener('DOMContentLoaded', () => {
                          pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">Note: ${escapeHtml(result.error_pdf)}</p>`;
                     } else if (pdfDownloadLinkDiv) {
                          pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">PDF download link not available. JSON preview above.</p>`;
+                    }
+                    if (result.generated_cv_id) {
+                        currentGeneratedCvId = result.generated_cv_id;
+                        if (followUpActionsDiv) followUpActionsDiv.classList.remove('hidden');
                     }
                 } else {
                     if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to tailor CV.')}</p>`;
@@ -157,7 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const jobId = job.id;
             const isApplied = job.applied === 1 || job.applied === true;
             const cvFilename = job.cv_filename; // New field
-            // const generatedCvId = job.generated_cv_id; // New field, might be used later
+            const generatedCvId = job.generated_cv_id;
 
             html += `
                 <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id="${escapeHtml(jobId)}">
@@ -182,6 +193,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (cvFilename) {
                 html += `<button onclick="window.open('/api/download-cv/${escapeHtml(cvFilename)}', '_blank')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2">Download CV</button>`;
                 html += `<button onclick="console.log('Auto Apply for job ID ${escapeHtml(jobId)} clicked. CV: ${escapeHtml(cvFilename)}')" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2">Auto Apply Job</button>`;
+                if(generatedCvId) {
+                    html += `<button class="follow-up-btn bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 ml-2" data-cv-id="${generatedCvId}">Follow-up</button>`;
+                }
             }
 
             html += `       </div> 
@@ -387,17 +401,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = '';
             if (tailorResultDiv) tailorResultDiv.innerHTML = ''; // Clear single tailor results
             if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
+             if (followUpActionsDiv) followUpActionsDiv.classList.add('hidden');
 
 
             const formData = new FormData();
             formData.append('cv_file', cvFileInput.files[0]);
 
             selectedCheckboxes.forEach(checkbox => {
-                // Send job_id and job_description. Backend will use description.
-                // ID is useful if backend needs to fetch more details, though here description is primary.
                 formData.append('job_ids[]', checkbox.value);
                 formData.append('job_descriptions[]', checkbox.dataset.jobDescription);
-                formData.append('job_titles[]', checkbox.dataset.jobTitle); // For summary in results
+                formData.append('job_titles[]', checkbox.dataset.jobTitle);
             });
 
             try {
@@ -408,7 +421,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const resultsData = await response.json();
                 hideLoading();
 
-                if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear previous summary
+                if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = '';
                 const errorMessages = [];
                 let successes = 0;
 
@@ -420,7 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (jobCard) {
                                 const actionsDiv = jobCard.querySelector('.job-actions');
                                 if (actionsDiv) {
-                                    actionsDiv.innerHTML = ''; // Clear existing buttons
+                                    actionsDiv.innerHTML = '';
 
                                     const downloadBtn = document.createElement('a');
                                     downloadBtn.href = escapeHtml(result.pdf_url);
@@ -437,19 +450,21 @@ document.addEventListener('DOMContentLoaded', () => {
                                     });
                                     actionsDiv.appendChild(autoApplyBtn);
 
+                                    if (result.generated_cv_id) {
+                                        const followUpBtn = document.createElement('button');
+                                        followUpBtn.textContent = 'Follow-up';
+                                        followUpBtn.className = 'bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 ml-2 follow-up-btn';
+                                        followUpBtn.dataset.cvId = result.generated_cv_id;
+                                        actionsDiv.appendChild(followUpBtn);
+                                    }
+
                                     jobCard.classList.add('bg-green-100');
                                     setTimeout(() => jobCard.classList.remove('bg-green-100'), 3000);
-                                } else {
-                                    console.warn(`Actions div not found for job card ID: ${result.job_id}`);
-                                    // Optionally add this to a different kind of error/warning list if needed
                                 }
                             } else {
-                                console.warn(`Job card not found for ID: ${result.job_id}`);
-                                // This case might happen if the job list was refreshed or changed during batch processing.
-                                // Add to errorMessages or a separate warnings list if necessary.
                                 errorMessages.push(`<li>Successfully generated CV for Job ID ${result.job_id} (title: ${escapeHtml(result.job_title_summary || 'N/A')}) but could not find its card to update. PDF: <a href="${escapeHtml(result.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download Here</a></li>`);
                             }
-                        } else { // result.status === 'error'
+                        } else {
                             errorMessages.push(`<li>${escapeHtml(result.job_title_summary || 'Unknown Job')}: ${escapeHtml(result.message)} (Job ID: ${result.job_id || 'N/A'})</li>`);
                         }
                     });
@@ -469,7 +484,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (successes > 0 && errorMessages.length === 0 && batchCvResultsDiv) {
                          batchCvResultsDiv.innerHTML = `<p class="text-green-600">Batch CV generation completed successfully for ${successes} job(s). Job cards have been updated.</p>`;
                     } else if (successes > 0 && errorMessages.length > 0 && batchCvResultsDiv) {
-                        // If there were also successes, add a small note about them if not already clear
                         const successMessage = document.createElement('p');
                         successMessage.className = 'text-green-600 mt-2';
                         successMessage.textContent = `${successes} CV(s) generated successfully and job cards updated. See issues above.`;
@@ -477,13 +491,113 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
 
-                } else { // Response not ok or resultsData.results not present
+                } else {
                      if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(resultsData.error || 'Failed to process batch CVs response.')}</p>`;
                 }
             } catch (error) {
                 hideLoading();
                 console.error('Batch CV Generation Error:', error);
                 if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = '<p class="text-red-600">An unexpected error occurred. Check console.</p>';
+            }
+        });
+    }
+
+    // --- Follow-up Actions ---
+    const followUpActionsDiv = document.getElementById('follow-up-actions');
+    const generateCoverLetterBtn = document.getElementById('generateCoverLetterBtn');
+    const answerQuestionsBtn = document.getElementById('answerQuestionsBtn');
+    const questionsSection = document.getElementById('questions-section');
+    const applicationQuestionsTextarea = document.getElementById('applicationQuestions');
+    const submitQuestionsBtn = document.getElementById('submitQuestionsBtn');
+    const followUpResultDiv = document.getElementById('follow-up-result');
+    let currentGeneratedCvId = null;
+
+    jobResultsDiv.addEventListener('click', (e) => {
+        if (e.target.classList.contains('follow-up-btn')) {
+            currentGeneratedCvId = e.target.dataset.cvId;
+            if (followUpActionsDiv) {
+                followUpActionsDiv.classList.remove('hidden');
+                window.scrollTo({ top: followUpActionsDiv.offsetTop - 20, behavior: 'smooth' });
+            }
+        }
+    });
+
+    if (generateCoverLetterBtn) {
+        generateCoverLetterBtn.addEventListener('click', async () => {
+            if (!currentGeneratedCvId) {
+                alert('No generated CV selected for follow-up.');
+                return;
+            }
+            showLoading('Generating cover letter...');
+            if(followUpResultDiv) followUpResultDiv.innerHTML = '';
+
+            try {
+                const response = await fetch(`/api/generate-follow-up/${currentGeneratedCvId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ generation_type: 'cover_letter' }),
+                });
+                const result = await response.json();
+                hideLoading();
+                if (response.ok) {
+                    if(followUpResultDiv) {
+                        followUpResultDiv.innerHTML = `<h4 class="font-semibold mb-2">Generated Cover Letter:</h4><pre class="whitespace-pre-wrap p-2 bg-white border rounded">${escapeHtml(result.generated_text)}</pre>`;
+                        followUpResultDiv.classList.remove('hidden');
+                    }
+                } else {
+                    alert(`Error: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Cover Letter Generation Error:', error);
+                alert('An unexpected error occurred.');
+            }
+        });
+    }
+
+    if (answerQuestionsBtn) {
+        answerQuestionsBtn.addEventListener('click', () => {
+            if(questionsSection) questionsSection.classList.toggle('hidden');
+        });
+    }
+
+    if (submitQuestionsBtn) {
+        submitQuestionsBtn.addEventListener('click', async () => {
+            if (!currentGeneratedCvId) {
+                alert('No generated CV selected for follow-up.');
+                return;
+            }
+            const questions = applicationQuestionsTextarea ? applicationQuestionsTextarea.value.split('\n').filter(q => q.trim() !== '') : [];
+            if (questions.length === 0) {
+                alert('Please enter at least one question.');
+                return;
+            }
+            showLoading('Generating answers...');
+            if(followUpResultDiv) followUpResultDiv.innerHTML = '';
+
+            try {
+                const response = await fetch(`/api/generate-follow-up/${currentGeneratedCvId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        generation_type: 'questions',
+                        questions: questions,
+                    }),
+                });
+                const result = await response.json();
+                hideLoading();
+                if (response.ok) {
+                     if(followUpResultDiv) {
+                        followUpResultDiv.innerHTML = `<h4 class="font-semibold mb-2">Generated Answers:</h4><pre class="whitespace-pre-wrap p-2 bg-white border rounded">${escapeHtml(result.generated_text)}</pre>`;
+                        followUpResultDiv.classList.remove('hidden');
+                    }
+                } else {
+                    alert(`Error: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Answer Generation Error:', error);
+                alert('An unexpected error occurred.');
             }
         });
     }

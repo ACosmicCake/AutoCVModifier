@@ -232,3 +232,57 @@ Generate the hyper-optimized CV as a single, valid JSON object now.
     else:
         print("Failed to get tailored CV from API in process_cv_and_jd (output was None).")
         return None
+
+def generate_follow_up(cv_json_string: str, job_description: str, generation_type: str, api_key: str, questions: list[str] = None) -> tuple[str | None, str | None]:
+    """
+    Generates a cover letter or answers to application questions based on a CV and job description.
+
+    Args:
+        cv_json_string: The tailored CV as a JSON string.
+        job_description: The job description text.
+        generation_type: 'cover_letter' or 'questions'.
+        api_key: The Google API key.
+        questions: A list of questions to answer (required if generation_type is 'questions').
+
+    Returns:
+        A tuple containing the generated text and the prompt used.
+    """
+    if not all([cv_json_string, job_description, api_key]):
+        print("Error: Missing required arguments for follow-up generation.")
+        return None, None
+
+    prompt = ""
+    if generation_type == 'cover_letter':
+        prompt = f"""
+        As a professional career coach, write a dynamic and persuasive cover letter.
+        Use the provided CV and job description to highlight the candidate's most relevant skills and experiences.
+        Adopt a professional yet enthusiastic tone.
+
+        CV:
+        {cv_json_string}
+
+        Job Description:
+        {job_description}
+        """
+    elif generation_type == 'questions' and questions:
+        questions_str = "\n".join(questions)
+        prompt = f"""
+        Provide detailed, well-reasoned answers to the following application questions.
+        Use the provided CV and job description to formulate answers that showcase the candidate's suitability for the role.
+        Structure the answers clearly and write in a professional tone.
+
+        CV:
+        {cv_json_string}
+
+        Job Description:
+        {job_description}
+
+        Questions:
+        {questions_str}
+        """
+    else:
+        print(f"Error: Invalid generation_type or missing questions for type 'questions'.")
+        return None, None
+
+    generated_text = call_gemini_api(api_key, prompt)
+    return generated_text, prompt

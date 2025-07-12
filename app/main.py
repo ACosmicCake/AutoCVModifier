@@ -15,12 +15,17 @@ from .cv_utils import (
     get_cv_from_text_file,
     get_cv_from_pdf_file,
     get_cv_from_docx_file,
-    get_cv_from_json_file # Used in helper
+    get_cv_from_json_file, # Used in helper
+    generate_follow_up
 )
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
-from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv, job_url_exists # Added job_url_exists
+from .database import (
+    init_db, save_job, get_jobs, toggle_applied_status,
+    save_generated_cv, job_url_exists, get_generated_cv_by_job_id,
+    save_follow_up_content, get_cv_and_job_details_by_cv_id
+)
 
 # --- Configuration ---
 # UPLOAD_FOLDER will be relative to the 'instance' folder, which should be at project root
@@ -245,10 +250,20 @@ def create_app(test_config=None):
             response_cv_json = cv_data if cv_data else json.loads(tailored_cv_json_str) # Fallback if initial parse failed
 
             if pdf_generation_success:
+                # Save generated CV to DB
+                job_id = request.form.get('job_id') # Assuming job_id is sent from frontend
+                if job_id:
+                    save_generated_cv(job_id, final_pdf_filename, tailored_cv_json_str)
+                    generated_cv = get_generated_cv_by_job_id(job_id)
+                    generated_cv_id = generated_cv['id'] if generated_cv else None
+                else:
+                    generated_cv_id = None
+
                 return jsonify({
                     "message": "CV Tailored and PDF Generated!",
                     "pdf_download_url": f"/api/download-cv/{final_pdf_filename}",
-                    "tailored_cv_json": response_cv_json
+                    "tailored_cv_json": response_cv_json,
+                    "generated_cv_id": generated_cv_id
                 })
             else:
                 return jsonify({
@@ -574,11 +589,13 @@ def create_app(test_config=None):
                 if pdf_generation_success:
                     try:
                         save_generated_cv(job_id_int, final_pdf_filename_only, tailored_cv_json_str)
+                        generated_cv = get_generated_cv_by_job_id(job_id_int)
                         results.append({
                             "job_id": job_id_int,
                             "job_title_summary": job_title_summary,
                             "status": "success",
-                            "pdf_url": f"/api/download-cv/{final_pdf_filename_only}"
+                            "pdf_url": f"/api/download-cv/{final_pdf_filename_only}",
+                            "generated_cv_id": generated_cv['id'] if generated_cv else None
                         })
                     except Exception as e_db_save:
                         print(f"Error saving generated CV to database for job ID {job_id_int}: {e_db_save}")
@@ -641,6 +658,49 @@ def create_app(test_config=None):
         else:
             print(f"Download request for non-existent file: {safe_path}")
             return jsonify({"error": "File not found"}), 404
+
+    @app.route('/api/generate-follow-up/<int:generated_cv_id>', methods=['POST'])
+    def generate_follow_up_endpoint(generated_cv_id):
+        current_api_key = app.config.get('GOOGLE_API_KEY')
+        if not current_api_key:
+            return jsonify({"error": "Server configuration error: API key not available"}), 500
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid JSON payload"}), 400
+
+        generation_type = data.get('generation_type')
+        questions = data.get('questions')
+
+        if generation_type not in ['cover_letter', 'questions']:
+            return jsonify({"error": "Invalid generation_type specified"}), 400
+        if generation_type == 'questions' and not questions:
+            return jsonify({"error": "Questions are required for generation_type 'questions'"}), 400
+
+        details = get_cv_and_job_details_by_cv_id(generated_cv_id)
+        if not details:
+            return jsonify({"error": "Could not find generated CV and job details for the given ID"}), 404
+
+        cv_json_string = details['tailored_cv_json']
+        job_description = details['job_description']
+
+        generated_text, prompt = generate_follow_up(
+            cv_json_string,
+            job_description,
+            generation_type,
+            current_api_key,
+            questions
+        )
+
+        if not generated_text:
+            return jsonify({"error": "Failed to generate follow-up content"}), 500
+
+        # Save the generated content
+        cover_letter_text = generated_text if generation_type == 'cover_letter' else None
+        application_answers = generated_text if generation_type == 'questions' else None
+        save_follow_up_content(generated_cv_id, cover_letter_text, application_answers, prompt)
+
+        return jsonify({"generated_text": generated_text})
 
     return app
 

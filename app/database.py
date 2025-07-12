@@ -54,6 +54,9 @@ def init_db():
             job_id INTEGER NOT NULL,
             cv_filename TEXT NOT NULL,
             tailored_cv_json TEXT NOT NULL,
+            cover_letter_text TEXT,
+            application_answers TEXT,
+            follow_up_prompt TEXT,
             FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
         )
     ''')
@@ -64,6 +67,23 @@ def init_db():
     
     # Commit the CREATE TABLE and CREATE INDEX statements for generated_cvs
     conn.commit()
+
+    # Schema migration: Add new columns to generated_cvs if they don't exist
+    new_columns = [
+        ("cover_letter_text", "TEXT"),
+        ("application_answers", "TEXT"),
+        ("follow_up_prompt", "TEXT")
+    ]
+    for column, col_type in new_columns:
+        try:
+            cursor.execute(f"ALTER TABLE generated_cvs ADD COLUMN {column} {col_type};")
+            conn.commit()
+            print(f"Column '{column}' added to 'generated_cvs' table.")
+        except sqlite3.OperationalError as e:
+            if f"duplicate column name: {column}" in str(e).lower():
+                print(f"Column '{column}' already exists in 'generated_cvs' table.")
+            else:
+                print(f"An unexpected SQLite OperationalError occurred while updating 'generated_cvs' table: {e}")
 
     # Attempt to add the 'applied' column if it doesn't exist (for existing databases)
     # This is a common pattern for simple schema migrations in SQLite.
@@ -206,6 +226,52 @@ def save_generated_cv(job_id: int, cv_filename: str, tailored_cv_json: str):
     finally:
         if conn:
             conn.close()
+
+
+def get_cv_and_job_details_by_cv_id(generated_cv_id: int) -> dict | None:
+    """
+    Fetches the tailored CV JSON and the original job description
+    by the generated_cvs table's primary key (id).
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT
+                gc.tailored_cv_json,
+                j.description AS job_description
+            FROM generated_cvs gc
+            JOIN jobs j ON gc.job_id = j.id
+            WHERE gc.id = ?
+        ''', (generated_cv_id,))
+        data = cursor.fetchone()
+        if data:
+            return dict(data)
+        return None
+    except sqlite3.Error as e:
+        print(f"Database error fetching details for generated_cv_id {generated_cv_id}: {e}")
+        return None
+    finally:
+        conn.close()
+
+def save_follow_up_content(generated_cv_id: int, cover_letter_text: str | None, application_answers: str | None, follow_up_prompt: str):
+    """Saves follow-up content (cover letter or answers) to a generated_cvs record."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE generated_cvs
+            SET cover_letter_text = ?,
+                application_answers = ?,
+                follow_up_prompt = ?
+            WHERE id = ?
+        ''', (cover_letter_text, application_answers, follow_up_prompt, generated_cv_id))
+        conn.commit()
+        print(f"Follow-up content saved for generated_cv_id {generated_cv_id}")
+    except sqlite3.Error as e:
+        print(f"Database error while saving follow-up content for generated_cv_id {generated_cv_id}: {e}")
+    finally:
+        conn.close()
 
 def get_generated_cv_by_job_id(job_id: int) -> dict | None:
     """Fetches a generated CV record by job_id.
