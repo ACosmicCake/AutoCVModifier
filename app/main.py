@@ -250,14 +250,29 @@ def create_app(test_config=None):
             response_cv_json = cv_data if cv_data else json.loads(tailored_cv_json_str) # Fallback if initial parse failed
 
             if pdf_generation_success:
-                # Save generated CV to DB
-                job_id = request.form.get('job_id') # Assuming job_id is sent from frontend
-                if job_id:
-                    save_generated_cv(job_id, final_pdf_filename, tailored_cv_json_str)
-                    generated_cv = get_generated_cv_by_job_id(job_id)
-                    generated_cv_id = generated_cv['id'] if generated_cv else None
+                job_id_str = request.form.get('job_id')
+
+                if not job_id_str:
+                    # It's a custom paste, save the job to get an ID
+                    job_data = {
+                        'title': job_title_form,
+                        'company': 'Custom',
+                        'location': 'N/A',
+                        'description': job_description,
+                        'url': f"custom_job_{uuid.uuid4()}",
+                        'source': 'custom',
+                        'raw_job_data': json.dumps({'description': job_description})
+                    }
+                    job_id = save_job(job_data)
+                    if not job_id:
+                        return jsonify({"error": "Failed to save custom job description."}), 500
                 else:
-                    generated_cv_id = None
+                    job_id = int(job_id_str)
+
+                # Now, save the generated CV with the job_id
+                save_generated_cv(job_id, final_pdf_filename, tailored_cv_json_str)
+                generated_cv = get_generated_cv_by_job_id(job_id)
+                generated_cv_id = generated_cv['id'] if generated_cv else None
 
                 return jsonify({
                     "message": "CV Tailored and PDF Generated!",

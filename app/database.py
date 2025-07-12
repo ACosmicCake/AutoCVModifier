@@ -103,9 +103,10 @@ def init_db():
     conn.close()
     print("Database initialized, tables created/updated, and foreign key support enabled.")
 
-def save_job(job_data):
+def save_job(job_data) -> int | None:
     """Saves a single job listing to the database.
     Handles duplicates based on the URL.
+    Returns the ID of the saved job, or None if it already existed or failed.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -149,11 +150,20 @@ def save_job(job_data):
         ''', data_to_insert)
         conn.commit()
         if cursor.rowcount > 0:
-            print(f"Job saved: {job_data.get('title')} at {job_data.get('company')}")
+            job_id = cursor.lastrowid
+            print(f"Job saved with ID {job_id}: {job_data.get('title')} at {job_data.get('company')}")
+            return job_id
         else:
             print(f"Job already exists (or error): {job_data.get('title')} at {job_data.get('company')}")
+            # If it already exists, we might need to fetch its ID to return it.
+            cursor.execute("SELECT id FROM jobs WHERE url = ?", (job_data.get('url'),))
+            existing_job = cursor.fetchone()
+            if existing_job:
+                return existing_job['id']
+            return None
     except sqlite3.Error as e:
         print(f"Database error while saving job {job_data.get('url')}: {e}")
+        return None
     finally:
         conn.close()
 
