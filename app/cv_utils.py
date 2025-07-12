@@ -100,7 +100,7 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
     try:
         client = genai.Client(api_key=api_key)
         # Model name as specified by user, without "models/" prefix for client.models.generate_content
-        model_to_use = "gemini-2.5-pro"
+        model_to_use = "gemini-2.5-flash"
 
         response = client.models.generate_content( # Changed to client.models.generate_content
             model=model_to_use,
@@ -144,12 +144,12 @@ def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_templat
     # cv_template_content_str can be empty, so no check for it here.
 
     prompt_text = f"""
-You are an elite, Tier-1 technical recruiter and career strategist, operating with the precision of a surgeon. Your task is to re-architect the provided CV into an interview-generating machine, meticulously populating the target JSON structure.
+You are an elite, Tier-1 technical recruiter and career strategist, operating with the precision of a surgeon. Your task is to re-architect the provided CV into an interview-generating machine, meticulously populating the target JSON structure. 
 
 **Guiding Principle: Dual-Optimization**
 The resulting CV must succeed on two fronts simultaneously:
 1.  **ATS Dominance**: Achieve a high relevance score by embedding essential keywords from the job description into the correct fields of the JSON structure.
-2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is natural and engaging, do not use general jargon such as "stakeholder", ensure the CV stands out in a sea of applicants.
+2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is natural and engaging, do not use general jargon such as "stakeholder", ensure the CV stands out in a sea of applicants. 
 
 **Phase 1: Intelligence Gathering (Job Description Deconstruction)**
 Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
@@ -165,12 +165,12 @@ Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence
 **Phase 3: Content Re-Engineering (Populating the JSON)**
 1.  **High-Impact Summary**: Rewrite the summary as a dense, 3-4 line paragraph that maps the candidate's qualifications to the "Primary Directives." The final text must populate the `CV.SummaryOrObjective.Statement` field.
 
-2.  **Experience Section**: Select the 2-3 most relevant roles to feature in the `CV.ProfessionalExperience` array. For each role, transform the bullet points using the **Impact-First C.A.R.L. Method (Context, Action, Result, Learning)**.
+2.  **Experience Section**: Select relevant roles to feature in the `CV.ProfessionalExperience` array. For each role, transform the bullet points using the **Impact-First C.A.R.L. Method (Context, Action, Result, Learning)**.
     * **Start with the Result**: Lead with a quantifiable outcome (e.g., "Increased API response time by 40%...").
     * Each generated achievement statement must be a string within the `ResponsibilitiesAndAchievements` array for that specific job object.
     * Make sure to edit the Experience section so that is it embellishing job titles and responsibilities, inflating the candidate's skills and accomplishments.
 
-3.  **Project Highlights**: If relevant, populate the `CV.Projects` section information that might impress the recruiter. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
+3.  **Project Highlights**: Populate the `CV.Projects` section with relevant projects that will impress the recruiter. Use the `Description` field for a brief overview and populate the `KeyContributionsOrTechnologiesUsed` array with impactful, result-oriented bullet points.
 
 4.  **Strategic Skills Matrix**: This is critical. You must format the skills according to the target structure.
     * Populate the `CV.Skills` array with a list of 2-3 key objects.
@@ -183,7 +183,7 @@ Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence
 * **Raw JSON Output**: The final output MUST be a single, raw, and valid JSON object. Do not include any text, comments, or markdown formatting (like ```json) before or after the JSON.
 * **Strict Structural Adherence**: The final output must be a single JSON object that strictly follows the provided `LABELING STRUCTURE`, starting with the top-level `CV` key. All generated content must be placed in the correct nested fields as described above (e.g., `CV.SummaryOrObjective.Statement`, `CV.ProfessionalExperience[0].ResponsibilitiesAndAchievements`, `CV.Skills[0].Skill`).
 * **Handle Empty Fields**: Use `""`, `[]`, or `{{}}` for any fields that are not applicable after tailoring, as specified in the structure.
-
+* **Length**: The final CV PDF should be concise yet comprehensive, exactly 2 pages when printed (or around 900 words), the JSON structure should not be artificially limited in length. 
 
 
 Here is the original CV (which could be plain text, or a JSON string itself):
