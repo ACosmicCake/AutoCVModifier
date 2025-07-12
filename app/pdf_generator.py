@@ -122,8 +122,13 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
         degree_major = f"{entry.get('DegreeEarned', 'N/A')}"
         if entry.get('MajorOrFieldOfStudy'): degree_major += f" - {entry.get('MajorOrFieldOfStudy', '')}"
         entry_flowables.append(Paragraph(degree_major, styles['EntrySubHeader']))
-        for honor in entry.get("HonorsAndAwardsOrRelevantCoursework", []):
-            entry_flowables.append(Paragraph(f"<i>{honor}</i>" if "thesis:" in str(honor).lower() else str(honor), styles['SubDetail']))
+        
+        # MODIFIED PART FOR EDUCATION ACHIEVEMENTS
+        honors = entry.get("HonorsAndAwardsOrRelevantCoursework", [])
+        if honors:
+            honors_text = ", ".join(honors)
+            entry_flowables.append(Paragraph(f"<i>{honors_text}</i>" if "thesis:" in honors_text.lower() else honors_text, styles['SubDetail']))
+        
         story.append(KeepTogether(entry_flowables))
 
     def render_experience_item(job, section_title=None):
@@ -176,7 +181,7 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
     render_section("Professional Experience", data.get("ProfessionalExperience", []), render_experience_item, "ProfessionalExperience")
     render_section("Projects", data.get("Projects", []), render_project_item, "Projects")
 
-    # --- Skills Section (Variable multiple column layout per category for compactness) ---
+    # --- Skills Section (5 column layout) ---
     skills_data = data.get("Skills", [])
     if isinstance(skills_data, list) and skills_data:
         skills_block = [Paragraph("Skills", styles['TemplateSectionTitle'])]
@@ -186,13 +191,9 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
                 
                 skills_list = skill_item.get("Skill", [])
                 if isinstance(skills_list, list) and skills_list:
-                    # Determine number of columns for this category dynamically
-                    if len(skills_list) > 7:  # If more than 7 skills, use 4 columns
-                        num_cols = 4
-                        col_widths = ['25%', '25%', '25%', '25%']
-                    else: # Otherwise, use 3 columns
-                        num_cols = 3
-                        col_widths = ['33.33%', '33.33%', '33.33%']
+                    # Use 5 columns for skills
+                    num_cols = 5
+                    col_widths = ['20%', '20%', '20%', '20%', '20%']
 
                     skill_cell_paragraphs = [Paragraph(str(skill_detail), styles['SkillInTableStyle']) for skill_detail in skills_list]
 
@@ -210,13 +211,13 @@ def create_cv_pdf(data: dict, output_filepath: str) -> bool:
                         skills_table_style = TableStyle([
                             ('VALIGN', (0,0), (-1,-1), 'TOP'),
                             ('LEFTPADDING', (0,0), (-1,-1), 1),
-                            ('RIGHTPADDING', (0,0), (-1,-1), 3), # Reduced for compactness
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 1), # Reduced for compactness
+                            ('RIGHTPADDING', (0,0), (-1,-1), 3),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
                             ('TOPPADDING', (0,0), (-1,-1), 1),
                         ])
                         skill_table.setStyle(skills_table_style)
                         skills_block.append(skill_table)
-                        skills_block.append(Spacer(1, 0.02*inch)) # Reduced spacer after each skill category's table
+                        skills_block.append(Spacer(1, 0.02*inch))
                 else:
                     print(f"Warning: 'Skill' field in Skills section is not a list or is empty for category '{skill_item.get('SkillCategory', 'Unknown')}': {skills_list}")
             else:

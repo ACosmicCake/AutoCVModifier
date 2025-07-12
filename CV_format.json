@@ -47,13 +47,6 @@
         "SkillCategory": "",
         "Skill": [""]
       }
-    ],
-    "Certifications": [
-      {
-        "CertificationName": "",
-        "IssuingOrganization": "",
-        "DateObtained": ""
-      }
-    ],
+    ]
   }
 }
