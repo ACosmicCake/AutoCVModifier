@@ -153,6 +153,7 @@ The resulting CV must succeed on two fronts simultaneously:
 
 **Phase 1: Intelligence Gathering (Job Description Deconstruction)**
 Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
+* **Job Title**: The job title of the role.
 * **Dealbreaker Qualifications**: The absolute, must-have skills, certifications, or years of experience.
 * **Primary Directives**: The top 3-4 key responsibilities of the role.
 * **Underlying Business Goal**: The core business problem this role solves (e.g., increase market share, reduce technical debt).
