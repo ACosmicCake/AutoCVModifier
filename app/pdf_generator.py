@@ -288,7 +288,11 @@ def generate_cover_letter_pdf(cover_letter_text: str, output_filepath: str) -> b
                                 leftMargin=1*inch, rightMargin=1*inch,
                                 topMargin=1*inch, bottomMargin=1*inch)
         styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name='BodyText', fontName=FONT_NAME, fontSize=11, leading=14, spaceAfter=12, alignment=TA_JUSTIFY))
+        try:
+            styles.add(ParagraphStyle(name='BodyText', fontName=FONT_NAME, fontSize=11, leading=14, spaceAfter=12, alignment=TA_JUSTIFY))
+        except KeyError:
+            # Style already exists
+            pass
         story = [Paragraph(p.strip(), styles['BodyText']) for p in cover_letter_text.split('\n') if p.strip()]
         doc.build(story)
         print(f"Cover letter generated successfully: {output_filepath}")
