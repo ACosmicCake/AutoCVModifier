@@ -272,33 +272,32 @@ def generate_cv_pdf_from_json_string(cv_json_string: str, output_filepath: str) 
         print(f"Could not parse CV data. PDF not generated for {output_filepath}.")
         return False
 
-def generate_cover_letter_pdf(cover_letter_text: str, output_filepath: str) -> bool:
+def create_cover_letter_pdf(cover_letter_text: str, output_filepath: str) -> bool:
     """
-    Generates a PDF from a cover letter text string.
+    Generates a PDF cover letter from the provided text and saves it to output_filepath.
     """
     if not cover_letter_text:
-        print("Error: Empty cover letter text provided.")
-        return False
-    if not output_filepath:
-        print("Error: No output filepath provided.")
+        print("No valid cover letter text provided. PDF not generated.")
         return False
 
+    doc = SimpleDocTemplate(output_filepath, pagesize=(8.5 * inch, 11 * inch),
+                            leftMargin=1*inch, rightMargin=1*inch,
+                            topMargin=1*inch, bottomMargin=1*inch)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='BodyStyle', fontName=FONT_NAME, fontSize=11,
+                              leading=14, spaceAfter=12, alignment=TA_JUSTIFY))
+
+    story = []
+    # Replace newlines with <br/> tags for proper line breaks in ReportLab
+    formatted_text = cover_letter_text.replace('\\n', '<br/>')
+    story.append(Paragraph(formatted_text, styles['BodyStyle']))
+
     try:
-        doc = SimpleDocTemplate(output_filepath, pagesize=(8.5 * inch, 11 * inch),
-                                leftMargin=1*inch, rightMargin=1*inch,
-                                topMargin=1*inch, bottomMargin=1*inch)
-        styles = getSampleStyleSheet()
-        try:
-            styles.add(ParagraphStyle(name='BodyText', fontName=FONT_NAME, fontSize=11, leading=14, spaceAfter=12, alignment=TA_JUSTIFY))
-        except KeyError:
-            # Style already exists
-            pass
-        story = [Paragraph(p.strip(), styles['BodyText']) for p in cover_letter_text.split('\n') if p.strip()]
         doc.build(story)
         print(f"Cover letter generated successfully: {output_filepath}")
         return True
     except Exception as e:
-        print(f"Error building cover letter PDF at {output_filepath}: {e}")
+        print(f"Error building PDF at {output_filepath}: {e}")
         print(traceback.format_exc())
         return False
 
