@@ -126,6 +126,53 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
         print(traceback.format_exc())
         return None
 
+def generate_cover_letter(cv_json: str, job_description: str, api_key: str) -> str | None:
+    """
+    Generates a cover letter using the Gemini API.
+    """
+    prompt = f"""
+Based on the following tailored CV (in JSON format) and the job description, please write a compelling cover letter. The cover letter should be professional, concise, and highlight the most relevant skills and experiences from the CV that match the job description.
+
+**Tailored CV:**
+```json
+{cv_json}
+```
+
+**Job Description:**
+```
+{job_description}
+```
+
+Please generate the cover letter now.
+"""
+    return call_gemini_api(api_key, prompt)
+
+def answer_question(cv_json: str, job_description: str, question: str, api_key: str) -> str | None:
+    """
+    Answers an application question using the Gemini API.
+    """
+    prompt = f"""
+Based on the following tailored CV (in JSON format) and the job description, please provide a concise and compelling answer to the application question.
+
+**Taild CV:**
+```json
+{cv_json}
+```
+
+**Job Description:**
+```
+{job_description}
+```
+
+**Application Question:**
+```
+{question}
+```
+
+Please provide the answer now.
+"""
+    return call_gemini_api(api_key, prompt)
+
 def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str) -> str | None:
     """
     Processes the CV and Job Description using the Gemini API to tailor the CV.

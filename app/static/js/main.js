@@ -22,6 +22,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const batchCvResultsDiv = document.getElementById('batchCvResults');
     const batchCvHelpText = document.getElementById('batchCvHelpText');
 
+    // Post-CV Generation Follow-up
+    const followUpSection = document.getElementById('follow-up-section');
+    const generateCoverLetterBtn = document.getElementById('generateCoverLetterBtn');
+    const coverLetterResultDiv = document.getElementById('coverLetterResult');
+    const qaForm = document.getElementById('qaForm');
+    const qaResultDiv = document.getElementById('qaResult');
+
+    let tailoredCVData = null;
+    let jobDescription = '';
+
 
     function showLoading(message = 'Processing...') {
         if (loadingIndicator) {
@@ -106,6 +116,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok) {
                     if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-green-600">Success: ${escapeHtml(result.message || 'CV Tailored!')}</p>`;
                     if (result.tailored_cv_json) {
+                        tailoredCVData = result.tailored_cv_json;
+                        jobDescription = formData.get('job_description');
+                        followUpSection.classList.remove('hidden');
+
                         const formattedJson = JSON.stringify(result.tailored_cv_json, null, 2);
                         const jsonPreviewDiv = document.getElementById('jsonPreview');
                         const displayJsonBtn = document.getElementById('displayJsonBtn');
@@ -136,6 +150,86 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (cvFileInput) {
         cvFileInput.addEventListener('change', updateBatchButtonState);
+    }
+
+    if (generateCoverLetterBtn) {
+        generateCoverLetterBtn.addEventListener('click', async () => {
+            if (!tailoredCVData || !jobDescription) {
+                alert('Please tailor a CV first.');
+                return;
+            }
+
+            showLoading('Generating cover letter...');
+            coverLetterResultDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/generate-cover-letter', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cv_json: tailoredCVData,
+                        job_description: jobDescription,
+                    }),
+                });
+
+                const result = await response.json();
+                hideLoading();
+
+                if (response.ok) {
+                    coverLetterResultDiv.innerHTML = `<h4 class="font-semibold mt-2">Generated Cover Letter:</h4><pre class="whitespace-pre-wrap text-sm">${escapeHtml(result.cover_letter)}</pre>`;
+                } else {
+                    coverLetterResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to generate cover letter.')}</p>`;
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Cover Letter Generation Error:', error);
+                coverLetterResultDiv.innerHTML = `<p class="text-red-600">An unexpected error occurred. Check console.</p>`;
+            }
+        });
+    }
+
+    if (qaForm) {
+        qaForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!tailoredCVData || !jobDescription) {
+                alert('Please tailor a CV first.');
+                return;
+            }
+
+            const question = new FormData(qaForm).get('application_question');
+            if (!question) {
+                alert('Please enter a question.');
+                return;
+            }
+
+            showLoading('Getting answer...');
+            qaResultDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/answer-question', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cv_json: tailoredCVData,
+                        job_description: jobDescription,
+                        question: question,
+                    }),
+                });
+
+                const result = await response.json();
+                hideLoading();
+
+                if (response.ok) {
+                    qaResultDiv.innerHTML = `<h4 class="font-semibold mt-2">Answer:</h4><pre class="whitespace-pre-wrap text-sm">${escapeHtml(result.answer)}</pre>`;
+                } else {
+                    qaResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to get answer.')}</p>`;
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Q&A Error:', error);
+                qaResultDiv.innerHTML = `<p class="text-red-600">An unexpected error occurred. Check console.</p>`;
+            }
+        });
     }
 
 
