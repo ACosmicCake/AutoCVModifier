@@ -19,7 +19,7 @@ from .cv_utils import (
     generate_cover_letter,
     answer_question
 )
-from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
+from .pdf_generator import generate_cv_pdf_from_json_string, generate_cover_letter_pdf
 # analyze_cv_with_gemini removed
 from .job_scraper import scrape_online_jobs
 from .database import init_db, save_job, get_jobs, toggle_applied_status, save_generated_cv, job_url_exists # Added job_url_exists
@@ -644,6 +644,32 @@ def create_app(test_config=None):
             print(f"Download request for non-existent file: {safe_path}")
             return jsonify({"error": "File not found"}), 404
 
+    @app.route('/api/download-cover-letter/<filename>', methods=['GET'])
+    def download_cover_letter(filename):
+        # Ensure filename is secure and points to the correct directory
+        safe_filename = secure_filename(filename)
+        if not safe_filename == filename: # Basic check against path manipulation
+            print(f"Attempt to download non-secured filename: {filename}")
+            return jsonify({"error": "Invalid filename"}), 400
+
+        pdf_dir = app.config['GENERATED_PDFS_FOLDER']
+        safe_path = os.path.join(pdf_dir, safe_filename)
+
+        # Security: Check if the resolved path is still within the intended directory
+        if not os.path.abspath(safe_path).startswith(os.path.abspath(pdf_dir)):
+            print(f"Directory traversal attempt: {safe_filename}")
+            return jsonify({"error": "Access denied"}), 403
+
+        if os.path.exists(safe_path):
+            try:
+                return send_file(safe_path, as_attachment=True)
+            except Exception as e:
+                print(f"Error sending file {safe_path}: {e}")
+                return jsonify({"error": "Could not send file"}), 500
+        else:
+            print(f"Download request for non-existent file: {safe_path}")
+            return jsonify({"error": "File not found"}), 404
+
     @app.route('/api/generate-cover-letter', methods=['POST'])
     def generate_cover_letter_endpoint():
         current_api_key = app.config.get('GOOGLE_API_KEY')
@@ -660,16 +686,57 @@ def create_app(test_config=None):
         if not cv_json or not job_description:
             return jsonify({"error": "Missing CV JSON or job description"}), 400
 
-        cover_letter = generate_cover_letter(
-            cv_json,
+        # Ensure cv_json is a string for the generate_cover_letter function
+        if isinstance(cv_json, dict):
+            cv_json_str = json.dumps(cv_json)
+        else:
+            cv_json_str = cv_json
+
+
+        cover_letter_text = generate_cover_letter(
+            cv_json_str,
             job_description,
             current_api_key
         )
 
-        if not cover_letter:
+        if not cover_letter_text:
             return jsonify({"error": "Failed to generate cover letter"}), 500
 
-        return jsonify({"cover_letter": cover_letter})
+        # PDF Generation
+        try:
+            cv_data = json.loads(cv_json_str)
+            applicant_name = cv_data.get("CV", {}).get("PersonalInformation", {}).get("Name", "UnknownApplicant")
+            job_title = cv_data.get("CV", {}).get("JobTitle", "Application")
+        except (json.JSONDecodeError, AttributeError):
+            applicant_name = "UnknownApplicant"
+            job_title = "Application"
+
+        safe_applicant_name = secure_filename(applicant_name)
+        safe_job_title = secure_filename(job_title)
+
+        base_filename = f"CoverLetter_{safe_job_title}_{safe_applicant_name}.pdf"
+        pdf_folder = app.config['GENERATED_PDFS_FOLDER']
+
+        final_filename = base_filename
+        counter = 1
+        while os.path.exists(os.path.join(pdf_folder, final_filename)):
+            final_filename = f"CoverLetter_{safe_job_title}_{safe_applicant_name}_{counter}.pdf"
+            counter += 1
+
+        full_pdf_path = os.path.join(pdf_folder, final_filename)
+
+        pdf_generation_success = generate_cover_letter_pdf(cover_letter_text, full_pdf_path)
+
+        if pdf_generation_success:
+            return jsonify({
+                "cover_letter": cover_letter_text,
+                "pdf_download_url": f"/api/download-cover-letter/{final_filename}"
+            })
+        else:
+            return jsonify({
+                "cover_letter": cover_letter_text,
+                "error_pdf": "Cover letter generated, but PDF creation failed."
+            }), 500
 
     @app.route('/api/answer-question', methods=['POST'])
     def answer_question_endpoint():

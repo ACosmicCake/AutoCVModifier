@@ -131,20 +131,22 @@ def generate_cover_letter(cv_json: str, job_description: str, api_key: str) -> s
     Generates a cover letter using the Gemini API.
     """
     prompt = f"""
-As a career strategist, your task is to write a compelling cover letter based on the provided CV and job description.
+As a career strategist, your task is to write a compelling and complete cover letter based on the provided CV and job description.
 
 **Guiding Principles:**
 *   **Narrative of Value:** Don't just list skills. Weave a story that shows how the candidate's experience solves the employer's specific problems.
 *   **Show, Don't Tell:** Instead of saying "experienced leader," describe a situation where the candidate led a team to success.
 *   **Humble & Natural Tone:** Use straightforward, engaging, and humble language. Avoid jargon like "stakeholder," "visionary," or "pioneer."
+*   **Completeness:** The generated cover letter must be a complete, professional document. It should not contain any placeholders or bracketed text like "[Date]", "[Your Name]", or "[Hiring Manager Name]". If specific information is not available from the CV, omit it gracefully rather than using a placeholder.
 
 **Instructions:**
-1.  **Introduction:** Start with a strong opening that grabs the reader's attention and clearly states the purpose of the letter.
-2.  **Body Paragraphs:**
+1.  **Full Letter Format:** Create a full cover letter format including the candidate's name and contact information (if available in the CV), the date, the recipient's information (if it can be inferred, otherwise omit), a salutation, the body, and a closing.
+2.  **Introduction:** Start with a strong opening that grabs the reader's attention and clearly states the purpose of the letter.
+3.  **Body Paragraphs:**
     *   Connect the candidate's experience directly to the requirements of the job description.
     *   Use the C.A.R.L. method (Context, Action, Result, Learning) to frame accomplishments.
     *   Highlight 2-3 key achievements from the CV that are most relevant to the role.
-3.  **Conclusion:** End with a confident closing that reiterates the candidate's interest and includes a call to action.
+4.  **Conclusion:** End with a confident closing that reiterates the candidate's interest and includes a call to action.
 
 **Input Data:**
 
@@ -158,7 +160,7 @@ As a career strategist, your task is to write a compelling cover letter based on
 {job_description}
 ```
 
-Please generate the cover letter now.
+Please generate the complete and professional cover letter now, ensuring no placeholders are used.
 """
     return call_gemini_api(api_key, prompt)
 

@@ -272,6 +272,32 @@ def generate_cv_pdf_from_json_string(cv_json_string: str, output_filepath: str) 
         print(f"Could not parse CV data. PDF not generated for {output_filepath}.")
         return False
 
+def generate_cover_letter_pdf(cover_letter_text: str, output_filepath: str) -> bool:
+    """
+    Generates a PDF from a cover letter text string.
+    """
+    if not cover_letter_text:
+        print("Error: Empty cover letter text provided.")
+        return False
+    if not output_filepath:
+        print("Error: No output filepath provided.")
+        return False
+
+    try:
+        doc = SimpleDocTemplate(output_filepath, pagesize=(8.5 * inch, 11 * inch),
+                                leftMargin=1*inch, rightMargin=1*inch,
+                                topMargin=1*inch, bottomMargin=1*inch)
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name='BodyText', fontName=FONT_NAME, fontSize=11, leading=14, spaceAfter=12, alignment=TA_JUSTIFY))
+        story = [Paragraph(p.strip(), styles['BodyText']) for p in cover_letter_text.split('\n') if p.strip()]
+        doc.build(story)
+        print(f"Cover letter generated successfully: {output_filepath}")
+        return True
+    except Exception as e:
+        print(f"Error building cover letter PDF at {output_filepath}: {e}")
+        print(traceback.format_exc())
+        return False
+
 # --- Main Execution (for testing this module directly) ---
 if __name__ == "__main__":
     print("Testing pdf_generator.py with variable columns for skills...")
