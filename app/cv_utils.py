@@ -178,8 +178,8 @@ As a career strategist, your task is to answer the following application questio
 **Instructions:**
 1.  Analyze the question and identify the key information being requested.
 2.  Review the CV and job description to find relevant experiences and skills.
-3.  Formulate a concise and compelling answer that directly addresses the question.
-4.  Present the final output in a clear question-and-answer format.
+3.  Formulate a concise and compelling answer that directly addresses the question. Don't use bullet points or lists.
+4.  Present the final output in a clear question-and-answer format. 
 
 **Input Data:**
 
@@ -198,9 +198,20 @@ As a career strategist, your task is to answer the following application questio
 {question}
 ```
 
+--------
+
 **Output Format:**
-**Question:** {question}
-**Answer:** [Your concise and compelling answer here]
+
+Question 1:  [rewrite the question here]
+
+Answer 1: [Your concise and compelling answer here] 
+
+Question 2: [rewrite the question here]
+
+Answer 2: [Your concise and compelling answer here] 
+
+--------
+
 
 Please provide the answer now.
 """
