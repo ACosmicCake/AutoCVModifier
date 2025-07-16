@@ -196,13 +196,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const question = new FormData(qaForm).get('application_question');
-            if (!question) {
-                alert('Please enter a question.');
+            const questions = new FormData(qaForm).get('application_question').split('\\n').filter(q => q.trim() !== '');
+            if (questions.length === 0) {
+                alert('Please enter at least one question.');
                 return;
             }
 
-            showLoading('Getting answer...');
+            showLoading('Getting answers...');
             qaResultDiv.innerHTML = '';
 
             try {
@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({
                         cv_json: tailoredCVData,
                         job_description: jobDescription,
-                        question: question,
+                        question: questions,
                     }),
                 });
 
@@ -220,9 +220,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideLoading();
 
                 if (response.ok) {
-                    qaResultDiv.innerHTML = `<h4 class="font-semibold mt-2">Answer:</h4><pre class="whitespace-pre-wrap text-sm">${escapeHtml(result.answer)}</pre>`;
+                    let html = '<h4 class="font-semibold mt-2">Answers:</h4>';
+                    result.answer.forEach((answer, index) => {
+                        html += `<div class="mt-4"><p class="font-semibold">${index + 1}. ${escapeHtml(questions[index])}</p><pre class="whitespace-pre-wrap text-sm">${escapeHtml(answer)}</pre></div>`;
+                    });
+                    qaResultDiv.innerHTML = html;
                 } else {
-                    qaResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to get answer.')}</p>`;
+                    qaResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to get answers.')}</p>`;
                 }
             } catch (error) {
                 hideLoading();

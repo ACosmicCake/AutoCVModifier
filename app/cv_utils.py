@@ -147,11 +147,13 @@ Please generate the cover letter now.
 """
     return call_gemini_api(api_key, prompt)
 
-def answer_question(cv_json: str, job_description: str, question: str, api_key: str) -> str | None:
+def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str) -> list[str] | None:
     """
-    Answers an application question using the Gemini API.
+    Answers application questions using the Gemini API.
     """
-    prompt = f"""
+    answers = []
+    for question in questions:
+        prompt = f"""
 Based on the following tailored CV (in JSON format) and the job description, please provide a concise and compelling answer to the application question.
 
 **Taild CV:**
@@ -171,7 +173,12 @@ Based on the following tailored CV (in JSON format) and the job description, ple
 
 Please provide the answer now.
 """
-    return call_gemini_api(api_key, prompt)
+        answer = call_gemini_api(api_key, prompt)
+        if answer:
+            answers.append(answer)
+        else:
+            answers.append("Could not generate an answer for this question.")
+    return answers
 
 def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str) -> str | None:
     """

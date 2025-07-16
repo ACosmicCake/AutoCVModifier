@@ -683,15 +683,15 @@ def create_app(test_config=None):
 
         cv_json = data.get('cv_json')
         job_description = data.get('job_description')
-        question = data.get('question')
+        questions = data.get('question')
 
-        if not cv_json or not job_description or not question:
-            return jsonify({"error": "Missing CV JSON, job description, or question"}), 400
+        if not cv_json or not job_description or not questions:
+            return jsonify({"error": "Missing CV JSON, job description, or questions"}), 400
 
         answer = answer_question(
             cv_json,
             job_description,
-            question,
+            questions,
             current_api_key
         )
 
