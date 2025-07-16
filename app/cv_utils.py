@@ -160,11 +160,12 @@ Please generate the cover letter now.
 """
     return call_gemini_api(api_key, prompt)
 
-def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str) -> list[str] | None:
+def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str) -> list[dict[str, str]] | None:
     """
     Answers application questions using the Gemini API.
+    Returns a list of dictionaries, each containing a 'question' and its 'answer'.
     """
-    answers = []
+    qa_pairs = []
     for question in questions:
         prompt = f"""
 As a career coach and creative writer, your task is to answer an application question in a way that is both professional and personable. The answer should be a natural, compelling story about why the candidate is a great fit for the role, rather than a robotic list of qualifications.
@@ -200,10 +201,10 @@ Please provide the answer now.
 """
         answer = call_gemini_api(api_key, prompt)
         if answer:
-            answers.append(answer)
+            qa_pairs.append({"question": question, "answer": answer})
         else:
-            answers.append("Could not generate an answer for this question.")
-    return answers
+            qa_pairs.append({"question": question, "answer": "Could not generate an answer for this question."})
+    return qa_pairs
 
 def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str) -> str | None:
     """
