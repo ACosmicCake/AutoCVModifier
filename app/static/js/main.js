@@ -221,8 +221,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (response.ok) {
                     let html = '<h4 class="font-semibold mt-2">Answers:</h4>';
-                    result.answer.forEach(qaPair => {
-                        html += `<div class="mt-4"><p class="font-semibold">${escapeHtml(qaPair.question)}</p><pre class="whitespace-pre-wrap text-sm">${escapeHtml(qaPair.answer)}</pre></div>`;
+                    result.answer.forEach((answer, index) => {
+                        html += `<div class="mt-4"><p class="font-semibold">${index + 1}. ${escapeHtml(questions[index])}</p><pre class="whitespace-pre-wrap text-sm">${escapeHtml(answer)}</pre></div>`;
                     });
                     qaResultDiv.innerHTML = html;
                 } else {

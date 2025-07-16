@@ -131,55 +131,73 @@ def generate_cover_letter(cv_json: str, job_description: str, api_key: str) -> s
     Generates a cover letter using the Gemini API.
     """
     prompt = f"""
-Based on the following tailored CV (in JSON format) and the job description, please write a compelling cover letter. The cover letter should be professional, concise, and highlight the most relevant skills and experiences from the CV that match the job description.
+As a world-class career coach, your task is to write a compelling cover letter that tells a story. It should not just list skills, but weave them into a narrative that shows the candidate's value and impact. The tone should be humble, straightforward, and engaging.
 
-**Tailored CV:**
-```json
-{cv_json}
-```
+**Guiding Principles:**
+*   **Show, Don't Tell:** Instead of saying the candidate is "results-oriented," describe a situation where they achieved great results.
+*   **Narrative Arc:** The letter should have a beginning (the hook), a middle (the evidence), and an end (the call to action).
+*   **Authentic Voice:** Use natural, human language. Avoid jargon and buzzwords like "synergy," "stakeholder," or "leveraging."
+*   **Connect to the "Why":** The letter should show a genuine interest in the company's mission and the specific role.
 
-**Job Description:**
-```
-{job_description}
-```
+**Inputs:**
 
-Please generate the cover letter now.
+*   **Tailored CV (JSON):**
+    ```json
+    {cv_json}
+    ```
+*   **Job Description:**
+    ```
+    {job_description}
+    ```
+
+**Your Task:**
+Write a cover letter that brings the candidate's experience to life. Focus on what they've *done*, not just what they know. Make the reader feel like they're getting to know a person, not just a list of qualifications.
 """
     return call_gemini_api(api_key, prompt)
 
-def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str) -> list[dict[str, str]] | None:
+def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str) -> list[str] | None:
     """
     Answers application questions using the Gemini API.
-    Returns a list of dictionaries, each containing a 'question' and its 'answer'.
     """
-    qa_pairs = []
+    answers = []
     for question in questions:
         prompt = f"""
-Based on the following tailored CV (in JSON format) and the job description, please provide a concise and compelling answer to the application question.
+You are a career strategist coaching a candidate. Your task is to answer an application question in a way that is both authentic and compelling. The answer should tell a story and use the C.A.R.L. method (Context, Action, Result, Learning) to structure the response.
 
-**Taild CV:**
-```json
-{cv_json}
-```
+**Guiding Principles:**
+*   **Storytelling:** Frame the answer as a brief, engaging story.
+*   **C.A.R.L. Method:**
+    *   **Context:** Briefly describe the situation.
+    *   **Action:** Explain what the candidate did.
+    *   **Result:** Quantify the outcome. What was the impact?
+    *   **Learning:** What did the candidate learn from the experience?
+*   **Humble Confidence:** The tone should be confident but not arrogant. Use "I" statements and focus on personal contributions.
+*   **Natural Language:** Avoid jargon and corporate-speak.
 
-**Job Description:**
-```
-{job_description}
-```
+**Inputs:**
 
-**Application Question:**
-```
-{question}
-```
+*   **Tailored CV (JSON):**
+    ```json
+    {cv_json}
+    ```
+*   **Job Description:**
+    ```
+    {job_description}
+    ```
+*   **Application Question:**
+    ```
+    {question}
+    ```
 
-Please provide the answer now.
+**Your Task:**
+Craft an answer that uses the C.A.R.L. method to tell a story. The answer should be concise, impactful, and directly address the question.
 """
         answer = call_gemini_api(api_key, prompt)
         if answer:
-            qa_pairs.append({"question": question, "answer": answer})
+            answers.append(answer)
         else:
-            qa_pairs.append({"question": question, "answer": "Could not generate an answer for this question."})
-    return qa_pairs
+            answers.append("Could not generate an answer for this question.")
+    return answers
 
 def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str) -> str | None:
     """
