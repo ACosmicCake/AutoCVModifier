@@ -131,22 +131,9 @@ def generate_cover_letter(cv_json: str, job_description: str, api_key: str) -> s
     Generates a cover letter using the Gemini API.
     """
     prompt = f"""
-As a career coach and creative writer, your task is to draft a cover letter that is both professional and personable. The letter should read like a natural, compelling story about why the candidate is a great fit for the role, rather than a robotic list of qualifications.
+Based on the following tailored CV (in JSON format) and the job description, please write a compelling cover letter. The cover letter should be professional, concise, and highlight the most relevant skills and experiences from the CV that match the job description.
 
-**Guiding Principles:**
-*   **Narrative First:** Start with a strong opening that grabs the reader's attention and introduces the candidate's core value proposition.
-*   **Show, Don't Just Tell:** Instead of just listing skills, provide brief, powerful examples of how the candidate has used those skills to create impact.
-*   **Authentic Voice:** Use language that is humble, straightforward, and engaging. Avoid corporate jargon and buzzwords. The tone should be confident yet approachable.
-*   **Clear Call to Action:** End with a clear and enthusiastic call to action that encourages the reader to take the next step.
-
-**Source Documents:**
-*   **The Candidate's Profile (JSON):** This document contains the candidate's skills, experience, and project highlights.
-*   **The Job Description:** This document outlines the key responsibilities, qualifications, and company culture.
-
-**Your Task:**
-Write a cover letter that weaves together the most relevant information from the candidate's profile and the job description into a cohesive and persuasive narrative.
-
-**Candidate's Profile:**
+**Tailored CV:**
 ```json
 {cv_json}
 ```
@@ -168,21 +155,9 @@ def answer_question(cv_json: str, job_description: str, questions: list[str], ap
     qa_pairs = []
     for question in questions:
         prompt = f"""
-As a career coach and creative writer, your task is to answer an application question in a way that is both professional and personable. The answer should be a natural, compelling story about why the candidate is a great fit for the role, rather than a robotic list of qualifications.
+Based on the following tailored CV (in JSON format) and the job description, please provide a concise and compelling answer to the application question.
 
-**Guiding Principles:**
-*   **Narrative First:** Start with a strong opening that grabs the reader's attention and introduces the candidate's core value proposition.
-*   **Show, Don't Just Tell:** Instead of just listing skills, provide brief, powerful examples of how the candidate has used those skills to create impact.
-*   **Authentic Voice:** Use language that is humble, straightforward, and engaging. Avoid corporate jargon and buzzwords. The tone should be confident yet approachable.
-
-**Source Documents:**
-*   **The Candidate's Profile (JSON):** This document contains the candidate's skills, experience, and project highlights.
-*   **The Job Description:** This document outlines the key responsibilities, qualifications, and company culture.
-
-**Your Task:**
-Answer the application question in a way that weaves together the most relevant information from the candidate's profile and the job description into a cohesive and persuasive narrative.
-
-**Candidate's Profile:**
+**Taild CV:**
 ```json
 {cv_json}
 ```
@@ -229,7 +204,7 @@ You are an elite, best in the world technical recruiter and career strategist. Y
 **Guiding Principle: Dual-Optimization**
 The resulting CV must succeed on two fronts simultaneously:
 1.  **ATS Dominance**: Achieve a high relevance score by embedding essential keywords from the job description into the correct fields of the JSON structure.
-2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use language that is humble, straightforward, natural, and engaging. Avoid jargon such as "stakeholder," "visionary," "pioneer," "innovator," etc.
+2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is humble, straight forward, natural and engaging, do not use general jargon such as "stakeholder", "Visionary", "Pionneer", "Innovator", etc.
 
 **Phase 1: Intelligence Gathering (Job Description Deconstruction)**
 Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
