@@ -100,7 +100,7 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
     try:
         client = genai.Client(api_key=api_key)
         # Model name as specified by user, without "models/" prefix for client.models.generate_content
-        model_to_use = "gemini-2.5-flash"
+        model_to_use = "gemini-2.5-pro"
 
         response = client.models.generate_content( # Changed to client.models.generate_content
             model=model_to_use,
@@ -144,15 +144,16 @@ def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_templat
     # cv_template_content_str can be empty, so no check for it here.
 
     prompt_text = f"""
-You are an elite, Tier-1 technical recruiter and career strategist, operating with the precision of a surgeon. Your task is to re-architect the provided CV into an interview-generating machine, meticulously populating the target JSON structure. 
+You are an elite, best in the world technical recruiter and career strategist. Your task is to hyper-optimize a CV for a specific job description using advanced AI techniques. You will take the provided CV and job description, analyze them deeply, and generate a tailored CV in JSON format. 
 
 **Guiding Principle: Dual-Optimization**
 The resulting CV must succeed on two fronts simultaneously:
 1.  **ATS Dominance**: Achieve a high relevance score by embedding essential keywords from the job description into the correct fields of the JSON structure.
-2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is humble, natural and engaging, do not use general jargon such as "stakeholder", ensure the CV stands out in a sea of applicants. 
+2.  **Human Persuasion**: Captivate the human reader by presenting a clear, compelling narrative of value and impact. Use Langauage that is humble, straight forward, natural and engaging, do not use general jargon such as "stakeholder", "Visionary", "Pionneer", "Innovator", etc.
 
 **Phase 1: Intelligence Gathering (Job Description Deconstruction)**
 Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence:
+* **Job Title**: Pick only two key words for the job title of the role, no special characters.
 * **Dealbreaker Qualifications**: The absolute, must-have skills, certifications, or years of experience.
 * **Primary Directives**: The top 3-4 key responsibilities of the role.
 * **Underlying Business Goal**: The core business problem this role solves (e.g., increase market share, reduce technical debt).
@@ -183,7 +184,7 @@ Forensically analyze the `JOB DESCRIPTION` to extract the following intelligence
 * **Raw JSON Output**: The final output MUST be a single, raw, and valid JSON object. Do not include any text, comments, or markdown formatting (like ```json) before or after the JSON.
 * **Strict Structural Adherence**: The final output must be a single JSON object that strictly follows the provided `LABELING STRUCTURE`, starting with the top-level `CV` key. All generated content must be placed in the correct nested fields as described above (e.g., `CV.SummaryOrObjective.Statement`, `CV.ProfessionalExperience[0].ResponsibilitiesAndAchievements`, `CV.Skills[0].Skill`).
 * **Handle Empty Fields**: Use `""`, `[]`, or `{{}}` for any fields that are not applicable after tailoring, as specified in the structure.
-* **Length**: The final CV PDF should be concise yet comprehensive. Make it at exactly 2 pages, roughly 1000 words. Ensure the JSON structure is not overly verbose but still captures all necessary details.
+* **Length**: The final CV PDF should be concise yet comprehensive. Longer is better. Ensure the JSON structure is not overly verbose but still captures all necessary details.
 
 
 Here is the original CV (which could be plain text, or a JSON string itself):

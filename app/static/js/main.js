@@ -105,16 +105,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (response.ok) {
                     if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-green-600">Success: ${escapeHtml(result.message || 'CV Tailored!')}</p>`;
-                    if (result.tailored_cv_json && tailorResultDiv) {
+                    if (result.tailored_cv_json) {
                         const formattedJson = JSON.stringify(result.tailored_cv_json, null, 2);
-                        tailorResultDiv.innerHTML += `<h4 class="font-semibold mt-2">Tailored CV (JSON Preview):</h4><pre class="whitespace-pre-wrap text-xs">${escapeHtml(formattedJson)}</pre>`;
+                        const jsonPreviewDiv = document.getElementById('jsonPreview');
+                        const displayJsonBtn = document.getElementById('displayJsonBtn');
+                        if (jsonPreviewDiv && displayJsonBtn) {
+                            jsonPreviewDiv.querySelector('pre').textContent = formattedJson;
+                            displayJsonBtn.classList.remove('hidden');
+                            displayJsonBtn.addEventListener('click', () => {
+                                jsonPreviewDiv.classList.toggle('hidden');
+                            });
+                        }
                     }
                     if (result.pdf_download_url && pdfDownloadLinkDiv) {
                         pdfDownloadLinkDiv.innerHTML = `<a href="${escapeHtml(result.pdf_download_url)}" target="_blank" class="inline-block mt-3 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Download Tailored CV (PDF)</a>`;
                     } else if (result.error_pdf && pdfDownloadLinkDiv) {
                          pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">Note: ${escapeHtml(result.error_pdf)}</p>`;
                     } else if (pdfDownloadLinkDiv) {
-                         pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">PDF download link not available. JSON preview above.</p>`;
+                         pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">PDF download link not available.</p>`;
                     }
                 } else {
                     if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to tailor CV.')}</p>`;
@@ -132,32 +140,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // --- Job Display Function ---
+    let allJobs = [];
+    let displayedJobsCount = 0;
+    const jobsPerPage = 5;
+
     function displayJobs(jobsArray) {
         if (!jobResultsDiv) return;
-        if (!jobsArray || jobsArray.length === 0) {
+        allJobs = jobsArray;
+        displayedJobsCount = 0;
+        jobResultsDiv.innerHTML = '';
+
+        if (!allJobs || allJobs.length === 0) {
             jobResultsDiv.innerHTML = '<p>No jobs found matching your criteria.</p>';
-            updateBatchButtonState(); // Update button state even if no jobs
+            updateBatchButtonState();
             return;
         }
 
-        let html = `<div class="flex justify-between items-center mb-3">
-                        <h3 class="text-xl font-semibold">Job Listings:</h3>
-                        <label class="text-sm"><input type="checkbox" id="selectAllJobsCheckbox" class="mr-1"> Select All</label>
-                    </div>
-                    <div class="space-y-4">`;
-        jobsArray.forEach(job => {
-            const description = job.description || 'No description available.'; // Keep it simple for data attribute
+        const topControls = `<div class="flex justify-between items-center mb-3">
+                                <h3 class="text-xl font-semibold">Job Listings:</h3>
+                                <label class="text-sm"><input type="checkbox" id="selectAllJobsCheckbox" class="mr-1"> Select All</label>
+                             </div>`;
+        jobResultsDiv.innerHTML = topControls + '<div class="space-y-4" id="job-listings-container"></div><div id="job-pagination-controls" class="mt-4"></div>';
+
+        loadMoreJobs();
+    }
+
+    function loadMoreJobs() {
+        const container = document.getElementById('job-listings-container');
+        if (!container) return;
+
+        const jobsToDisplay = allJobs.slice(displayedJobsCount, displayedJobsCount + jobsPerPage);
+
+        let html = '';
+        jobsToDisplay.forEach(job => {
+            const description = job.description || 'No description available.';
             const company = job.company || 'N/A';
             const location = job.location || 'N/A';
             const job_url = job.url;
             const source = job.source;
             const date_scraped_obj = new Date(job.date_scraped);
             const formatted_date_scraped = date_scraped_obj.toLocaleDateString() + ' ' + date_scraped_obj.toLocaleTimeString();
-            // Use job.id from database as the unique value for checkbox
             const jobId = job.id;
             const isApplied = job.applied === 1 || job.applied === true;
-            const cvFilename = job.cv_filename; // New field
-            // const generatedCvId = job.generated_cv_id; // New field, might be used later
+            const cvFilename = job.cv_filename;
 
             html += `
                 <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id="${escapeHtml(jobId)}">
@@ -177,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-xs text-gray-500 job-applied-status">Status: ${isApplied ? 'Applied' : 'Not Applied'}</p>
                             ${job_url ? `<a href="${escapeHtml(job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm mr-2">View Original Job</a>` : ''}
                             
-                            <div class="mt-2 job-actions">`; // Container for action buttons
+                            <div class="mt-2 job-actions">`;
             
             if (cvFilename) {
                 html += `<button onclick="window.open('/api/download-cv/${escapeHtml(cvFilename)}', '_blank')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2">Download CV</button>`;
@@ -193,76 +218,114 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>`;
         });
-        html += '</div>';
-        jobResultsDiv.innerHTML = html;
+        container.innerHTML += html;
+        displayedJobsCount += jobsToDisplay.length;
 
-        // Add event listeners for newly created checkboxes
+        updatePaginationControls();
+        attachEventListenersToJobs();
+    }
+
+    function updatePaginationControls() {
+        const paginationControls = document.getElementById('job-pagination-controls');
+        if (!paginationControls) return;
+
+        paginationControls.innerHTML = '';
+
+        if (displayedJobsCount < allJobs.length) {
+            const loadMoreBtn = document.createElement('button');
+            loadMoreBtn.id = 'loadMoreJobsBtn';
+            loadMoreBtn.textContent = 'Load More';
+            loadMoreBtn.className = 'bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline';
+            loadMoreBtn.addEventListener('click', loadMoreJobs);
+            paginationControls.appendChild(loadMoreBtn);
+        }
+
+        if (displayedJobsCount > jobsPerPage) {
+            const showLessBtn = document.createElement('button');
+            showLessBtn.id = 'showLessJobsBtn';
+            showLessBtn.textContent = 'Show Less';
+            showLessBtn.className = 'bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline ml-2';
+            showLessBtn.addEventListener('click', () => {
+                const container = document.getElementById('job-listings-container');
+                container.innerHTML = '';
+                displayedJobsCount = 0;
+                loadMoreJobs();
+            });
+            paginationControls.appendChild(showLessBtn);
+        }
+    }
+
+    function attachEventListenersToJobs() {
         const jobCheckboxes = jobResultsDiv.querySelectorAll('.job-select-checkbox');
         jobCheckboxes.forEach(checkbox => {
+            checkbox.removeEventListener('change', updateBatchButtonState); // Avoid duplicate listeners
             checkbox.addEventListener('change', updateBatchButtonState);
         });
 
         const selectAllCheckbox = document.getElementById('selectAllJobsCheckbox');
-        if(selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', (e) => {
-                jobCheckboxes.forEach(cb => cb.checked = e.target.checked); // Apply to current list of checkboxes
-                updateBatchButtonState();
-            });
+        if (selectAllCheckbox) {
+            selectAllCheckbox.removeEventListener('change', selectAllHandler);
+            selectAllCheckbox.addEventListener('change', selectAllHandler);
         }
 
-        // Add event listeners for toggle applied buttons
         const toggleButtons = jobResultsDiv.querySelectorAll('.toggle-applied-btn');
         toggleButtons.forEach(button => {
-            button.addEventListener('click', async (event) => {
-                const jobId = event.target.dataset.jobId;
-                if (!jobId) return;
-
-                showLoading('Updating status...');
-
-                try {
-                    const response = await fetch(`/api/jobs/${jobId}/toggle-applied`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    const result = await response.json();
-                    hideLoading();
-
-                    if (response.ok && result.new_status !== undefined) {
-                        // Dynamically update the specific job card's UI
-                        const card = event.target.closest('.job-card');
-                        if (card) {
-                            const statusTextElement = card.querySelector('.job-applied-status');
-                            const toggleButton = event.target; // or card.querySelector('.toggle-applied-btn')
-
-                            const newAppliedStatusBool = result.new_status === 1 || result.new_status === true;
-
-                            if (statusTextElement) {
-                                statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
-                            }
-                            if (toggleButton) {
-                                toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
-                                if (newAppliedStatusBool) {
-                                    toggleButton.classList.add('bg-yellow-500', 'text-white');
-                                    toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
-                                } else {
-                                    toggleButton.classList.remove('bg-yellow-500', 'text-white');
-                                    toggleButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
-                                }
-                            }
-                        }
-                    } else {
-                        alert(`Error updating status: ${result.error || 'Unknown error'}`);
-                    }
-                } catch (error) {
-                    hideLoading();
-                    console.error('Toggle Applied Status Error:', error);
-                    alert('An unexpected error occurred while updating status.');
-                }
-            });
+            button.removeEventListener('click', toggleAppliedHandler);
+            button.addEventListener('click', toggleAppliedHandler);
         });
-        updateBatchButtonState(); // Update batch button state after rendering jobs and attaching listeners
+
+        updateBatchButtonState();
+    }
+
+    function selectAllHandler(e) {
+        const jobCheckboxes = jobResultsDiv.querySelectorAll('.job-select-checkbox');
+        jobCheckboxes.forEach(cb => cb.checked = e.target.checked);
+        updateBatchButtonState();
+    }
+
+    async function toggleAppliedHandler(event) {
+        const jobId = event.target.dataset.jobId;
+        if (!jobId) return;
+
+        showLoading('Updating status...');
+
+        try {
+            const response = await fetch(`/api/jobs/${jobId}/toggle-applied`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+            hideLoading();
+
+            if (response.ok && result.new_status !== undefined) {
+                const card = event.target.closest('.job-card');
+                if (card) {
+                    const statusTextElement = card.querySelector('.job-applied-status');
+                    const toggleButton = event.target;
+                    const newAppliedStatusBool = result.new_status === 1 || result.new_status === true;
+
+                    if (statusTextElement) {
+                        statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
+                    }
+                    if (toggleButton) {
+                        toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
+                        if (newAppliedStatusBool) {
+                            toggleButton.classList.add('bg-yellow-500', 'text-white');
+                            toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                        } else {
+                            toggleButton.classList.remove('bg-yellow-500', 'text-white');
+                            toggleButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                        }
+                    }
+                }
+            } else {
+                alert(`Error updating status: ${result.error || 'Unknown error'}`);
+            }
+        } catch (error) {
+            hideLoading();
+            console.error('Toggle Applied Status Error:', error);
+            alert('An unexpected error occurred while updating status.');
+        }
     }
 
     // --- Fetch and Display Jobs (Filtered or All) ---

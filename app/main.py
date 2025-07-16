@@ -203,8 +203,8 @@ def create_app(test_config=None):
                 safe_applicant_name = "UnknownApplicant"
                 cv_data = {} # Ensure cv_data is defined for the final jsonify
 
-            job_title_form = request.form.get('job_title', 'Application')
-            safe_job_title = secure_filename(job_title_form) if job_title_form else "Application"
+            job_title_from_cv = cv_data.get("CV", {}).get("JobTitle", "Application")
+            safe_job_title = secure_filename(job_title_from_cv) if job_title_from_cv else "Application"
 
             base_pdf_filename = f"CV_{safe_job_title}_{safe_applicant_name}.pdf"
             pdf_folder = app.config['GENERATED_PDFS_FOLDER']
