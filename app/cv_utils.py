@@ -126,6 +126,92 @@ def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
         print(traceback.format_exc())
         return None
 
+def generate_cover_letter(cv_json: str, job_description: str, api_key: str) -> str | None:
+    """
+    Generates a cover letter using the Gemini API.
+    """
+    prompt = f"""
+As a career strategist, your task is to write a compelling cover letter based on the provided CV and job description.
+
+**Guiding Principles:**
+*   **Narrative of Value:** Don't just list skills. Weave a story that shows how the candidate's experience solves the employer's specific problems.
+*   **Show, Don't Tell:** Instead of saying "experienced leader," describe a situation where the candidate led a team to success.
+*   **Humble & Natural Tone:** Use straightforward, engaging, and humble language. Avoid jargon like "stakeholder," "visionary," or "pioneer."
+
+**Instructions:**
+1.  **Introduction:** Start with a strong opening that grabs the reader's attention and clearly states the purpose of the letter.
+2.  **Body Paragraphs:**
+    *   Connect the candidate's experience directly to the requirements of the job description.
+    *   Use the C.A.R.L. method (Context, Action, Result, Learning) to frame accomplishments.
+    *   Highlight 2-3 key achievements from the CV that are most relevant to the role.
+3.  **Conclusion:** End with a confident closing that reiterates the candidate's interest and includes a call to action.
+
+**Input Data:**
+
+**Tailored CV:**
+```json
+{cv_json}
+```
+
+**Job Description:**
+```
+{job_description}
+```
+
+Please generate the cover letter now.
+"""
+    return call_gemini_api(api_key, prompt)
+
+def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str) -> list[str] | None:
+    """
+    Answers application questions using the Gemini API.
+    """
+    answers = []
+    for question in questions:
+        prompt = f"""
+As a career strategist, your task is to answer the following application question based on the provided CV and job description.
+
+**Guiding Principles:**
+*   **Be Direct and Concise:** Provide a clear and straightforward answer to the question.
+*   **Show, Don't Tell:** Use specific examples from the CV to support your answer.
+*   **Maintain a Humble Tone:** Use natural and engaging language.
+
+**Instructions:**
+1.  Analyze the question and identify the key information being requested.
+2.  Review the CV and job description to find relevant experiences and skills.
+3.  Formulate a concise and compelling answer that directly addresses the question.
+4.  Present the final output in a clear question-and-answer format.
+
+**Input Data:**
+
+**Tailored CV:**
+```json
+{cv_json}
+```
+
+**Job Description:**
+```
+{job_description}
+```
+
+**Application Question:**
+```
+{question}
+```
+
+**Output Format:**
+**Question:** {question}
+**Answer:** [Your concise and compelling answer here]
+
+Please provide the answer now.
+"""
+        answer = call_gemini_api(api_key, prompt)
+        if answer:
+            answers.append(answer)
+        else:
+            answers.append("Could not generate an answer for this question.")
+    return answers
+
 def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str) -> str | None:
     """
     Processes the CV and Job Description using the Gemini API to tailor the CV.

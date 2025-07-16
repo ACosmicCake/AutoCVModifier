@@ -15,7 +15,9 @@ from .cv_utils import (
     get_cv_from_text_file,
     get_cv_from_pdf_file,
     get_cv_from_docx_file,
-    get_cv_from_json_file # Used in helper
+    get_cv_from_json_file, # Used in helper
+    generate_cover_letter,
+    answer_question
 )
 from .pdf_generator import generate_cv_pdf_from_json_string # Returns True/False
 # analyze_cv_with_gemini removed
@@ -641,6 +643,62 @@ def create_app(test_config=None):
         else:
             print(f"Download request for non-existent file: {safe_path}")
             return jsonify({"error": "File not found"}), 404
+
+    @app.route('/api/generate-cover-letter', methods=['POST'])
+    def generate_cover_letter_endpoint():
+        current_api_key = app.config.get('GOOGLE_API_KEY')
+        if not current_api_key:
+            return jsonify({"error": "Server configuration error: API key not available"}), 500
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid request body"}), 400
+
+        cv_json = data.get('cv_json')
+        job_description = data.get('job_description')
+
+        if not cv_json or not job_description:
+            return jsonify({"error": "Missing CV JSON or job description"}), 400
+
+        cover_letter = generate_cover_letter(
+            cv_json,
+            job_description,
+            current_api_key
+        )
+
+        if not cover_letter:
+            return jsonify({"error": "Failed to generate cover letter"}), 500
+
+        return jsonify({"cover_letter": cover_letter})
+
+    @app.route('/api/answer-question', methods=['POST'])
+    def answer_question_endpoint():
+        current_api_key = app.config.get('GOOGLE_API_KEY')
+        if not current_api_key:
+            return jsonify({"error": "Server configuration error: API key not available"}), 500
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid request body"}), 400
+
+        cv_json = data.get('cv_json')
+        job_description = data.get('job_description')
+        questions = data.get('question')
+
+        if not cv_json or not job_description or not questions:
+            return jsonify({"error": "Missing CV JSON, job description, or questions"}), 400
+
+        answer = answer_question(
+            cv_json,
+            job_description,
+            questions,
+            current_api_key
+        )
+
+        if not answer:
+            return jsonify({"error": "Failed to generate answer"}), 500
+
+        return jsonify({"answer": answer})
 
     return app
 
