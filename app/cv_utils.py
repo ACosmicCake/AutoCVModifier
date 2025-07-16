@@ -142,7 +142,6 @@ As a career strategist, your task is to write a compelling cover letter based on
 1.  **Introduction:** Start with a strong opening that grabs the reader's attention and clearly states the purpose of the letter.
 2.  **Body Paragraphs:**
     *   Connect the candidate's experience directly to the requirements of the job description.
-    *   Use the C.A.R.L. method (Context, Action, Result, Learning) to frame accomplishments.
     *   Highlight 2-3 key achievements from the CV that are most relevant to the role.
 3.  **Conclusion:** End with a confident closing that reiterates the candidate's interest and includes a call to action.
 
