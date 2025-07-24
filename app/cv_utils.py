@@ -2,6 +2,7 @@
 import os
 # import sys # No longer needed as sys.exit is removed
 import json
+import requests
 from google import genai # Changed import for Client pattern
 from PyPDF2 import PdfReader
 import docx
@@ -92,41 +93,63 @@ def get_cv_from_docx_file(filepath: str) -> str | None:
         print(f"Error processing DOCX file {filepath}: {e}")
         return None
 
-def call_gemini_api(api_key: str, prompt_text: str) -> str | None:
+def call_gemini_api(api_key: str, prompt_text: str, model: str) -> str | None:
     """
     Calls the Gemini API with the provided prompt and API key.
     Uses the google.genai Client.
     """
-    try:
-        client = genai.Client(api_key=api_key)
-        # Model name as specified by user, without "models/" prefix for client.models.generate_content
-        model_to_use = "gemini-2.5-pro"
+    if "google" in model:
+        try:
+            client = genai.Client(api_key=api_key)
+            # Model name as specified by user, without "models/" prefix for client.models.generate_content
+            model_to_use = "gemini-1.5-pro-latest"
 
-        response = client.models.generate_content( # Changed to client.models.generate_content
-            model=model_to_use,
-            contents=prompt_text
-        )
+            response = client.models.generate_content( # Changed to client.models.generate_content
+                model=model_to_use,
+                contents=prompt_text
+            )
 
-        # Accessing the text response, ensuring parts and text exist
-        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-            return response.candidates[0].content.parts[0].text
-        # Fallback for older API versions or different response structures if needed
-        elif hasattr(response, 'text') and response.text: # Check if response.text exists and is not empty
-             return response.text
-        else:
-            print("Warning: Gemini API response structure was not as expected or content was empty.")
-            # Log more details if available, e.g., response.prompt_feedback if it exists on this response object
-            if hasattr(response, 'prompt_feedback'):
-                 print(f"Prompt Feedback: {response.prompt_feedback}")
+            # Accessing the text response, ensuring parts and text exist
+            if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                return response.candidates[0].content.parts[0].text
+            # Fallback for older API versions or different response structures if needed
+            elif hasattr(response, 'text') and response.text: # Check if response.text exists and is not empty
+                return response.text
+            else:
+                print("Warning: Gemini API response structure was not as expected or content was empty.")
+                # Log more details if available, e.g., response.prompt_feedback if it exists on this response object
+                if hasattr(response, 'prompt_feedback'):
+                    print(f"Prompt Feedback: {response.prompt_feedback}")
+                return None
+        except Exception as e:
+            # Log the full error for debugging, especially for API configuration or call issues.
+            import traceback
+            print(f"Error calling Gemini API (genai.Client in cv_utils): {e}")
+            print(traceback.format_exc())
             return None
-    except Exception as e:
-        # Log the full error for debugging, especially for API configuration or call issues.
-        import traceback
-        print(f"Error calling Gemini API (genai.Client in cv_utils): {e}")
-        print(traceback.format_exc())
-        return None
+    else:
+        try:
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                },
+                data=json.dumps({
+                    "model": model,
+                    "messages": [
+                        { "role": "user", "content": prompt_text }
+                    ]
+                })
+            )
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']['content']
+        except requests.exceptions.RequestException as e:
+            import traceback
+            print(f"Error calling OpenRouter API: {e}")
+            print(traceback.format_exc())
+            return None
 
-def generate_cover_letter(cv_json: str, job_description: str, api_key: str) -> str | None:
+def generate_cover_letter(cv_json: str, job_description: str, api_key: str, model: str) -> str | None:
     """
     Generates a cover letter using the Gemini API.
     """
@@ -159,9 +182,9 @@ As a career strategist, your task is to write a compelling cover letter based on
 
 Please generate the cover letter now.
 """
-    return call_gemini_api(api_key, prompt)
+    return call_gemini_api(api_key, prompt, model)
 
-def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str) -> list[str] | None:
+def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str, model: str) -> list[str] | None:
     """
     Answers application questions using the Gemini API.
     """
@@ -215,14 +238,14 @@ Answer 2: [Your concise and compelling answer here]
 
 Please provide the answer now.
 """
-        answer = call_gemini_api(api_key, prompt)
+        answer = call_gemini_api(api_key, prompt, model)
         if answer:
             answers.append(answer)
         else:
             answers.append("Could not generate an answer for this question.")
     return answers
 
-def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str) -> str | None:
+def process_cv_and_jd(cv_content_str: str, job_description_text: str, cv_template_content_str: str, api_key: str, model: str) -> str | None:
     """
     Processes the CV and Job Description using the Gemini API to tailor the CV.
     Returns the tailored CV as a JSON string, or None on failure.
@@ -303,7 +326,7 @@ Generate the hyper-optimized CV as a single, valid JSON object now.
     # For debugging, you might want to log the prompt:
     # print(f"Prompt for Gemini: {prompt_text[:300]}...")
 
-    tailored_cv_output = call_gemini_api(api_key, prompt_text)
+    tailored_cv_output = call_gemini_api(api_key, prompt_text, model)
 
     if tailored_cv_output:
         cleaned_output = tailored_cv_output.strip()

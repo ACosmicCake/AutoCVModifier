@@ -149,6 +149,8 @@ def create_app(test_config=None):
         if not job_description:
             return jsonify({"error": "No job description provided"}), 400
 
+        model = request.form.get('model', 'google/gemini-pro')
+
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -184,7 +186,8 @@ def create_app(test_config=None):
                 cv_content_str,
                 job_description,
                 cv_template_content_str,
-                current_api_key
+                current_api_key,
+                model
             )
 
             if not tailored_cv_json_str:
@@ -656,6 +659,7 @@ def create_app(test_config=None):
 
         cv_json = data.get('cv_json')
         job_description = data.get('job_description')
+        model = data.get('model', 'google/gemini-pro')
 
         if not cv_json or not job_description:
             return jsonify({"error": "Missing CV JSON or job description"}), 400
@@ -663,7 +667,8 @@ def create_app(test_config=None):
         cover_letter = generate_cover_letter(
             cv_json,
             job_description,
-            current_api_key
+            current_api_key,
+            model
         )
 
         if not cover_letter:
@@ -684,6 +689,7 @@ def create_app(test_config=None):
         cv_json = data.get('cv_json')
         job_description = data.get('job_description')
         questions = data.get('question')
+        model = data.get('model', 'google/gemini-pro')
 
         if not cv_json or not job_description or not questions:
             return jsonify({"error": "Missing CV JSON, job description, or questions"}), 400
@@ -692,7 +698,8 @@ def create_app(test_config=None):
             cv_json,
             job_description,
             questions,
-            current_api_key
+            current_api_key,
+            model
         )
 
         if not answer:

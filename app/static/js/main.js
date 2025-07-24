@@ -162,6 +162,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showLoading('Generating cover letter...');
             coverLetterResultDiv.innerHTML = '';
 
+            const model = document.getElementById('model').value;
+
             try {
                 const response = await fetch('/api/generate-cover-letter', {
                     method: 'POST',
@@ -169,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({
                         cv_json: tailoredCVData,
                         job_description: jobDescription,
+                        model: model,
                     }),
                 });
 
@@ -205,6 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showLoading('Getting answers...');
             qaResultDiv.innerHTML = '';
 
+            const model = document.getElementById('model').value;
+
             try {
                 const response = await fetch('/api/answer-question', {
                     method: 'POST',
@@ -213,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         cv_json: tailoredCVData,
                         job_description: jobDescription,
                         question: questions,
+                        model: model,
                     }),
                 });
 
