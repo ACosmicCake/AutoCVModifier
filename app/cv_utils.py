@@ -182,7 +182,7 @@ As a career strategist, your task is to write a compelling cover letter based on
 
 Please generate the cover letter now.
 """
-    return call_gemini_api(api_key, prompt, model)
+    return call_gemini_api(api_key, prompt, model=model)
 
 def answer_question(cv_json: str, job_description: str, questions: list[str], api_key: str, model: str) -> list[str] | None:
     """
@@ -238,7 +238,7 @@ Answer 2: [Your concise and compelling answer here]
 
 Please provide the answer now.
 """
-        answer = call_gemini_api(api_key, prompt, model)
+        answer = call_gemini_api(api_key, prompt, model=model)
         if answer:
             answers.append(answer)
         else:
