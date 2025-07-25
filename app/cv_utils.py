@@ -102,7 +102,7 @@ def call_gemini_api(api_key: str, prompt_text: str, model: str) -> str | None:
         try:
             client = genai.Client(api_key=api_key)
             # Model name as specified by user, without "models/" prefix for client.models.generate_content
-            model_to_use = "gemini-1.5-pro-latest"
+            model_to_use = "gemini-2.5-pro"
 
             response = client.models.generate_content( # Changed to client.models.generate_content
                 model=model_to_use,
@@ -129,6 +129,7 @@ def call_gemini_api(api_key: str, prompt_text: str, model: str) -> str | None:
             return None
     else:
         try:
+            api_key = os.environ.get("OPENROUTER_API_KEY", api_key)  # Use environment variable if available
             response = requests.post(
                 url="https://openrouter.ai/api/v1/chat/completions",
                 headers={
