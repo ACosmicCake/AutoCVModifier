@@ -1,9 +1,11 @@
 python-dotenv
-PyPDF2
+pypdf
 python-docx
 google-genai
 Flask
-jobspy
+python-jobspy
+pandas
+requests
 reportlab
 pytest
 pytest-mock

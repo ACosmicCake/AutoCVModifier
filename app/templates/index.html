@@ -5,184 +5,217 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI CV Tailor</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <!-- Corrected url_for path for CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <style>
-        /* Basic custom styles if needed (already in style.css but can be here for quick overrides) */
-        /* .loader { border-top-color: #3498db; animation: spin 1s linear infinite; } */
-        /* @keyframes spin { to { transform: rotate(360deg); } } */
-    </style>
 </head>
-<body class="bg-gray-100 font-sans leading-normal tracking-normal">
+<body class="bg-gray-100 text-gray-800 font-sans leading-normal antialiased">
 
-    <div class="container mx-auto p-8">
-        <header class="text-center mb-10">
-            <h1 class="text-4xl font-bold text-gray-800">AI CV Tailor & Job Assistant</h1>
-            <p class="text-gray-600">Tailor your CV, get analysis, and find jobs!</p>
-        </header>
-
-        <!-- CV Tailoring Section -->
-        <section id="cv-tailoring" class="bg-white p-6 rounded-lg shadow-lg mb-8">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Tailor Your CV</h2>
-            <form id="cvTailorForm" enctype="multipart/form-data">
-                <div class="mb-4">
-                    <label for="cvFile" class="block text-gray-700 text-sm font-bold mb-2">Upload Your CV (PDF, DOCX, TXT, JSON):</label>
-                    <input type="file" id="cvFile" name="cv_file" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required accept=".pdf,.docx,.txt,.json">
-                </div>
-                <div class="mb-6">
-                    <label for="jobDescription" class="block text-gray-700 text-sm font-bold mb-2">Paste Job Description:</label>
-                    <textarea id="jobDescription" name="job_description" rows="8" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required></textarea>
-                </div>
-                <div class="mb-4">
-                    <label for="model" class="block text-gray-700 text-sm font-bold mb-2">Select Model:</label>
-                    <select id="model" name="model" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
-                        <option value="google/gemini-pro">Gemini</option>
-                        <option value="qwen/qwen3-235b-a22b-07-25:free">Qwen: Qwen3 235B A22B 2507</option>
-                        <option value="deepseek/deepseek-r1-0528:free">Deepseek R1 05/28</option>
-                        <option value="tngtech/deepseek-r1t2-chimera:free">Deepseek Chimera</option>
-                        <option value="moonshotai/kimi-k2:free">Kimi K2</option>
-
-
-                    </select>
-                </div>
-                <div class="flex items-center justify-between">
-                    <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-                        Tailor CV & Generate PDF
-                    </button>
-                </div>
-            </form>
-            <div id="tailorResult" class="mt-4"></div>
-            <div id="pdfDownloadLink" class="mt-4"></div>
-            <div class="mt-4">
-                <button id="displayJsonBtn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline hidden">
-                    Display JSON
-                </button>
-                <div id="jsonPreview" class="hidden mt-4 p-4 bg-gray-200 rounded">
-                    <h4 class="font-semibold mt-2">Tailored CV (JSON Preview):</h4>
-                    <pre class="whitespace-pre-wrap text-xs"></pre>
-                </div>
-            </div>
-        </section>
-
-        <!-- CV Analysis Section Removed -->
-
-        <!-- Post-CV Generation Follow-up Section -->
-        <section id="follow-up-section" class="bg-white p-6 rounded-lg shadow-lg mb-8 hidden">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Follow-up Actions</h2>
-            <div id="follow-up-actions" class="space-y-4">
-                <div>
-                    <button id="generateCoverLetterBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-                        Generate Cover Letter
-                    </button>
-                    <div id="coverLetterResult" class="mt-4"></div>
-                </div>
-                <div>
-                    <form id="qaForm">
-                        <div class="mb-4">
-                            <label for="applicationQuestion" class="block text-gray-700 text-sm font-bold mb-2">Ask questions about the job description (one per line):</label>
-                            <textarea id="applicationQuestion" name="application_question" rows="4" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"></textarea>
-                        </div>
-                        <button type="submit" class="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-                            Get Answer
-                        </button>
-                    </form>
-                    <div id="qaResult" class="mt-4"></div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Job Scraping Section -->
-        <section id="job-scraping" class="bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Scrape Jobs Online</h2>
-            <form id="jobScrapeForm">
-                <div class="grid md:grid-cols-4 gap-4 mb-4"> <!-- Changed to 4 cols for results_wanted -->
-                    <div>
-                        <label for="searchTerm" class="block text-gray-700 text-sm font-bold mb-1">Search Term:</label>
-                        <input type="text" id="searchTerm" name="search_term" value="software engineer" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                    </div>
-                    <div>
-                        <label for="location" class="block text-gray-700 text-sm font-bold mb-1">Location:</label>
-                        <input type="text" id="location" name="location" value="USA" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                    </div>
-                    <div>
-                        <label for="siteNames" class="block text-gray-700 text-sm font-bold mb-1">Sites (comma-sep):</label>
-                        <input type="text" id="siteNames" name="site_names" value="indeed,linkedin" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" placeholder="indeed,linkedin,zip_recruiter">
-                    </div>
-                    <div>
-                        <label for="resultsWanted" class="block text-gray-700 text-sm font-bold mb-1">Results #:</label>
-                        <input type="number" id="resultsWanted" name="results_wanted" value="5" min="1" max="50" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                    </div>
-                </div>
-                <button type="submit" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-                    Scrape Jobs
-                </button>
-            </form>
-
-            <!-- Job Filtering Controls -->
-            <div id="job-filters" class="mt-6 pt-4 border-t">
-                <h3 class="text-xl font-semibold text-gray-700 mb-3">Filter Scraped Jobs</h3>
-                <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4"> <!-- Adjusted grid for 4 items -->
-                    <div>
-                        <label for="filterKeyword" class="block text-gray-700 text-sm font-bold mb-1">Keyword:</label>
-                        <input type="text" id="filterKeyword" placeholder="Title, description..." class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                    </div>
-                    <div>
-                        <label for="filterLocation" class="block text-gray-700 text-sm font-bold mb-1">Location:</label>
-                        <input type="text" id="filterLocation" placeholder="City, State, Country..." class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                    </div>
-                    <div>
-                        <label for="filterSource" class="block text-gray-700 text-sm font-bold mb-1">Source:</label>
-                        <select id="filterSource" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                            <option value="">All Sources</option>
-                            <option value="linkedin">LinkedIn</option>
-                            <option value="indeed">Indeed</option>
-                            <option value="zip_recruiter">ZipRecruiter</option>
-                            <option value="glassdoor">Glassdoor</option>
-                            <option value="google">Google</option>
-                            <!-- Add more sources as supported by your scraper and DB -->
-                        </select>
-                    </div>
-                    <div>
-                        <label for="filterAppliedStatus" class="block text-gray-700 text-sm font-bold mb-1">Applied Status:</label>
-                        <select id="filterAppliedStatus" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                            <option value="all" selected>All</option>
-                            <option value="applied">Applied</option>
-                            <option value="not_applied">Not Applied</option>
-                        </select>
-                    </div>
-                </div>
-                <button id="filterJobsButton" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-                    Filter Jobs
-                </button>
-                 <button id="clearFiltersButton" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline ml-2">
-                    Clear Filters & Show All
-                </button>
-            </div>
-
-            <div id="jobResults" class="mt-6">
-                <!-- Job results will be dynamically inserted here -->
-            </div>
-
-            <!-- Batch CV Generation Button -->
-            <div id="batch-cv-controls" class="mt-6 pt-4 border-t">
-                 <button id="batchGenerateCVsButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline" disabled>
-                    Generate CVs for Selected Jobs
-                </button>
-                <p id="batchCvHelpText" class="text-sm text-gray-600 mt-2">Upload a CV in the "Tailor Your CV" section and select jobs below to enable this button.</p>
-            </div>
-            <div id="batchCvResults" class="mt-4">
-                <!-- Results of batch CV generation will be displayed here -->
-            </div>
-        </section>
-
-        <!-- Loading Indicator -->
-        <div id="loadingIndicator" class="fixed top-0 left-0 w-full h-full bg-gray-900 bg-opacity-50 flex justify-center items-center z-50 hidden">
-            <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-32 w-32"></div>
-            <p class="ml-4 text-white text-xl">Processing...</p>
+<div class="max-w-7xl mx-auto px-4 py-8">
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between mb-8 gap-3">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">AI CV Tailor &amp; Job Assistant</h1>
+            <p class="text-gray-600">Tailor your CV to any job, generate cover letters, and track the jobs you find.</p>
         </div>
+        <div id="providerStatus" class="flex gap-2 text-xs"></div>
+    </header>
+
+    <div class="grid lg:grid-cols-2 gap-6 mb-8">
+        <!-- CV Tailoring -->
+        <section id="cv-tailoring" class="card">
+            <h2 class="card-title"><span class="step">1</span> Tailor your CV</h2>
+            <form id="cvTailorForm" enctype="multipart/form-data" novalidate>
+                <div class="mb-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="label mb-0">Your CV</span>
+                        <div class="tabs" role="tablist">
+                            <button type="button" class="tab active" data-cv-mode="file" role="tab">Upload file</button>
+                            <button type="button" class="tab" data-cv-mode="text" role="tab">Paste text</button>
+                        </div>
+                    </div>
+                    <div id="cvFilePanel">
+                        <label for="cvFile" id="cvDropZone" class="drop-zone">
+                            <input type="file" id="cvFile" name="cv_file" class="sr-only" accept=".pdf,.docx,.txt,.json">
+                            <span id="cvFileLabel" class="text-sm text-gray-600">Drop your CV here or <span class="text-blue-600 font-semibold">browse</span> (PDF, DOCX, TXT, JSON)</span>
+                        </label>
+                    </div>
+                    <div id="cvTextPanel" class="hidden">
+                        <textarea id="cvText" name="cv_text" rows="8" class="input" placeholder="Paste the full text of your CV..."></textarea>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <label for="jobDescription" class="label mb-0">Job description</label>
+                        <span id="linkedJobChip" class="chip hidden"></span>
+                    </div>
+                    <textarea id="jobDescription" name="job_description" rows="8" class="input" placeholder="Paste the job description, or pick a job from your list below..."></textarea>
+                    <input type="hidden" id="linkedJobId" name="job_id" value="">
+                </div>
+
+                <div class="grid sm:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="model" class="label">Model</label>
+                        <select id="model" class="input"></select>
+                        <input type="text" id="customModel" class="input mt-2 hidden" placeholder="OpenRouter model id, e.g. mistralai/mistral-large">
+                    </div>
+                    <div class="flex items-end">
+                        <label class="inline-flex items-center text-sm text-gray-700 cursor-pointer select-none mb-2">
+                            <input type="checkbox" id="includeSummary" class="h-4 w-4 mr-2">
+                            Include a summary section
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit" id="tailorBtn" class="btn btn-blue w-full sm:w-auto">Tailor CV &amp; generate PDF</button>
+            </form>
+        </section>
+
+        <!-- Result -->
+        <section id="result-section" class="card">
+            <h2 class="card-title"><span class="step">2</span> Result</h2>
+            <div id="resultEmpty" class="text-gray-500 text-sm">Your tailored CV will appear here. You can preview it, edit the content, re-render the PDF, and generate a cover letter or answers to application questions.</div>
+
+            <div id="resultPanel" class="hidden">
+                <div id="tailorResult" class="mb-3"></div>
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <a id="downloadPdfBtn" class="btn btn-green" href="#" target="_blank" rel="noopener">Download PDF</a>
+                    <button type="button" id="previewPdfBtn" class="btn btn-gray">Preview</button>
+                    <a id="downloadJsonBtn" class="btn btn-gray" href="#" target="_blank" rel="noopener">Download JSON</a>
+                    <button type="button" id="editJsonBtn" class="btn btn-gray">Edit content</button>
+                </div>
+
+                <div id="pdfPreview" class="hidden mb-4">
+                    <iframe id="pdfFrame" title="PDF preview" class="w-full rounded border" style="height: 32rem;"></iframe>
+                </div>
+
+                <div id="jsonEditor" class="hidden mb-4">
+                    <p class="text-xs text-gray-600 mb-1">Edit the tailored CV (JSON) and re-render the PDF.</p>
+                    <textarea id="jsonEditorText" rows="14" class="input font-mono text-xs"></textarea>
+                    <div class="flex gap-2 mt-2">
+                        <button type="button" id="rerenderBtn" class="btn btn-blue">Re-render PDF</button>
+                        <button type="button" id="resetJsonBtn" class="btn btn-gray">Reset</button>
+                    </div>
+                </div>
+
+                <div class="border-t pt-4 mt-2 space-y-5">
+                    <div>
+                        <div class="flex items-center justify-between">
+                            <h3 class="font-semibold">Cover letter</h3>
+                            <div class="flex gap-2">
+                                <button type="button" id="copyCoverLetterBtn" class="btn btn-gray btn-sm hidden">Copy</button>
+                                <button type="button" id="generateCoverLetterBtn" class="btn btn-green btn-sm">Generate</button>
+                            </div>
+                        </div>
+                        <div id="coverLetterResult" class="mt-2"></div>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold mb-2">Application questions</h3>
+                        <form id="qaForm">
+                            <textarea id="applicationQuestion" name="application_question" rows="3" class="input" placeholder="One question per line, e.g.&#10;Why do you want to work here?&#10;Describe a challenging project."></textarea>
+                            <button type="submit" id="qaBtn" class="btn btn-indigo btn-sm mt-2">Get answers</button>
+                        </form>
+                        <div id="qaResult" class="mt-3 space-y-3"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
     </div>
 
-    <!-- Corrected url_for path for JS -->
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <!-- Jobs -->
+    <section id="job-scraping" class="card">
+        <h2 class="card-title"><span class="step">3</span> Find &amp; track jobs</h2>
+
+        <form id="jobScrapeForm" class="mb-6">
+            <div class="grid md:grid-cols-6 gap-4 mb-3">
+                <div class="md:col-span-2">
+                    <label for="searchTerm" class="label">Search term</label>
+                    <input type="text" id="searchTerm" value="software engineer" class="input">
+                </div>
+                <div class="md:col-span-2">
+                    <label for="location" class="label">Location</label>
+                    <input type="text" id="location" value="USA" class="input">
+                </div>
+                <div>
+                    <label for="resultsWanted" class="label">New results</label>
+                    <input type="number" id="resultsWanted" value="5" min="1" max="100" class="input">
+                </div>
+                <div>
+                    <label for="hoursOld" class="label">Posted within</label>
+                    <select id="hoursOld" class="input">
+                        <option value="">Any time</option>
+                        <option value="24">24 hours</option>
+                        <option value="72">3 days</option>
+                        <option value="168">7 days</option>
+                        <option value="720">30 days</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-sm" id="siteCheckboxes">
+                <span class="label mb-0">Sites:</span>
+                <label class="inline-flex items-center"><input type="checkbox" class="site-cb mr-1" value="linkedin" checked> LinkedIn</label>
+                <label class="inline-flex items-center"><input type="checkbox" class="site-cb mr-1" value="indeed" checked> Indeed</label>
+                <label class="inline-flex items-center"><input type="checkbox" class="site-cb mr-1" value="glassdoor"> Glassdoor</label>
+                <label class="inline-flex items-center"><input type="checkbox" class="site-cb mr-1" value="zip_recruiter"> ZipRecruiter</label>
+                <label class="inline-flex items-center"><input type="checkbox" class="site-cb mr-1" value="google"> Google</label>
+                <span class="text-gray-300">|</span>
+                <label class="inline-flex items-center"><input type="checkbox" id="isRemote" class="mr-1"> Remote only</label>
+            </div>
+            <button type="submit" id="scrapeBtn" class="btn btn-purple">Scrape jobs</button>
+            <span class="text-xs text-gray-500 ml-2">Scraping can take a minute, especially with LinkedIn.</span>
+        </form>
+
+        <div id="job-filters" class="border-t pt-4">
+            <div class="grid md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
+                <div class="lg:col-span-2">
+                    <label for="filterKeyword" class="label">Search saved jobs</label>
+                    <input type="search" id="filterKeyword" placeholder="Title, company, description..." class="input">
+                </div>
+                <div>
+                    <label for="filterLocation" class="label">Location</label>
+                    <input type="search" id="filterLocation" placeholder="City, state, country..." class="input">
+                </div>
+                <div>
+                    <label for="filterSource" class="label">Source</label>
+                    <select id="filterSource" class="input">
+                        <option value="">All sources</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="filterAppliedStatus" class="label">Status</label>
+                    <select id="filterAppliedStatus" class="input">
+                        <option value="all" selected>All</option>
+                        <option value="not_applied">Not applied</option>
+                        <option value="applied">Applied</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex items-center justify-between mb-3">
+                <label class="text-sm inline-flex items-center"><input type="checkbox" id="selectAllJobsCheckbox" class="mr-2"> Select all shown</label>
+                <div class="flex items-center gap-3">
+                    <span id="jobCount" class="text-sm text-gray-600"></span>
+                    <button type="button" id="clearFiltersButton" class="text-sm text-blue-600 hover:underline">Clear filters</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="jobResults" class="space-y-3"></div>
+        <div id="jobPagination" class="mt-4 text-center"></div>
+        <div id="batchCvResults" class="mt-4"></div>
+    </section>
+</div>
+
+<!-- Batch generation bar -->
+<div id="batchBar" class="batch-bar hidden">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <span id="batchCvHelpText" class="text-sm"></span>
+        <div class="flex gap-2">
+            <button type="button" id="clearSelectionBtn" class="btn btn-gray btn-sm">Clear selection</button>
+            <button type="button" id="batchGenerateCVsButton" class="btn btn-blue btn-sm" disabled>Generate CVs for selected jobs</button>
+        </div>
+    </div>
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
