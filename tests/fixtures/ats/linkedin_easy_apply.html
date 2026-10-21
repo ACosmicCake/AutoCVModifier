@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Data Engineer | Acme | LinkedIn</title>
+<style>
+    .modal { position: fixed; inset: 40px; background: #fff; border: 1px solid #999; padding: 16px; overflow: auto; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header>
+    <input type="text" placeholder="Search" aria-label="Search" name="global-search">
+</header>
+<main>
+    <h1 class="job-title">Data Engineer</h1>
+    <p>Acme · New York, NY · 2 days ago · Over 100 applicants</p>
+    <button type="button" id="easy-apply" class="jobs-apply-button">Easy Apply</button>
+    <button type="button">Save</button>
+</main>
+<aside>
+    <label for="msg">Write a message</label><textarea id="msg"></textarea>
+</aside>
+
+<div class="modal" role="dialog" aria-labelledby="apply-header" id="modal" hidden>
+    <h2 id="apply-header">Apply to Acme</h2>
+
+    <section data-step="1">
+        <h3>Contact info</h3>
+        <label for="email">Email address</label>
+        <select id="email" required><option>Select an option</option><option selected>jane@example.com</option></select>
+        <label for="cc">Phone country code</label>
+        <select id="cc" required>
+            <option>Select an option</option><option>Canada (+1)</option><option>United States (+1)</option><option>United Kingdom (+44)</option>
+        </select>
+        <label for="phone">Mobile phone number</label><input id="phone" required>
+    </section>
+
+    <section data-step="2" hidden>
+        <h3>Resume</h3>
+        <label><input type="radio" name="resume" value="old" checked> Old_CV.pdf (uploaded 2024)</label>
+        <label class="upload">Upload resume<input type="file" id="resume-upload" class="sr-only" accept=".pdf,.docx"></label>
+    </section>
+
+    <section data-step="3" hidden>
+        <h3>Additional questions</h3>
+        <label for="py">How many years of work experience do you have with Python?</label><input id="py" required>
+        <label for="eng">What is your level of proficiency in English?</label>
+        <select id="eng" required>
+            <option value="">Select an option</option><option>None</option><option>Conversational</option><option>Professional</option><option>Native or bilingual</option>
+        </select>
+        <fieldset><legend>Will you now, or in the future, require sponsorship for employment visa status?</legend>
+            <label><input type="radio" name="sp" value="Yes" required> Yes</label>
+            <label><input type="radio" name="sp" value="No"> No</label>
+        </fieldset>
+    </section>
+
+    <section data-step="4" hidden>
+        <h3>Review your application</h3>
+        <label><input type="checkbox" id="follow" checked> Follow Acme to stay up to date with their page.</label>
+    </section>
+
+    <div role="alert" id="err"></div>
+    <div class="actions">
+        <button type="button" id="back" hidden>Back</button>
+        <button type="button" id="next">Next</button>
+    </div>
+</div>
+
+<div class="modal" role="dialog" id="sent" hidden>
+    <h2>Your application was sent to Acme!</h2>
+    <button type="button">Done</button>
+</div>
+
+<script>
+    let step = 1;
+    const show = () => {
+        document.querySelectorAll('[data-step]').forEach(s => s.hidden = Number(s.dataset.step) !== step);
+        next.textContent = step === 3 ? 'Review' : step === 4 ? 'Submit application' : 'Next';
+        back.hidden = step === 1;
+    };
+    document.getElementById('easy-apply').onclick = () => { modal.hidden = false; show(); };
+    back.onclick = () => { step -= 1; show(); };
+    const required = { 1: ['phone'], 3: ['py', 'eng'] };
+    next.onclick = () => {
+        const missing = (required[step] || []).filter(id => !document.getElementById(id).value);
+        if (step === 3 && !document.querySelector('input[name="sp"]:checked')) missing.push('sp');
+        if (step === 1 && cc.selectedIndex === 0) missing.push('cc');
+        if (missing.length) { err.textContent = 'Please enter a valid answer'; return; }
+        err.textContent = '';
+        if (step < 4) { step += 1; show(); return; }
+        window.submitted = {
+            email: email.value, cc: cc.value, phone: phone.value,
+            resume: document.getElementById('resume-upload').files.length ? document.getElementById('resume-upload').files[0].name : 'old',
+            python: py.value, english: eng.value, sponsorship: document.querySelector('input[name="sp"]:checked').value,
+            follow: follow.checked,
+            search: document.querySelector('[name="global-search"]').value, message: msg.value,
+        };
+        modal.hidden = true;
+        sent.hidden = false;
+    };
+</script>
+</body>
+</html>

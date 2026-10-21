@@ -54,6 +54,8 @@
     transition: border-color 0.15s, box-shadow 0.15s;
 }
 
+.input.w-auto { display: inline-block; width: auto; }
+
 .input:focus {
     outline: none;
     border-color: #3b82f6;
@@ -150,11 +152,34 @@
     border-radius: 9999px;
     background: #f3f4f6;
     color: #374151;
+    white-space: nowrap;
 }
 .badge-green { background: #d1fae5; color: #065f46; }
 .badge-red { background: #fee2e2; color: #991b1b; }
 .badge-yellow { background: #fef3c7; color: #92400e; }
 .badge-blue { background: #dbeafe; color: #1e40af; }
+.badge-purple { background: #ede9fe; color: #5b21b6; }
+a.badge { text-decoration: none; }
+a.badge:hover { filter: brightness(0.95); }
+
+.profile-heading { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin: 0.5rem 0; }
+
+/* Applications */
+.application { border: 1px solid #e5e7eb; border-radius: 0.6rem; background: #f9fafb; }
+.application.is-attention { border-color: #fcd34d; background: #fffbeb; }
+.application.is-review { border-color: #c4b5fd; background: #f5f3ff; }
+.application summary { list-style: none; }
+.application summary::-webkit-details-marker { display: none; }
+.app-log { max-height: 14rem; overflow-y: auto; font-size: 0.75rem; font-family: ui-monospace, monospace; background: #fff; border: 1px solid #e5e7eb; border-radius: 0.4rem; padding: 0.5rem; }
+.app-log .warning { color: #b45309; }
+.fields-table { width: 100%; font-size: 0.8rem; border-collapse: collapse; }
+.fields-table th { text-align: left; font-weight: 600; color: #4b5563; border-bottom: 1px solid #e5e7eb; padding: 0.3rem 0.4rem; }
+.fields-table td { border-bottom: 1px solid #f3f4f6; padding: 0.3rem 0.4rem; vertical-align: top; }
+.fields-table tr.low td { background: #fffbeb; }
+.fields-table tr.problem td { background: #fef2f2; }
+.dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 9999px; margin-right: 0.35rem; }
+.dot.live { background: #2563eb; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
 
 /* Job cards */
 .job-card {

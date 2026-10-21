@@ -13,6 +13,10 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from . import database
+from .autoapply import store as autoapply_store
+from .autoapply.manager import AutoApplyManager
+from .autoapply.profile import (add_saved_answer, get_profile, job_rule_violation, merge_answer_rules,
+                                parse_bot_answers, profile_completeness, profile_from_cv, save_profile)
 from .cv_utils import (
     answer_question,
     generate_cover_letter,
@@ -80,6 +84,10 @@ def create_app(test_config=None):
         DATABASE=os.path.join(app.instance_path, 'jobs.db'),
         BATCH_MAX_WORKERS=int(os.environ.get('BATCH_MAX_WORKERS', 3)),
         JSON_SORT_KEYS=False,
+        AUTOAPPLY_PROFILE_DIR=os.path.join(app.instance_path, 'browser_profile'),
+        AUTOAPPLY_UPLOADS_FOLDER=os.path.join(app.instance_path, 'autoapply_uploads'),
+        AUTOAPPLY_SCREENSHOTS_FOLDER=os.path.join(app.instance_path, 'autoapply_screens'),
+        AUTOAPPLY_HEADLESS=os.environ.get('AUTOAPPLY_HEADLESS', 'false').lower() in ('1', 'true', 'yes'),
     )
     if test_config:
         app.config.from_mapping(test_config)
@@ -95,6 +103,11 @@ def create_app(test_config=None):
     # --- Initialize Database ---
     database.DATABASE_NAME = app.config['DATABASE']
     init_db()
+
+    # --- Auto-apply (the worker thread starts on first use) ---
+    autoapply_store.mark_stale_applications()
+    autoapply = AutoApplyManager(app.config)
+    app.extensions['autoapply'] = autoapply
 
     # --- Helper Functions ---
     def allowed_file(filename):
@@ -475,7 +488,11 @@ def create_app(test_config=None):
         country_indeed = request.args.get('country_indeed', 'USA').strip() or 'USA'
         hours_old = request.args.get('hours_old', type=int)
         is_remote = request.args.get('is_remote') in ('1', 'true', 'on')
+        easy_apply = request.args.get('easy_apply') in ('1', 'true', 'on')
+        job_type = request.args.get('job_type') if request.args.get('job_type') in ('fulltime', 'parttime', 'contract', 'internship') else None
         results_wanted = max(1, min(request.args.get('results_wanted', 5, type=int) or 5, 100))
+        apply_rules = request.args.get('apply_rules', 'true') in ('1', 'true', 'on')
+        profile = get_profile() if apply_rules else None
 
         if not site_names_list:
             return error("No site names provided for scraping.", 400)
@@ -485,6 +502,7 @@ def create_app(test_config=None):
         batch_fetch_size = 15  # How many to request per site per JobSpy call
         max_iterations = 10    # Max number of scraping batches
         scanned = 0
+        skipped_by_rules = 0
 
         for iteration in range(max_iterations):
             batch = scrape_online_jobs(
@@ -496,6 +514,8 @@ def create_app(test_config=None):
                 offset=iteration * batch_fetch_size,  # page forward instead of re-fetching the same results
                 hours_old=hours_old,
                 is_remote=is_remote,
+                job_type=job_type,
+                easy_apply=easy_apply,
             )
             if batch is None:
                 if iteration == 0:
@@ -525,6 +545,9 @@ def create_app(test_config=None):
                 }
                 if not db_job_data['source']:
                     continue
+                if profile and job_rule_violation(db_job_data, profile):
+                    skipped_by_rules += 1
+                    continue
                 new_id = save_job(db_job_data)
                 if new_id is not None:
                     new_jobs_found.append({"id": new_id, "title": db_job_data['title'], "company": db_job_data['company'],
@@ -537,7 +560,7 @@ def create_app(test_config=None):
             if len(batch) < batch_fetch_size:  # the sites have no more results for this query
                 break
 
-        return jsonify({"jobs": new_jobs_found, "scanned": scanned})
+        return jsonify({"jobs": new_jobs_found, "scanned": scanned, "skipped_by_rules": skipped_by_rules})
 
     @app.route('/api/jobs', methods=['GET'])
     def api_get_jobs():
@@ -550,9 +573,11 @@ def create_app(test_config=None):
         }
         cleaned_filters = {k: v for k, v in filters.items() if v}
         retrieved_jobs = get_jobs(cleaned_filters)
+        applications = autoapply_store.application_summaries_by_job()
         for job in retrieved_jobs:
             if hasattr(job.get('date_scraped'), 'isoformat'):
                 job['date_scraped'] = job['date_scraped'].isoformat()
+            job['application'] = applications.get(job['id'])
         return jsonify({"jobs": retrieved_jobs, "sources": get_sources()})
 
     @app.route('/api/jobs/<int:job_id>', methods=['GET'])
@@ -583,5 +608,172 @@ def create_app(test_config=None):
             "job_id": result["id"],
             "new_status": result["applied"],
         }), 200
+
+    # --- Applicant profile ---
+    @app.route('/api/profile', methods=['GET'])
+    def api_get_profile():
+        profile = get_profile()
+        return jsonify({"profile": profile, "missing": profile_completeness(profile)})
+
+    @app.route('/api/profile', methods=['PUT'])
+    def api_save_profile():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error("Invalid request body", 400)
+        profile = save_profile(data.get('profile', data))
+        return jsonify({"profile": profile, "missing": profile_completeness(profile)})
+
+    @app.route('/api/profile/from-cv', methods=['POST'])
+    def api_profile_from_cv():
+        data = request.get_json(silent=True) or {}
+        cv_json = data.get('cv_json')
+        if not cv_json and data.get('job_id'):
+            cv_record = database.get_generated_cv_by_job_id(parse_job_id(data['job_id']) or -1)
+            cv_json = json.loads(cv_record['tailored_cv_json']) if cv_record else None
+        if not isinstance(cv_json, dict):
+            return error("Missing CV JSON", 400)
+        return jsonify({"suggestions": profile_from_cv(cv_json)})
+
+    @app.route('/api/profile/answers', methods=['POST'])
+    def api_add_saved_answer():
+        data = request.get_json(silent=True) or {}
+        question, answer = str(data.get('question') or '').strip(), str(data.get('answer') or '').strip()
+        if not question or not answer:
+            return error("Both a question and an answer are needed", 400)
+        profile = add_saved_answer(question, answer)
+        return jsonify({"profile": profile, "missing": profile_completeness(profile)})
+
+    @app.route('/api/profile/import-answers', methods=['POST'])
+    def api_import_answers():
+        """Imports keyword answers from an EasyApplyJobsBot additionalQuestions.yaml (upload or pasted text)."""
+        upload = request.files.get('file')
+        text = upload.read().decode('utf-8', errors='replace') if upload else (request.form.get('text') or '')
+        rules = parse_bot_answers(text)
+        if not rules:
+            return error("No 'keyword: answer' lines found in that file.", 400)
+        profile, added = merge_answer_rules(rules)
+        return jsonify({"profile": profile, "missing": profile_completeness(profile),
+                        "found": len(rules), "added": added})
+
+    # --- Auto-apply ---
+    def queue_application(job_id, auto_submit, model, profile=None):
+        """Validates and queues one application. Returns (application, None) or (None, (message, status))."""
+        job = get_job(job_id)
+        if job is None:
+            return None, ("Job not found", 404)
+        profile = profile or get_profile()
+        violation = job_rule_violation(job, profile)
+        if violation:
+            return None, (f"Skipped by your job rules: {violation}.", 400)
+        limit = int(profile.get("daily_application_limit") or 0)
+        if limit and autoapply_store.count_applications_today() >= limit:
+            return None, (f"Daily limit of {limit} applications reached. Raise it in your auto-apply settings or try tomorrow.", 429)
+        cv_record = database.get_generated_cv_by_job_id(job_id)
+        if not cv_record:
+            return None, ("Generate a tailored CV for this job first.", 400)
+        if autoapply_store.active_application_for_job(job_id):
+            return None, ("This job already has an application in progress.", 409)
+        url = database.get_job_apply_url(job_id)
+        if not url:
+            return None, ("This job has no application URL.", 400)
+        app_id = autoapply_store.create_application(job_id, url, cv_record['cv_filename'], auto_submit, model)
+        autoapply.enqueue(app_id)
+        return autoapply_store.get_application(app_id), None
+
+    def check_apply_prerequisites(model):
+        missing = profile_completeness(get_profile())
+        if missing:
+            return error("Complete your applicant profile first (missing: " + ", ".join(m.replace('_', ' ') for m in missing) + ").", 400)
+        try:
+            resolve_model(model)
+        except LLMConfigError as e:
+            return error(str(e), 400)
+        return None
+
+    @app.route('/api/apply', methods=['POST'])
+    def api_apply():
+        data = request.get_json(silent=True) or {}
+        model = data.get('model') or DEFAULT_MODEL
+        job_id = parse_job_id(data.get('job_id'))
+        if job_id is None:
+            return error("Missing job_id", 400)
+        problem = check_apply_prerequisites(model)
+        if problem:
+            return problem
+        application, err = queue_application(job_id, bool(data.get('auto_submit')), model)
+        if err:
+            return error(*err)
+        return jsonify({"application": application}), 202
+
+    @app.route('/api/apply/batch', methods=['POST'])
+    def api_apply_batch():
+        data = request.get_json(silent=True) or {}
+        model = data.get('model') or DEFAULT_MODEL
+        job_ids = [parse_job_id(j) for j in data.get('job_ids') or []]
+        if not job_ids:
+            return error("No jobs selected", 400)
+        problem = check_apply_prerequisites(model)
+        if problem:
+            return problem
+        profile = get_profile()
+        results = []
+        for job_id in job_ids:
+            if job_id is None:
+                results.append({"job_id": None, "status": "error", "message": "Invalid job id"})
+                continue
+            application, err = queue_application(job_id, bool(data.get('auto_submit')), model, profile)
+            results.append({"job_id": job_id, "status": "queued", "application_id": application["id"]} if application
+                           else {"job_id": job_id, "status": "error", "message": err[0]})
+        return jsonify({"results": results}), 202
+
+    @app.route('/api/applications', methods=['GET'])
+    def api_list_applications():
+        return jsonify({"applications": autoapply_store.list_applications(), "worker": autoapply.status()})
+
+    @app.route('/api/applications/<int:app_id>', methods=['GET'])
+    def api_get_application(app_id):
+        application = autoapply_store.get_application(app_id)
+        if application is None:
+            return error("Application not found", 404)
+        return jsonify({"application": application})
+
+    @app.route('/api/applications/<int:app_id>/action', methods=['POST'])
+    def api_application_action(app_id):
+        action = (request.get_json(silent=True) or {}).get('action')
+        if action not in ('continue', 'submit', 'mark_submitted', 'cancel', 'retry'):
+            return error("Unknown action", 400)
+        application = autoapply_store.get_application(app_id)
+        if application is None:
+            return error("Application not found", 404)
+        if action == 'retry':
+            if application['status'] not in autoapply_store.FINAL_STATUSES or application['status'] == 'submitted':
+                return error("Only failed or cancelled applications can be retried.", 400)
+            if not application.get('job_id'):
+                return error("This application isn't linked to a job.", 400)
+            new_app, err = queue_application(application['job_id'], application['auto_submit'], application['model'])
+            if err:
+                return error(*err)
+            return jsonify({"application": new_app}), 202
+        if application['status'] in autoapply_store.FINAL_STATUSES:
+            if action == 'mark_submitted' and application['status'] != 'submitted':
+                autoapply_store.update_application(app_id, status='submitted', message='Marked as submitted.')
+                if application.get('job_id'):
+                    database.set_applied(application['job_id'], True)
+                return jsonify({"application": autoapply_store.get_application(app_id)})
+            return error(f"This application is already {application['status']}.", 409)
+        autoapply.send_command(app_id, action)
+        return jsonify({"application": autoapply_store.get_application(app_id), "queued_action": action})
+
+    @app.route('/api/applications/<int:app_id>/screenshot', methods=['GET'])
+    def api_application_screenshot(app_id):
+        application = autoapply_store.get_application(app_id)
+        if not application or not application.get('screenshot'):
+            return error("No screenshot", 404)
+        return send_from_directory(app.config['AUTOAPPLY_SCREENSHOTS_FOLDER'], application['screenshot'])
+
+    @app.route('/api/autoapply/browser', methods=['POST'])
+    def api_open_browser():
+        autoapply.open_browser()
+        return jsonify({"message": "Opening the auto-apply browser. Sign in to any job sites you use there."}), 202
 
     return app
