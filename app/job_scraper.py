@@ -45,6 +45,7 @@ def scrape_online_jobs(
     hours_old: int | None = None,
     is_remote: bool = False,
     job_type: str | None = None,
+    easy_apply: bool = False,
 ) -> list[dict] | None:
     """
     Scrapes jobs from the given sites using JobSpy.
@@ -88,6 +89,8 @@ def scrape_online_jobs(
         kwargs["hours_old"] = hours_old
     if job_type:
         kwargs["job_type"] = job_type
+    if easy_apply:
+        kwargs["easy_apply"] = True  # LinkedIn/Indeed: only jobs you can apply to on the board itself
     if "google" in processed_site_names:
         kwargs["google_search_term"] = f"{search_term} jobs near {location}"
 

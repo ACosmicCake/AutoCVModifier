@@ -27,9 +27,21 @@ A local web app that tailors your CV to a specific job with an LLM, renders it a
    * re-fills fields the form rejects, then shows you every answer with its source in the **Applications** list, with uncertain AI answers highlighted.
 4. By default it stops before submitting: review the form in the Chrome window and submit it yourself, or press **Submit now** in the app. Turn on **Submit automatically** to skip the review (forms with unanswered required questions still wait for you). The app detects the confirmation page and marks the job as applied.
 
+Answering questions, in order of priority:
+1. **Saved answers**: whole questions you've answered before. Press **Save** next to any answer in an application's "What was filled" table to add it.
+2. **Answer rules**: "any question containing this keyword gets this answer", e.g. `Python` &rarr; `3` (years) or `English` &rarr; `Native or bilingual`. Numeric answers only apply to "how many years" style questions. **Import EasyApplyJobsBot answers** reads that bot's `additionalQuestions.yaml` (names and contact details in it are skipped; they come from your profile).
+3. **Your profile**: contact details, links, location, phone country code, work authorization, sponsorship, EEO, and so on.
+4. **The AI**, for everything else, using your CV, profile and the job description.
+
+"Follow company", "top choice", job-alert and marketing checkboxes are unticked automatically (unless they're required, or you turn on "Follow companies").
+
+**Which jobs to apply to**: set companies to avoid, title words to skip or require, description phrases to avoid, and a daily application limit. Rules apply when scraping (matching jobs aren't saved) and before every auto-apply. Select jobs and press **Tailor & apply** to generate CVs for the ones that don't have one and apply to all of them in one go. The scraper also has **Easy Apply only** and **job type** filters.
+
+**LinkedIn Easy Apply** (off by default): turn on "Automate LinkedIn Easy Apply" in the profile to have jobs that only offer Easy Apply filled in LinkedIn's dialog, step by step, with your tailored CV uploaded. LinkedIn's User Agreement prohibits bots and can restrict accounts that use them, so keep the daily limit modest and review mode on. Jobs that LinkedIn shows as already applied are recognised and marked applied. Indeed Apply stays manual.
+
 What it deliberately doesn't do:
-* **CAPTCHAs and sign-ins**: it pauses and asks you to handle them in the Chrome window, then continues. Use **Open browser to sign in** once to log in to sites like Workday or LinkedIn; the dedicated browser profile (`instance/browser_profile`) remembers it. No site passwords are stored.
-* **LinkedIn Easy Apply / Indeed Apply**: those sites forbid bots and restrict accounts that use them, so jobs that only offer one-click board apply are left for you to apply manually (then press "I applied manually").
+* **CAPTCHAs and sign-ins**: it pauses and asks you to handle them in the Chrome window, then continues. Use **Open browser to sign in** once to log in to sites like Workday or LinkedIn; the dedicated browser profile (`instance/browser_profile`) remembers it. No site passwords are stored, and it never logs in for you.
+* **Hide that it's automated**: it doesn't use tricks to evade sites' bot detection.
 
 Notes:
 * Auto apply uses your installed Google Chrome (or Edge). If neither works, run `playwright install chromium`.
@@ -78,13 +90,15 @@ The server listens on `127.0.0.1` with debug mode off by default. Set `FLASK_RUN
 | `POST /api/batch-generate-cvs` | Form: `cv_file` or `cv_text`, `job_ids[]`, `model`, `include_summary` |
 | `POST /api/generate-cover-letter` | JSON: `cv_json`, `job_description`, `model` |
 | `POST /api/answer-question` | JSON: `cv_json`, `job_description`, `question` (list), `model` |
-| `GET /api/scrape-jobs` | Query: `search_term`, `location`, `site_names`, `results_wanted`, `hours_old`, `is_remote` |
+| `GET /api/scrape-jobs` | Query: `search_term`, `location`, `site_names`, `results_wanted`, `hours_old`, `is_remote`, `easy_apply`, `job_type`, `apply_rules` |
 | `GET /api/jobs` | Query: `keyword`, `location`, `source`, `applied_status` |
 | `GET` / `DELETE /api/jobs/<id>` | Get or delete a saved job |
 | `POST /api/jobs/<id>/toggle-applied` | Toggle applied status |
 | `GET /api/download-cv/<file>` / `GET /api/download-json/<file>` | Download outputs (`?inline=1` to view in the browser) |
 | `GET` / `PUT /api/profile` | Applicant profile used by auto apply |
 | `POST /api/profile/from-cv` | JSON: `cv_json` or `job_id`. Suggests profile values from a tailored CV |
+| `POST /api/profile/answers` | JSON: `question`, `answer`. Adds or replaces a saved answer |
+| `POST /api/profile/import-answers` | Form: `file` (or `text`). Imports keyword answer rules from EasyApplyJobsBot's `additionalQuestions.yaml` |
 | `POST /api/apply` / `POST /api/apply/batch` | JSON: `job_id` or `job_ids`, `auto_submit`, `model`. Queues applications |
 | `GET /api/applications` / `GET /api/applications/<id>` | Application status, log, filled fields |
 | `POST /api/applications/<id>/action` | JSON: `action` = `continue`, `submit`, `mark_submitted`, `cancel` or `retry` |

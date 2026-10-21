@@ -106,9 +106,17 @@
         return id;
     };
 
+    // When an application dialog is open (e.g. LinkedIn Easy Apply), only look inside it. Dialogs
+    // without form controls or "apply" wording (cookie banners, sign-up nags) are ignored.
+    const dialogs = [...document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"], .artdeco-modal')]
+        .filter(d => isShown(d) && (
+            d.querySelector('input:not([type="hidden"]):not([type="checkbox"]), select, textarea') ||
+            /\bappl(y|ication)\b/i.test((d.innerText || '').slice(0, 500))));
+    const root = dialogs.length ? dialogs[dialogs.length - 1] : document;
+
     const fields = [];
     const seenGroups = new Set();
-    const controls = document.querySelectorAll('input, select, textarea, [role="combobox"]:not(input)');
+    const controls = root.querySelectorAll('input, select, textarea, [role="combobox"]:not(input)');
 
     for (const el of controls) {
         const type = (el.type || '').toLowerCase();
@@ -142,11 +150,14 @@
         const field = { id: tag(el, 'data-aa-id'), label, required: isRequired(el, label), name: el.name || '' };
 
         if (el.tagName === 'SELECT') {
+            // Placeholders like "Select an option" often have a non-empty value (LinkedIn does this).
+            const isPlaceholder = (o) => o.value === '' ||
+                ((o.value === o.text || o.value.trim() === o.text.trim()) && /^\s*(select|choose|please|pick|--|-\s)/i.test(o.text));
             field.kind = el.multiple ? 'multiselect' : 'select';
-            field.options = [...el.options]
-                .filter(o => !o.disabled && !(o.value === '' && /select|choose|--|please/i.test(o.text)))
+            field.options = [...el.options].filter(o => !o.disabled && !isPlaceholder(o))
                 .map(o => ({ value: o.value, label: clean(o.text) }));
-            field.value = el.selectedIndex >= 0 && el.value !== '' ? clean(el.options[el.selectedIndex].text) : '';
+            const selected = el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+            field.value = selected && !isPlaceholder(selected) ? clean(selected.text) : '';
         } else if (type === 'checkbox') {
             field.kind = 'checkbox';
             field.value = el.checked;
@@ -175,7 +186,7 @@
     }
 
     const buttons = [];
-    const buttonEls = document.querySelectorAll('button, input[type="submit"], input[type="button"], a, [role="button"]');
+    const buttonEls = root.querySelectorAll('button, input[type="submit"], input[type="button"], a, [role="button"]');
     for (const el of buttonEls) {
         if (buttons.length >= 120) break;
         if (el.disabled || el.getAttribute('aria-disabled') === 'true' || !isShown(el)) continue;
@@ -199,7 +210,8 @@
         signals: {
             password: [...document.querySelectorAll('input[type="password"]')].some(isShown),
             captcha: captchaFrames.length > 0 || /verify (that )?you are (a )?human|are you a robot|complete the security check/i.test(bodyText.slice(0, 3000)),
-            confirmation: /thank you for (applying|your application|submitting)|application (has been |was )?(submitted|received|sent)|we('ve| have) received your application|successfully applied|you('ve| have) applied/i.test(bodyText),
+            confirmation: /thank you for (applying|your application|submitting)|application (has been |was )?(submitted|received|sent)|we('ve| have) received your application|successfully applied|you('ve| have) applied|your application was sent/i.test(bodyText),
+            inDialog: root !== document,
             errors,
             invalidIds,
         },

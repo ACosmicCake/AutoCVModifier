@@ -68,6 +68,7 @@ RULES = [
     (r"preferred\s*(first\s*)?name|nickname", lambda p: p.get("preferred_name") or p.get("first_name")),
     (r"^(your\s+)?(full\s+|legal\s+)?name\b(?!.*(company|employer|school|reference|manager|university))", _full_name),
     (r"e-?mail", "email"),
+    (r"(phone\s*)?country\s*code|dial(l)?ing code", "country"),  # "United States" matches "United States (+1)"
     (r"(phone|mobile|telephone|cell)(?!.*(type|country|extension|device))", "phone"),
     (r"linkedin", "linkedin_url"),
     (r"github", "github_url"),
@@ -103,6 +104,29 @@ RESUME_RE = re.compile(r"resume|résumé|\bcv\b|curriculum", re.I)
 COVER_RE = re.compile(r"cover\s*letter|motivation letter|letter of interest", re.I)
 
 
+FOLLOW_RE = re.compile(r"\bfollow\b.*\b(company|page|us)\b|stay up to date with", re.I)
+OPT_OUT_RE = re.compile(r"top choice|newsletter|marketing|promotional|job alerts?|talent (network|community)|"
+                        r"keep me (updated|informed)|future (job )?opportunit|text messages?|sms", re.I)
+YEARS_RE = re.compile(r"\byears?\b|how many|how long|\bexperience\b", re.I)
+
+
+def _keyword_answer(label: str, kind: str, profile: dict) -> str | None:
+    """The answer of the most specific answer rule whose keyword appears in the question."""
+    if kind in ("textarea", "file"):
+        return None  # keyword answers are short; free-text questions go to saved answers or the model
+    best = None
+    for rule in profile.get("answer_rules") or []:
+        keyword = rule.get("keyword", "").strip()
+        if not keyword or not re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", label, re.I):
+            continue
+        answer = rule.get("answer", "")
+        if re.fullmatch(r"\d+(\.\d+)?", answer.strip()) and not YEARS_RE.search(label):
+            continue  # a number like "Python: 3" only answers "how many years" style questions
+        if best is None or len(keyword) > len(best[0]):
+            best = (keyword, answer)
+    return best[1] if best else None
+
+
 def _saved_answer(label: str, profile: dict) -> str | None:
     best, best_ratio = None, 0.0
     for item in profile.get("custom_answers") or []:
@@ -130,6 +154,21 @@ def deterministic_value(field: dict, profile: dict, files: dict):
     saved = _saved_answer(label, profile)
     if saved:
         return saved, "saved answer"
+
+    if kind == "checkbox":
+        if FOLLOW_RE.search(label):
+            return bool(profile.get("follow_companies")), "rule"
+        if OPT_OUT_RE.search(label) and not field.get("required"):
+            return False, "rule"
+
+    keyword_answer = _keyword_answer(label, kind, profile)
+    if keyword_answer is not None:
+        if kind in CHOICE_KINDS and kind != "combobox" and field.get("options"):
+            option = match_option(keyword_answer, field["options"])
+            if option:
+                return option["label"], "answer rule"
+        else:
+            return keyword_answer, "answer rule"
 
     if kind == "email":
         return profile.get("email") or None, "profile"
@@ -227,11 +266,13 @@ def plan_fields(fields: list[dict], profile: dict, cv_json: dict, job: dict, fil
         entry = {"id": field["id"], "label": field.get("label") or field.get("name") or "", "kind": field["kind"],
                  "required": bool(field.get("required")), "value": None, "source": None, "confidence": "high"}
         current = field.get("value")
-        if field["kind"] != "file" and current not in (None, "", [], False):
+        value, source = deterministic_value(field, profile, files)
+        if field["kind"] == "checkbox" and source == "rule":
+            pass  # opt-out rules beat pre-ticked boxes (e.g. LinkedIn's "Follow company")
+        elif field["kind"] != "file" and current not in (None, "", [], False):
             entry.update(value=current, source="prefilled")
             plan.append(entry)
             continue
-        value, source = deterministic_value(field, profile, files)
         if value not in (None, ""):
             entry.update(value=value, source=source)
         elif field["kind"] != "file":

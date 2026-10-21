@@ -635,6 +635,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.site-cb').forEach(cb => { cb.checked = savedScrape.sites.includes(cb.value); });
     }
     if (savedScrape.isRemote !== undefined) $('isRemote').checked = !!savedScrape.isRemote;
+    if (savedScrape.easyApplyOnly !== undefined) $('easyApplyOnly').checked = !!savedScrape.easyApplyOnly;
+    if (savedScrape.jobType !== undefined) $('jobType').value = savedScrape.jobType;
 
     jobScrapeForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -642,7 +644,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sites.length === 0) { toast('Pick at least one site to scrape.', 'error'); return; }
 
         const values = Object.fromEntries(scrapeFields.map(id => [id, $(id).value]));
-        storage.set('scrape', { ...values, sites, isRemote: $('isRemote').checked });
+        storage.set('scrape', { ...values, sites, isRemote: $('isRemote').checked,
+                                easyApplyOnly: $('easyApplyOnly').checked, jobType: $('jobType').value });
 
         const params = new URLSearchParams({
             search_term: values.searchTerm,
@@ -652,13 +655,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (values.hoursOld) params.append('hours_old', values.hoursOld);
         if ($('isRemote').checked) params.append('is_remote', 'true');
+        if ($('easyApplyOnly').checked) params.append('easy_apply', 'true');
+        if ($('jobType').value) params.append('job_type', $('jobType').value);
 
         setLoading(scrapeBtn, true, 'Scraping...');
         try {
             const { ok, data } = await api(`/api/scrape-jobs?${params.toString()}`);
             if (ok) {
                 const n = (data.jobs || []).length;
-                toast(n ? `Saved ${n} new job${n === 1 ? '' : 's'}.` : 'No new jobs found (they may already be in your list).', n ? 'success' : 'info');
+                const skipped = data.skipped_by_rules ? ` ${data.skipped_by_rules} skipped by your job rules.` : '';
+                toast((n ? `Saved ${n} new job${n === 1 ? '' : 's'}.` : 'No new jobs found (they may already be in your list).') + skipped, n ? 'success' : 'info');
                 await fetchAndDisplayJobs();
             } else {
                 toast(data.error || 'Failed to scrape jobs.', 'error', 9000);
@@ -688,12 +694,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const applicable = selectedApplicableJobIds();
         batchAutoApplyBtn.classList.toggle('hidden', applicable.length === 0);
         batchAutoApplyBtn.textContent = `Auto apply to ${applicable.length} job${applicable.length === 1 ? '' : 's'} with CVs`;
+
+        const needCv = selectedApplicableJobIds(false).filter(id => !jobById(id).cv_filename);
+        tailorAndApplyBtn.classList.toggle('hidden', !(cvReady && needCv.length));
+        tailorAndApplyBtn.textContent = `Tailor & apply to ${applicable.length + needCv.length}`;
     }
 
-    function selectedApplicableJobIds() {
-        return [...selectedJobIds].map(jobById).filter(job => job && job.cv_filename &&
+    // Selected jobs without an application in progress (by default only those that already have a CV).
+    function selectedApplicableJobIds(requireCv = true) {
+        return [...selectedJobIds].map(jobById).filter(job => job && (!requireCv || job.cv_filename) &&
             !(job.application && ACTIVE_APPLICATION.includes(job.application.status))).map(job => job.id);
     }
+
+    const tailorAndApplyBtn = $('tailorAndApplyBtn');
+    tailorAndApplyBtn.addEventListener('click', () => {
+        if (window.AutoApply) window.AutoApply.tailorAndApply(selectedApplicableJobIds(false), tailorAndApplyBtn);
+    });
 
     const batchAutoApplyBtn = $('batchAutoApplyBtn');
     batchAutoApplyBtn.addEventListener('click', () => {
@@ -760,10 +776,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Shared helpers for autoapply.js
     window.CVTailor = {
-        api, toast, escapeHtml, setLoading, debounce, selectedModel,
+        api, toast, escapeHtml, setLoading, debounce, selectedModel, hasCv, jobById,
         getTailoredCv: () => (tailored ? tailored.cv : null),
         refreshJobs: fetchAndDisplayJobs,
         jobs: () => allJobs,
+        // Form data for /api/batch-generate-cvs with the CV from step 1 and the current options.
+        cvFormData: () => {
+            const formData = new FormData();
+            appendCv(formData);
+            formData.append('model', selectedModel());
+            formData.append('include_summary', includeSummaryInput.checked ? 'true' : 'false');
+            return formData;
+        },
     };
 
     // --- Initial Load ---

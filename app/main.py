@@ -15,7 +15,8 @@ from werkzeug.utils import secure_filename
 from . import database
 from .autoapply import store as autoapply_store
 from .autoapply.manager import AutoApplyManager
-from .autoapply.profile import get_profile, profile_completeness, profile_from_cv, save_profile
+from .autoapply.profile import (add_saved_answer, get_profile, job_rule_violation, merge_answer_rules,
+                                parse_bot_answers, profile_completeness, profile_from_cv, save_profile)
 from .cv_utils import (
     answer_question,
     generate_cover_letter,
@@ -487,7 +488,11 @@ def create_app(test_config=None):
         country_indeed = request.args.get('country_indeed', 'USA').strip() or 'USA'
         hours_old = request.args.get('hours_old', type=int)
         is_remote = request.args.get('is_remote') in ('1', 'true', 'on')
+        easy_apply = request.args.get('easy_apply') in ('1', 'true', 'on')
+        job_type = request.args.get('job_type') if request.args.get('job_type') in ('fulltime', 'parttime', 'contract', 'internship') else None
         results_wanted = max(1, min(request.args.get('results_wanted', 5, type=int) or 5, 100))
+        apply_rules = request.args.get('apply_rules', 'true') in ('1', 'true', 'on')
+        profile = get_profile() if apply_rules else None
 
         if not site_names_list:
             return error("No site names provided for scraping.", 400)
@@ -497,6 +502,7 @@ def create_app(test_config=None):
         batch_fetch_size = 15  # How many to request per site per JobSpy call
         max_iterations = 10    # Max number of scraping batches
         scanned = 0
+        skipped_by_rules = 0
 
         for iteration in range(max_iterations):
             batch = scrape_online_jobs(
@@ -508,6 +514,8 @@ def create_app(test_config=None):
                 offset=iteration * batch_fetch_size,  # page forward instead of re-fetching the same results
                 hours_old=hours_old,
                 is_remote=is_remote,
+                job_type=job_type,
+                easy_apply=easy_apply,
             )
             if batch is None:
                 if iteration == 0:
@@ -537,6 +545,9 @@ def create_app(test_config=None):
                 }
                 if not db_job_data['source']:
                     continue
+                if profile and job_rule_violation(db_job_data, profile):
+                    skipped_by_rules += 1
+                    continue
                 new_id = save_job(db_job_data)
                 if new_id is not None:
                     new_jobs_found.append({"id": new_id, "title": db_job_data['title'], "company": db_job_data['company'],
@@ -549,7 +560,7 @@ def create_app(test_config=None):
             if len(batch) < batch_fetch_size:  # the sites have no more results for this query
                 break
 
-        return jsonify({"jobs": new_jobs_found, "scanned": scanned})
+        return jsonify({"jobs": new_jobs_found, "scanned": scanned, "skipped_by_rules": skipped_by_rules})
 
     @app.route('/api/jobs', methods=['GET'])
     def api_get_jobs():
@@ -623,12 +634,40 @@ def create_app(test_config=None):
             return error("Missing CV JSON", 400)
         return jsonify({"suggestions": profile_from_cv(cv_json)})
 
+    @app.route('/api/profile/answers', methods=['POST'])
+    def api_add_saved_answer():
+        data = request.get_json(silent=True) or {}
+        question, answer = str(data.get('question') or '').strip(), str(data.get('answer') or '').strip()
+        if not question or not answer:
+            return error("Both a question and an answer are needed", 400)
+        profile = add_saved_answer(question, answer)
+        return jsonify({"profile": profile, "missing": profile_completeness(profile)})
+
+    @app.route('/api/profile/import-answers', methods=['POST'])
+    def api_import_answers():
+        """Imports keyword answers from an EasyApplyJobsBot additionalQuestions.yaml (upload or pasted text)."""
+        upload = request.files.get('file')
+        text = upload.read().decode('utf-8', errors='replace') if upload else (request.form.get('text') or '')
+        rules = parse_bot_answers(text)
+        if not rules:
+            return error("No 'keyword: answer' lines found in that file.", 400)
+        profile, added = merge_answer_rules(rules)
+        return jsonify({"profile": profile, "missing": profile_completeness(profile),
+                        "found": len(rules), "added": added})
+
     # --- Auto-apply ---
-    def queue_application(job_id, auto_submit, model):
+    def queue_application(job_id, auto_submit, model, profile=None):
         """Validates and queues one application. Returns (application, None) or (None, (message, status))."""
         job = get_job(job_id)
         if job is None:
             return None, ("Job not found", 404)
+        profile = profile or get_profile()
+        violation = job_rule_violation(job, profile)
+        if violation:
+            return None, (f"Skipped by your job rules: {violation}.", 400)
+        limit = int(profile.get("daily_application_limit") or 0)
+        if limit and autoapply_store.count_applications_today() >= limit:
+            return None, (f"Daily limit of {limit} applications reached. Raise it in your auto-apply settings or try tomorrow.", 429)
         cv_record = database.get_generated_cv_by_job_id(job_id)
         if not cv_record:
             return None, ("Generate a tailored CV for this job first.", 400)
@@ -676,12 +715,13 @@ def create_app(test_config=None):
         problem = check_apply_prerequisites(model)
         if problem:
             return problem
+        profile = get_profile()
         results = []
         for job_id in job_ids:
             if job_id is None:
                 results.append({"job_id": None, "status": "error", "message": "Invalid job id"})
                 continue
-            application, err = queue_application(job_id, bool(data.get('auto_submit')), model)
+            application, err = queue_application(job_id, bool(data.get('auto_submit')), model, profile)
             results.append({"job_id": job_id, "status": "queued", "application_id": application["id"]} if application
                            else {"job_id": job_id, "status": "error", "message": err[0]})
         return jsonify({"results": results}), 202

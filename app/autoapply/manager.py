@@ -336,6 +336,7 @@ class AutoApplyManager:
             resume_path=resume_path,
             model=app.get("model"),
             auto_submit=app["auto_submit"],
+            allow_easy_apply=bool(profile.get("allow_linkedin_easy_apply")),
             screenshot_dir=self.config["AUTOAPPLY_SCREENSHOTS_FOLDER"],
             cover_letter_factory=cover_letter_factory,
             log=lambda msg, level="info": self._log(app_id, msg, level),

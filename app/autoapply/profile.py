@@ -47,11 +47,24 @@ DEFAULT_PROFILE = {
     "veteran_status": DECLINE,
     "disability_status": DECLINE,
     "additional_info": "",          # free text the AI may use when answering questions
-    "custom_answers": [],           # [{"question": "...", "answer": "..."}]
+    "custom_answers": [],           # [{"question": "...", "answer": "..."}]  matched to whole questions
+    "answer_rules": [],             # [{"keyword": "...", "answer": "..."}]   any question containing the keyword
     "generate_cover_letter": True,  # bool
+
+    # Which jobs to apply to (comma-separated lists, case-insensitive)
+    "blacklist_companies": "",
+    "blacklist_title_keywords": "",
+    "required_title_keywords": "",
+    "blocked_description_keywords": "",
+    "daily_application_limit": "25",
+
+    # LinkedIn Easy Apply (against LinkedIn's terms; off by default)
+    "allow_linkedin_easy_apply": False,
+    "follow_companies": False,
 }
 
 PROFILE_FIELD_NAMES = set(DEFAULT_PROFILE)
+LIST_FIELDS = {"custom_answers": ("question", "answer"), "answer_rules": ("keyword", "answer")}
 
 
 def get_profile() -> dict:
@@ -81,11 +94,19 @@ def clean_profile(data: dict) -> dict:
         if isinstance(default, bool):
             profile[key] = bool(value)
         elif isinstance(default, list):
-            answers = []
+            first, second = LIST_FIELDS[key]
+            items, seen = [], set()
             for item in value if isinstance(value, list) else []:
-                if isinstance(item, dict) and str(item.get("question", "")).strip() and str(item.get("answer", "")).strip():
-                    answers.append({"question": str(item["question"]).strip(), "answer": str(item["answer"]).strip()})
-            profile[key] = answers
+                if not isinstance(item, dict):
+                    continue
+                a, b = str(item.get(first, "")).strip(), str(item.get(second, "")).strip()
+                if a and b and a.lower() not in seen:
+                    seen.add(a.lower())
+                    items.append({first: a, second: b})
+            profile[key] = items
+        elif key == "daily_application_limit":
+            digits = re.sub(r"\D", "", str(value or ""))
+            profile[key] = str(min(int(digits), 500)) if digits else default
         else:
             profile[key] = "" if value is None else str(value).strip()
             # Application forms often reject links without a scheme ("linkedin.com/in/x").
@@ -144,6 +165,78 @@ def profile_from_cv(cv_json: dict) -> dict:
         if len(year) == 4:
             suggestions["graduation_year"] = year
     return {k: v for k, v in suggestions.items() if v}
+
+
+def add_saved_answer(question: str, answer: str) -> dict:
+    """Adds (or replaces) one whole-question answer in the saved profile."""
+    profile = get_profile()
+    answers = [a for a in profile["custom_answers"] if a["question"].strip().lower() != question.strip().lower()]
+    answers.append({"question": question.strip(), "answer": answer.strip()})
+    profile["custom_answers"] = answers
+    return save_profile(profile)
+
+
+def merge_answer_rules(rules: list[dict]) -> tuple[dict, int]:
+    """Adds keyword rules, keeping existing ones for keywords already present. Returns (profile, added)."""
+    profile = get_profile()
+    existing = {r["keyword"].lower() for r in profile["answer_rules"]}
+    new = [r for r in rules if r["keyword"].lower() not in existing]
+    profile["answer_rules"] = profile["answer_rules"] + new
+    return save_profile(profile), len(new)
+
+
+def _split_list(text) -> list[str]:
+    return [part.strip().lower() for part in re.split(r"[,;\n]", str(text or "")) if part.strip()]
+
+
+def job_rule_violation(job: dict, profile: dict) -> str | None:
+    """Why a job shouldn't be applied to under the profile's job rules, or None if it's fine."""
+    title = (job.get("title") or "").lower()
+    company = (job.get("company") or "").lower()
+    description = (job.get("description") or "").lower()
+    for name in _split_list(profile.get("blacklist_companies")):
+        if name in company:
+            return f"Company '{job.get('company')}' is on your blacklist"
+    for word in _split_list(profile.get("blacklist_title_keywords")):
+        if re.search(rf"\b{re.escape(word)}\b", title):
+            return f"Title contains blacklisted word '{word}'"
+    required = _split_list(profile.get("required_title_keywords"))
+    if required and not any(re.search(rf"\b{re.escape(word)}\b", title) for word in required):
+        return "Title has none of your required words (" + ", ".join(required) + ")"
+    for word in _split_list(profile.get("blocked_description_keywords")):
+        if re.search(rf"\b{re.escape(word)}\b", description):
+            return f"Description mentions blocked phrase '{word}'"
+    return None
+
+
+# Contact/identity answers come from the profile itself; importing them as keyword rules would
+# override it (the sample answers file ships with someone else's name, address and website).
+PERSONAL_KEYWORD_RE = re.compile(r"\b(name|phone|mobile|e-?mail|address|street|city|state|zip|postal|country|"
+                                 r"linkedin|website|github|portfolio|twitter)\b", re.I)
+
+
+def parse_bot_answers(text: str) -> list[dict]:
+    """
+    Reads an EasyApplyJobsBot `additionalQuestions.yaml` (sections of `keyword: answer` lines)
+    into keyword rules. Tolerant of the file's loose indentation; comments, empty answers and
+    contact/identity keys (see PERSONAL_KEYWORD_RE) are skipped.
+    """
+    rules, seen = [], set()
+    for raw in (text or "").splitlines():
+        line = raw.split(" #", 1)[0].rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
+            continue
+        if not raw.startswith((" ", "\t")):
+            continue  # section header such as "inputField:" or "radio:"
+        keyword, _, answer = stripped.partition(":")
+        keyword, answer = keyword.strip().strip("'\""), answer.strip().strip("'\"")
+        if PERSONAL_KEYWORD_RE.search(keyword):
+            continue
+        if keyword and answer and keyword.lower() not in seen:
+            seen.add(keyword.lower())
+            rules.append({"keyword": keyword, "answer": answer})
+    return rules
 
 
 def profile_completeness(profile: dict) -> list[str]:

@@ -29,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Profile ---
     let missingFields = [];
 
+    const answerRules = $('answerRules');
+
     function addAnswerRow(question = '', answer = '') {
         const row = document.createElement('div');
         row.className = 'grid md:grid-cols-5 gap-2 items-start saved-answer';
@@ -40,10 +42,27 @@ document.addEventListener('DOMContentLoaded', () => {
         savedAnswers.appendChild(row);
     }
 
+    function addRuleRow(keyword = '', answer = '') {
+        const row = document.createElement('div');
+        row.className = 'grid grid-cols-12 gap-2 items-center answer-rule';
+        row.innerHTML = `
+            <input class="input col-span-5 text-sm" placeholder="Keyword, e.g. Python" value="${escapeHtml(keyword)}">
+            <input class="input col-span-6 text-sm" placeholder="Answer, e.g. 3" value="${escapeHtml(answer)}">
+            <button type="button" class="col-span-1 text-red-600 font-bold" title="Remove rule" aria-label="Remove rule">&times;</button>`;
+        row.querySelector('button').addEventListener('click', () => { row.remove(); updateRuleCount(); });
+        answerRules.appendChild(row);
+        updateRuleCount();
+    }
+
+    function updateRuleCount() {
+        const n = answerRules.querySelectorAll('.answer-rule').length;
+        $('answerRulesCount').textContent = n ? `${n} rule${n === 1 ? '' : 's'}` : '';
+    }
+
     function fillProfileForm(profile) {
         for (const [key, value] of Object.entries(profile)) {
             const el = profileForm.elements[key];
-            if (!el || key === 'custom_answers') continue;
+            if (!el || key === 'custom_answers' || key === 'answer_rules') continue;
             if (el.type === 'checkbox') el.checked = !!value;
             else if (el.tagName === 'SELECT' && value && ![...el.options].some(o => o.value === value)) {
                 el.insertAdjacentHTML('beforeend', `<option>${escapeHtml(value)}</option>`);
@@ -52,6 +71,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         savedAnswers.innerHTML = '';
         (profile.custom_answers || []).forEach(a => addAnswerRow(a.question, a.answer));
+        answerRules.innerHTML = '';
+        (profile.answer_rules || []).forEach(r => addRuleRow(r.keyword, r.answer));
+        updateRuleCount();
     }
 
     function readProfileForm() {
@@ -64,6 +86,10 @@ document.addEventListener('DOMContentLoaded', () => {
             question: row.querySelector('input').value.trim(),
             answer: row.querySelector('textarea').value.trim(),
         })).filter(a => a.question && a.answer);
+        profile.answer_rules = [...answerRules.querySelectorAll('.answer-rule')].map(row => {
+            const [keyword, answer] = row.querySelectorAll('input');
+            return { keyword: keyword.value.trim(), answer: answer.value.trim() };
+        }).filter(r => r.keyword && r.answer);
         return profile;
     }
 
@@ -104,6 +130,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     $('addAnswerBtn').addEventListener('click', () => addAnswerRow());
+    $('addRuleBtn').addEventListener('click', () => addRuleRow());
+
+    $('importAnswersFile').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        const { ok, data } = await api('/api/profile/import-answers', { method: 'POST', body: formData })
+            .catch(err => ({ ok: false, data: { error: err.message } }));
+        e.target.value = '';
+        if (!ok) { toast(data.error || 'Could not import that file.', 'error'); return; }
+        fillProfileForm(data.profile);
+        showProfileStatus(data.missing);
+        toast(`Imported ${data.added} new answer rule(s) (${data.found} found; names, contact details and existing keywords are skipped). Review them below.`, 'success', 8000);
+    });
 
     $('profileFromCvBtn').addEventListener('click', async () => {
         const cv = window.CVTailor.getTailoredCv();
@@ -238,7 +279,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function bodyHtml(app) {
         const fields = app.fields || [];
-        const rows = fields.map(f => {
+        const savable = (f) => !['file', 'checkbox', 'checkbox_group'].includes(f.kind) &&
+            ['ai', 'prefilled', undefined, null].includes(f.source) || ['missing', 'error'].includes(f.status);
+        const rows = fields.map((f, i) => {
             const problem = ['missing', 'error'].includes(f.status);
             const cls = problem ? 'problem' : (f.confidence === 'low' ? 'low' : '');
             const statusText = { filled: 'filled', kept: 'already filled', skipped: 'left blank', missing: 'needs you', error: 'failed' }[f.status] || f.status;
@@ -246,7 +289,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${escapeHtml((f.label || '(unlabelled)').replace(/\s*\*\s*$/, ''))}${f.required ? ' <span class="text-red-600">*</span>' : ''}</td>
                 <td class="whitespace-pre-wrap">${escapeHtml(f.value || '')}${f.detail ? `<div class="text-red-600">${escapeHtml(f.detail)}</div>` : ''}</td>
                 <td>${escapeHtml(f.source || '')}${f.confidence === 'low' ? ' <span class="badge badge-yellow">check</span>' : ''}</td>
-                <td>${escapeHtml(statusText)}</td></tr>`;
+                <td>${escapeHtml(statusText)}</td>
+                <td>${savable(f) ? `<button type="button" class="text-xs text-blue-600 hover:underline" data-save-field="${i}" data-app-id="${app.id}" title="Reuse this answer whenever a form asks this question">Save</button>` : ''}</td></tr>`;
         }).join('');
         const log = (app.log || []).map(l => `<div class="${l.level === 'warning' ? 'warning' : ''}">${escapeHtml(l.t)} ${escapeHtml(l.msg)}</div>`).join('');
         return `
@@ -254,8 +298,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="lg:col-span-2">
                     <h5 class="text-sm font-semibold mb-1">What was filled</h5>
                     ${rows ? `<div class="overflow-x-auto"><table class="fields-table">
-                        <thead><tr><th>Question</th><th>Answer</th><th>Source</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
-                        <p class="text-xs text-gray-500 mt-1">Yellow rows are AI answers worth double-checking; red rows need your input.</p>`
+                        <thead><tr><th>Question</th><th>Answer</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+                        <p class="text-xs text-gray-500 mt-1">Yellow rows are AI answers worth double-checking; red rows need your input. "Save" adds an answer to your profile so it's reused next time.</p>`
                       : '<p class="text-sm text-gray-500">No fields filled yet.</p>'}
                 </div>
                 <div>
@@ -268,9 +312,12 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>`;
     }
 
+    const appCache = new Map(); // id -> full application (with fields), for the "Save" buttons
+
     async function loadBody(el, appId) {
         const { ok, data } = await api(`/api/applications/${appId}`);
         if (!ok) return;
+        appCache.set(appId, data.application);
         const body = el.querySelector('.app-body');
         const log = body.querySelector('.app-log');
         const stickToBottom = !log || log.scrollTop + log.clientHeight >= log.scrollHeight - 10;
@@ -339,7 +386,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }, delay);
     }
 
+    async function saveFieldAnswer(button) {
+        const app = appCache.get(Number(button.dataset.appId));
+        const field = app && app.fields[Number(button.dataset.saveField)];
+        if (!field) return;
+        const question = (field.label || '').replace(/\s*\*\s*$/, '').trim();
+        const answer = prompt(`Answer to save for:\n"${question}"`, field.status === 'missing' ? '' : (field.value || ''));
+        if (!answer || !answer.trim()) return;
+        const { ok, data } = await api('/api/profile/answers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, answer: answer.trim() }),
+        }).catch(err => ({ ok: false, data: { error: err.message } }));
+        if (!ok) { toast(data.error || 'Could not save the answer.', 'error'); return; }
+        fillProfileForm(data.profile);
+        button.textContent = 'Saved';
+        button.disabled = true;
+        toast('Saved to your profile. It will be reused for this question.', 'success', 3000);
+    }
+
     applicationsList.addEventListener('click', async (e) => {
+        const saveButton = e.target.closest('[data-save-field]');
+        if (saveButton) { e.preventDefault(); saveFieldAnswer(saveButton); return; }
         const button = e.target.closest('[data-app-action]');
         if (!button) return;
         e.preventDefault(); // don't toggle the <details>
@@ -368,7 +436,36 @@ document.addEventListener('DOMContentLoaded', () => {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-    window.AutoApply = { applyToJobs, showApplication };
+    // Tailors CVs for the selected jobs that don't have one, then auto-applies to all of them.
+    async function tailorAndApply(jobIds, button) {
+        if (missingFields.length) { applyToJobs(jobIds); return; } // shows the "complete your profile" prompt
+        const { jobById, hasCv, cvFormData } = window.CVTailor;
+        const needCv = jobIds.filter(id => !jobById(id).cv_filename);
+        let ready = jobIds.filter(id => jobById(id).cv_filename);
+        if (needCv.length) {
+            if (!hasCv()) { toast('Add your base CV in step 1 first.', 'error'); return; }
+            const formData = cvFormData();
+            needCv.forEach(id => formData.append('job_ids[]', id));
+            setLoading(button, true, `Tailoring ${needCv.length} CV${needCv.length === 1 ? '' : 's'}...`);
+            let result;
+            try {
+                result = await api('/api/batch-generate-cvs', { method: 'POST', body: formData });
+            } catch (err) {
+                toast(err.message, 'error');
+                setLoading(button, false);
+                return;
+            }
+            setLoading(button, false);
+            if (!result.ok || !result.data.results) { toast(result.data.error || 'Could not tailor the CVs.', 'error', 8000); return; }
+            const failed = result.data.results.filter(r => r.status !== 'success');
+            ready = ready.concat(result.data.results.filter(r => r.status === 'success').map(r => r.job_id));
+            if (failed.length) toast(`${failed.length} CV(s) failed: ${failed[0].message}`, 'error', 8000);
+            await window.CVTailor.refreshJobs();
+        }
+        if (ready.length) applyToJobs(ready, button);
+    }
+
+    window.AutoApply = { applyToJobs, showApplication, tailorAndApply };
 
     loadProfile();
     refreshApplications().then(active => schedulePoll(active ? 2000 : 15000));

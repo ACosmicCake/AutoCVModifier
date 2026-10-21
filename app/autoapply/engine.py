@@ -23,6 +23,8 @@ NAV_TIMEOUT = 45_000  # ms
 APPLY_RE = re.compile(r"^(apply|apply now|apply here|apply for (this )?(job|position|role)|apply (on|at|via) (the )?(company|employer)('s)? (website|site)|apply on company site|"
                       r"start (your |my )?application|begin application|i'?m interested|apply to this job|apply online)\b", re.I)
 EXTERNAL_ONLY_RE = re.compile(r"easy apply|apply with (linkedin|indeed|google|seek)|quick apply|indeed apply", re.I)
+EASY_APPLY_RE = re.compile(r"^easy apply\b", re.I)
+ALREADY_APPLIED_RE = re.compile(r"\bApplied \d+ (second|minute|hour|day|week|month)s? ago\b|\bApplication submitted\b.*\bago\b", re.I)
 SUBMIT_RE = re.compile(r"^(submit|submit (your |my |the )?application|send (my )?application|complete (my )?application|finish( application)?|submit & apply)$", re.I)
 BARE_APPLY_RE = re.compile(r"^(apply|apply now)$", re.I)  # on a form page this is usually the submit button
 NEXT_RE = re.compile(r"^(next|next step|next page|continue|save (and|&) continue|save (and|&) next|proceed|review( (my )?application)?|go to next)$", re.I)
@@ -74,6 +76,10 @@ class MarkedSubmitted(Exception):
     """The user applied by hand and clicked 'Mark submitted' while the engine was running."""
 
 
+class AlreadyApplied(Exception):
+    """The job site says this job was already applied to."""
+
+
 class ApplyFailed(Exception):
     pass
 
@@ -90,6 +96,7 @@ class ApplyContext:
     model: str | None
     auto_submit: bool
     screenshot_dir: str
+    allow_easy_apply: bool = False          # automate LinkedIn Easy Apply (user opt-in)
     cover_letter_factory: callable = None   # () -> (text, pdf_path)
     log: callable = None                     # (message, level="info")
     set_status: callable = None              # (status, message)
@@ -122,6 +129,7 @@ def snapshot(page) -> dict:
         if index == 0:
             merged["text"] = data.get("text", "")
             merged["title"] = data.get("title", "")
+            merged["signals"]["inDialog"] = data["signals"].get("inDialog", False)
         for f in data["fields"]:
             merged["frames"][f["id"]] = frame
             for option in f.get("options") or []:
@@ -141,6 +149,8 @@ def snapshot(page) -> dict:
 
 def is_application_form(snap: dict) -> bool:
     kinds = [f["kind"] for f in snap["fields"]]
+    if snap["signals"].get("inDialog") and kinds:
+        return True  # an application dialog (e.g. LinkedIn Easy Apply) with fields in it
     labels = " ".join((f.get("label") or "").lower() for f in snap["fields"])
     has_identity = "email" in kinds or "e-mail" in labels or "email" in labels or "first name" in labels or "name" in labels
     return (len(kinds) >= 3 and has_identity) or ("file" in kinds and len(kinds) >= 2)
@@ -386,11 +396,18 @@ class Engine:
             if is_application_form(snap):
                 return page, snap
             apply_button = find_button(snap, APPLY_RE, exclude=EXTERNAL_ONLY_RE)
+            if not apply_button and self.ctx.allow_easy_apply:
+                apply_button = find_button(snap, EASY_APPLY_RE)
+                if apply_button:
+                    self.log("Using LinkedIn Easy Apply (enabled in your settings)")
             if not apply_button:
+                if ALREADY_APPLIED_RE.search(snap["text"]):
+                    raise AlreadyApplied("The job page shows you've already applied.")
                 if find_button(snap, EXTERNAL_ONLY_RE):
-                    raise NeedsManualStep("This job only offers the job board's built-in apply (e.g. LinkedIn Easy Apply). "
-                                          "That isn't automated because those sites forbid bots and restrict accounts that use them. "
-                                          "Apply in the browser window, then click 'Mark submitted'.")
+                    hint = ("Turn on 'LinkedIn Easy Apply' in your auto-apply settings to automate it (it's against LinkedIn's "
+                            "terms and can get your account restricted), or apply") if detect_ats(page.url) == "linkedin" else "Apply"
+                    raise NeedsManualStep("This job only offers the job board's built-in apply, which isn't automated by default. "
+                                          f"{hint} in the browser window, then click 'I submitted it'.")
                 if attempt == 0:
                     page.wait_for_timeout(2500)  # single-page apps can render late
                     continue
@@ -460,6 +477,8 @@ class Engine:
         except NeedsManualStep as e:
             self.screenshot(page, "manual")
             return "review", str(e), page
+        except AlreadyApplied as e:
+            return "submitted", str(e), page
         ctx.set_status("running", f"Filling the application ({detect_ats(page.url)})")
 
         done_ids: set = set()

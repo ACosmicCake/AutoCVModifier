@@ -159,6 +159,14 @@
                 <label class="inline-flex items-center"><input type="checkbox" class="site-cb mr-1" value="google"> Google</label>
                 <span class="text-gray-300">|</span>
                 <label class="inline-flex items-center"><input type="checkbox" id="isRemote" class="mr-1"> Remote only</label>
+                <label class="inline-flex items-center" title="Only jobs you can apply to on LinkedIn/Indeed directly"><input type="checkbox" id="easyApplyOnly" class="mr-1"> Easy Apply only</label>
+                <select id="jobType" class="input py-1 w-auto text-sm" aria-label="Job type">
+                    <option value="">Any job type</option>
+                    <option value="fulltime">Full-time</option>
+                    <option value="parttime">Part-time</option>
+                    <option value="contract">Contract</option>
+                    <option value="internship">Internship</option>
+                </select>
             </div>
             <button type="submit" id="scrapeBtn" class="btn btn-purple">Scrape jobs</button>
             <span class="text-xs text-gray-500 ml-2">Scraping can take a minute, especially with LinkedIn.</span>
@@ -289,9 +297,44 @@
                     <label class="label" for="pf_additional_info">Anything else the AI may use when answering questions (true facts only)</label>
                     <textarea class="input" id="pf_additional_info" name="additional_info" rows="3" placeholder="e.g. Open to hybrid work. Fluent in Spanish. Available for interviews on weekdays."></textarea>
                 </div>
-                <p class="text-xs text-gray-600 mb-2">Saved answers are reused word for word when a form asks the same question.</p>
+                <p class="text-xs text-gray-600 mb-2">Saved answers are reused word for word when a form asks the same question. Tip: in an application's "What was filled" table, press "Save" to add an answer here.</p>
                 <div id="savedAnswers" class="space-y-2 mb-2"></div>
                 <button type="button" id="addAnswerBtn" class="btn btn-gray btn-xs mb-4">+ Add saved answer</button>
+
+                <h4 class="profile-heading">Answer rules <span class="font-normal text-gray-500">(any question containing the keyword gets this answer)</span></h4>
+                <p class="text-xs text-gray-600 mb-2">
+                    E.g. <code>Python</code> &rarr; <code>3</code> answers "How many years of experience do you have with Python?";
+                    <code>English</code> &rarr; <code>Native or bilingual</code> answers proficiency dropdowns. Numbers only answer "years / how many" questions.
+                    Rules are checked before the AI.
+                </p>
+                <div id="answerRules" class="space-y-2 mb-2"></div>
+                <div class="flex flex-wrap items-center gap-2 mb-4">
+                    <button type="button" id="addRuleBtn" class="btn btn-gray btn-xs">+ Add answer rule</button>
+                    <label class="btn btn-gray btn-xs cursor-pointer" title="Import keyword answers from EasyApplyJobsBot's additionalQuestions.yaml">
+                        Import EasyApplyJobsBot answers&hellip;<input type="file" id="importAnswersFile" accept=".yaml,.yml,.txt" class="sr-only">
+                    </label>
+                    <span id="answerRulesCount" class="text-xs text-gray-500"></span>
+                </div>
+
+                <h4 class="profile-heading">Which jobs to apply to</h4>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-1">
+                    <div><label class="label" for="pf_blacklist_companies">Never apply to companies</label><input class="input" id="pf_blacklist_companies" name="blacklist_companies" placeholder="Acme, Initech"></div>
+                    <div><label class="label" for="pf_blacklist_title_keywords">Skip titles with</label><input class="input" id="pf_blacklist_title_keywords" name="blacklist_title_keywords" placeholder="senior, manager"></div>
+                    <div><label class="label" for="pf_required_title_keywords">Only titles with</label><input class="input" id="pf_required_title_keywords" name="required_title_keywords" placeholder="engineer, developer"></div>
+                    <div><label class="label" for="pf_blocked_description_keywords">Skip descriptions with</label><input class="input" id="pf_blocked_description_keywords" name="blocked_description_keywords" placeholder="security clearance"></div>
+                    <div><label class="label" for="pf_daily_application_limit">Max applications per day</label><input class="input" id="pf_daily_application_limit" name="daily_application_limit" type="number" min="0" max="500"></div>
+                </div>
+                <p class="text-xs text-gray-500 mb-4">Comma-separated, case-insensitive. Applied when scraping (matching jobs aren't saved) and before every auto-apply. 0 = no daily limit.</p>
+
+                <h4 class="profile-heading">LinkedIn Easy Apply</h4>
+                <label class="flex items-start text-sm mb-1"><input type="checkbox" id="pf_allow_linkedin_easy_apply" name="allow_linkedin_easy_apply" class="h-4 w-4 mr-2 mt-0.5">
+                    <span>Automate LinkedIn Easy Apply for jobs that only offer it.</span></label>
+                <p class="text-xs text-yellow-800 bg-yellow-50 border border-yellow-200 rounded p-2 mb-2">
+                    LinkedIn's User Agreement prohibits bots, and accounts that use them can be restricted. If you turn this on, sign in with
+                    "Open browser to sign in", keep the daily limit modest, and keep review mode on. Indeed Apply stays manual.
+                </p>
+                <label class="flex items-center text-sm mb-4"><input type="checkbox" id="pf_follow_companies" name="follow_companies" class="h-4 w-4 mr-2">
+                    Follow companies when applying (otherwise "Follow company" boxes are unticked)</label>
 
                 <label class="flex items-center text-sm mb-4"><input type="checkbox" id="pf_generate_cover_letter" name="generate_cover_letter" class="h-4 w-4 mr-2">
                     Write and attach a tailored cover letter when a form asks for one</label>
@@ -316,6 +359,7 @@
             <button type="button" id="clearSelectionBtn" class="btn btn-gray btn-sm">Clear selection</button>
             <button type="button" id="batchGenerateCVsButton" class="btn btn-blue btn-sm" disabled>Generate CVs for selected jobs</button>
             <button type="button" id="batchAutoApplyBtn" class="btn btn-purple btn-sm hidden">Auto apply</button>
+            <button type="button" id="tailorAndApplyBtn" class="btn btn-purple btn-sm hidden" title="Tailor a CV for each selected job that doesn't have one, then auto apply to all of them">Tailor &amp; apply</button>
         </div>
     </div>
 </div>

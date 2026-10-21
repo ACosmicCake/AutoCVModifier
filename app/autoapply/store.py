@@ -99,6 +99,17 @@ def update_application(app_id: int, **fields):
         conn.close()
 
 
+def count_applications_today() -> int:
+    """Applications started today that weren't cancelled (counts toward the daily limit)."""
+    start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    conn = database.get_db_connection()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM applications WHERE created_at >= ? AND status != 'cancelled'",
+                            (start,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
 def mark_stale_applications():
     """Applications left active by a previous server run can't resume (their browser is gone)."""
     conn = database.get_db_connection()

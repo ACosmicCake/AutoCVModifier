@@ -19,6 +19,12 @@ from app.autoapply.profile import DEFAULT_PROFILE, clean_profile, profile_from_c
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "ats")
 
+
+@pytest.fixture(autouse=True)
+def short_user_wait(monkeypatch):
+    """Fail fast instead of waiting 20 minutes for a user who isn't there."""
+    monkeypatch.setattr("app.autoapply.engine.WAIT_FOR_USER_TIMEOUT", 20)
+
 PROFILE = {**DEFAULT_PROFILE, "first_name": "Jane", "last_name": "Doe", "email": "jane@example.com",
            "phone": "555-123-4567", "city": "New York", "state": "NY", "linkedin_url": "https://linkedin.com/in/jane",
            "years_experience": "4"}
@@ -230,7 +236,38 @@ def test_easy_apply_only_jobs_are_left_for_the_user(ats_server, run_engine, resu
     ctx, _, _ = make_ctx(f"{ats_server.base_url}/easyapply.html", resume, tmp_path)
     outcome, message, _ = run_engine(ctx)
     assert outcome == "review"
-    assert "Easy Apply" in message
+    assert "built-in apply" in message
+
+
+@patch("app.autoapply.mapper.call_llm", side_effect=fake_llm)
+def test_linkedin_easy_apply_when_enabled(_llm, ats_server, run_engine, resume, tmp_path):
+    ctx, _, logs = make_ctx(f"{ats_server.base_url}/linkedin_easy_apply.html", resume, tmp_path)
+    ctx.allow_easy_apply = True
+    ctx.profile["answer_rules"] = [{"keyword": "Python", "answer": "4"}, {"keyword": "English", "answer": "Native or bilingual"}]
+
+    outcome, message, page_after = run_engine(ctx)
+
+    assert outcome == "submitted", (message, logs)
+    submitted = page_after.evaluate("window.submitted")
+    assert submitted["email"] == "jane@example.com"        # pre-selected value kept
+    assert submitted["cc"] == "United States (+1)"         # from the profile's country, despite the placeholder
+    assert submitted["phone"] == "555-123-4567"
+    assert submitted["resume"] == "Jane_Doe_Resume.pdf"    # tailored CV uploaded instead of the old one
+    assert submitted["python"] == "4"                      # answer rule, not generic years of experience
+    assert submitted["english"] == "Native or bilingual"   # answer rule matched to a dropdown option
+    assert submitted["sponsorship"] == "No"
+    assert submitted["follow"] is False                    # pre-ticked "Follow company" unticked
+    assert submitted["search"] == "" and submitted["message"] == ""  # nothing outside the dialog touched
+    sources = {f["label"]: f["source"] for f in ctx.filled}
+    assert sources["How many years of work experience do you have with Python?"] == "answer rule"
+    assert any("Easy Apply" in msg for _, msg in logs)
+
+
+def test_already_applied_jobs_are_recognised(ats_server, run_engine, resume, tmp_path):
+    ctx, _, _ = make_ctx(f"{ats_server.base_url}/already_applied.html", resume, tmp_path)
+    outcome, message, _ = run_engine(ctx)
+    assert outcome == "submitted"
+    assert "already applied" in message
 
 
 def test_captcha_pauses_for_the_user(ats_server, run_engine, resume, tmp_path):
@@ -286,6 +323,69 @@ def test_plan_uses_rules_saved_answers_then_llm():
     assert plan["f"]["value"] == "/tmp/cv.pdf"
     assert seen == ["g"]                                   # only the unknown field goes to the model
     assert plan["g"]["confidence"] == "low"                # model picked a value that isn't an option
+
+
+def test_answer_rules_and_checkbox_rules():
+    profile = {**PROFILE, "answer_rules": [{"keyword": "Python", "answer": "3"}, {"keyword": "Python Django", "answer": "2"},
+                                           {"keyword": "English", "answer": "Professional"}]}
+    fields = [
+        {"id": "y", "kind": "number", "label": "How many years of experience do you have with Python?"},
+        {"id": "d", "kind": "text", "label": "Years using Python Django?"},
+        {"id": "n", "kind": "radio", "label": "Do you know Python?", "options": [{"label": "Yes", "id": "1"}, {"label": "No", "id": "2"}]},
+        {"id": "e", "kind": "select", "label": "English level", "options": [{"label": "Basic"}, {"label": "Professional working"}]},
+        {"id": "t", "kind": "textarea", "label": "Tell us about your Python work"},
+        {"id": "f", "kind": "checkbox", "label": "Follow Acme to stay up to date with their page.", "value": True},
+        {"id": "m", "kind": "checkbox", "label": "Send me job alerts and marketing emails"},
+        {"id": "c", "kind": "checkbox", "label": "I agree to receive text messages about my application", "required": True},
+        {"id": "g", "kind": "text", "label": "Years of professional experience"},
+    ]
+    sent_to_llm = []
+    plan = {e["id"]: e for e in plan_fields(fields, profile, CV, JOB, {}, None,
+                                           llm=lambda fs, *a: sent_to_llm.extend(f["id"] for f in fs) or {})}
+    assert plan["y"]["value"] == "3" and plan["y"]["source"] == "answer rule"
+    assert plan["d"]["value"] == "2"                       # longest matching keyword wins
+    assert plan["e"]["value"] == "Professional working"    # matched to the dropdown's option
+    assert plan["f"]["value"] is False                     # overrides the pre-ticked box
+    assert plan["m"]["value"] is False
+    assert plan["g"]["value"] == "4"                       # generic profile years_experience
+    # A number doesn't answer a yes/no question, free text never comes from keyword rules,
+    # and required consent boxes are left to the model.
+    assert sorted(sent_to_llm) == ["c", "n", "t"]
+    assert plan_fields([fields[5]], {**profile, "follow_companies": True}, CV, JOB, {}, None, llm=lambda *a: {})[0]["value"] is True
+
+
+def test_parse_bot_answers_skips_personal_details():
+    text = """inputField:
+  First Name: FirstName
+  Phone Number: 1234567890
+  Website: https://someone-else.com/ # comment
+  Python: 3
+  C#: 0
+  # How many years of work experience do you have with Go?
+radio:
+  sponsorship: "No"
+dropdown:
+ # what is your level of proficiency in english?
+  English: "Native or bilingual"
+  Python: 5
+"""
+    from app.autoapply.profile import parse_bot_answers
+    assert parse_bot_answers(text) == [{"keyword": "Python", "answer": "3"}, {"keyword": "C#", "answer": "0"},
+                                       {"keyword": "sponsorship", "answer": "No"},
+                                       {"keyword": "English", "answer": "Native or bilingual"}]
+
+
+def test_job_rules():
+    from app.autoapply.profile import job_rule_violation
+    profile = {**PROFILE, "blacklist_companies": "Initech, Evil Corp", "blacklist_title_keywords": "senior, manager",
+               "required_title_keywords": "engineer, developer", "blocked_description_keywords": "security clearance"}
+    ok = {"title": "Data Engineer", "company": "Acme", "description": "Python"}
+    assert job_rule_violation(ok, profile) is None
+    assert "blacklist" in job_rule_violation({**ok, "company": "Initech LLC"}, profile)
+    assert "senior" in job_rule_violation({**ok, "title": "Senior Data Engineer"}, profile)
+    assert "required" in job_rule_violation({**ok, "title": "Data Analyst"}, profile)
+    assert "clearance" in job_rule_violation({**ok, "description": "Requires security clearance."}, profile)
+    assert job_rule_violation({**ok, "title": "Seniority-free Engineer"}, profile) is None  # whole words only
 
 
 def test_mapping_prompt_contains_rules_and_fields():
@@ -394,6 +494,51 @@ class TestAutoApplyApi:
         assert ats_server.submissions[-1]["form"]["first_name"] == "Jane"
         assert ats_server.submissions[-1]["files"]["resume"] == "Jane_Doe_Resume.pdf"
         assert client.get("/api/jobs").get_json()["jobs"][0]["applied"] == 1
+
+    def test_job_rules_and_daily_limit_block_applying(self, client):
+        from app.database import save_job, save_generated_cv
+        client.put("/api/profile", json={"profile": {**PROFILE, "blacklist_title_keywords": "senior",
+                                                     "daily_application_limit": "1"}})
+        senior = save_job({"title": "Senior Engineer", "url": "http://x/s", "source": "indeed"})
+        response = client.post("/api/apply", json={"job_id": senior})
+        assert response.status_code == 400 and "senior" in response.get_json()["error"]
+
+        store.create_application(None, "http://x/other", "cv.pdf", False, None)  # today's one application
+        junior = save_job({"title": "Engineer", "url": "http://x/j", "source": "indeed"})
+        save_generated_cv(junior, "cv.pdf", "{}")
+        response = client.post("/api/apply", json={"job_id": junior})
+        assert response.status_code == 429 and "Daily limit" in response.get_json()["error"]
+
+    def test_saved_answers_and_answer_import(self, client):
+        client.put("/api/profile", json={"profile": PROFILE})
+        body = client.post("/api/profile/answers", json={"question": "Why Acme?", "answer": "Great data team."}).get_json()
+        assert body["profile"]["custom_answers"] == [{"question": "Why Acme?", "answer": "Great data team."}]
+        body = client.post("/api/profile/answers", json={"question": "why acme?", "answer": "Updated."}).get_json()
+        assert body["profile"]["custom_answers"] == [{"question": "why acme?", "answer": "Updated."}]  # replaced
+        assert client.post("/api/profile/answers", json={"question": "Q"}).status_code == 400
+
+        from io import BytesIO
+        yaml_text = b"inputField:\n  First Name: Someone\n  Python: 3\ndropdown:\n  English: Native or bilingual\n"
+        body = client.post("/api/profile/import-answers", data={"file": (BytesIO(yaml_text), "additionalQuestions.yaml")},
+                           content_type="multipart/form-data").get_json()
+        assert body["added"] == 2
+        assert {r["keyword"] for r in body["profile"]["answer_rules"]} == {"Python", "English"}
+        assert body["profile"]["first_name"] == "Jane"  # personal entries never imported
+        again = client.post("/api/profile/import-answers", data={"text": "inputField:\n  Python: 9\n"}).get_json()
+        assert again["added"] == 0  # existing keywords are kept
+
+    @patch('app.main.scrape_online_jobs')
+    def test_scrape_skips_jobs_excluded_by_rules(self, mock_scrape, client):
+        client.put("/api/profile", json={"profile": {**PROFILE, "blacklist_companies": "Initech"}})
+        mock_scrape.return_value = [
+            {"site": "indeed", "job_url": "http://e/1", "title": "Engineer", "company": "Initech"},
+            {"site": "indeed", "job_url": "http://e/2", "title": "Engineer", "company": "Acme"},
+        ]
+        body = client.get("/api/scrape-jobs?results_wanted=5&site_names=indeed&easy_apply=true&job_type=fulltime").get_json()
+        assert [j["company"] for j in body["jobs"]] == ["Acme"]
+        assert body["skipped_by_rules"] == 1
+        assert mock_scrape.call_args.kwargs["easy_apply"] is True
+        assert mock_scrape.call_args.kwargs["job_type"] == "fulltime"
 
     def test_actions_on_finished_applications(self, client):
         from app.database import save_job

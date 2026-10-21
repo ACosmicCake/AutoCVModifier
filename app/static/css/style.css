@@ -54,6 +54,8 @@
     transition: border-color 0.15s, box-shadow 0.15s;
 }
 
+.input.w-auto { display: inline-block; width: auto; }
+
 .input:focus {
     outline: none;
     border-color: #3b82f6;
