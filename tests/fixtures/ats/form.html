@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Apply - Data Engineer</title>
+<style>
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .honeypot { display: none; }
+    .listbox { border: 1px solid #ccc; }
+    .field { margin: 12px 0; }
+</style>
+</head>
+<body>
+<header><input type="search" placeholder="Search jobs" name="search"></header>
+<h1>Apply for Data Engineer</h1>
+<form id="application" action="/submit" method="post" enctype="multipart/form-data">
+    <div class="field"><label for="first_name">First Name *</label><input id="first_name" name="first_name" required></div>
+    <div class="field"><label for="last_name">Last Name *</label><input id="last_name" name="last_name" required></div>
+    <div class="field"><label for="email">Email *</label><input id="email" name="email" type="email" required></div>
+    <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel"></div>
+    <div class="field">
+        <label for="resume">Resume/CV *</label>
+        <label class="upload-button">Attach<input id="resume" name="resume" type="file" class="sr-only" required accept=".pdf,.doc,.docx"></label>
+    </div>
+    <div class="field"><label for="cover_letter">Cover Letter</label><input id="cover_letter" name="cover_letter" type="file"></div>
+    <div class="field"><label for="linkedin">LinkedIn Profile</label><input id="linkedin" name="linkedin"></div>
+
+    <div class="field">
+        <label id="loc-label">Location (City) *</label>
+        <input id="location" name="location" role="combobox" aria-labelledby="loc-label" aria-autocomplete="list" autocomplete="off" aria-required="true">
+        <div id="loc-options" role="listbox" class="listbox" hidden></div>
+    </div>
+
+    <div class="field">
+        <label for="authorized">Are you legally authorized to work in the United States? *</label>
+        <select id="authorized" name="authorized" required>
+            <option value="">Select...</option>
+            <option value="1">Yes</option>
+            <option value="0">No</option>
+        </select>
+    </div>
+
+    <fieldset class="field">
+        <legend>Will you now or in the future require sponsorship for employment visa status? *</legend>
+        <label><input type="radio" name="sponsorship" value="yes" required> Yes</label>
+        <label><input type="radio" name="sponsorship" value="no"> No</label>
+    </fieldset>
+
+    <div class="field">
+        <label for="why">Why do you want to work at Acme? *</label>
+        <textarea id="why" name="why" required maxlength="500"></textarea>
+    </div>
+
+    <div class="field">
+        <label for="gender">Gender</label>
+        <select id="gender" name="gender">
+            <option value="">Please select</option>
+            <option value="m">Male</option>
+            <option value="f">Female</option>
+            <option value="d">Decline To Self Identify</option>
+        </select>
+    </div>
+
+    <div class="field honeypot"><label for="website_hp">Leave this empty</label><input id="website_hp" name="website_hp"></div>
+
+    <div class="field">
+        <label><input type="checkbox" name="privacy" value="agreed" required> I have read and agree to the privacy policy *</label>
+    </div>
+
+    <button type="submit">Submit application</button>
+</form>
+<script>
+    const cities = ['New York, NY', 'Newark, NJ', 'San Francisco, CA', 'Austin, TX'];
+    const input = document.getElementById('location');
+    const box = document.getElementById('loc-options');
+    function render(filter) {
+        const items = cities.filter(c => c.toLowerCase().includes((filter || '').toLowerCase()));
+        box.innerHTML = items.map(c => `<div role="option">${c}</div>`).join('');
+        box.hidden = items.length === 0;
+    }
+    input.addEventListener('focus', () => render(input.value));
+    input.addEventListener('click', () => render(input.value));
+    input.addEventListener('input', () => render(input.value));
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') box.hidden = true; });
+    box.addEventListener('click', (e) => {
+        if (e.target.getAttribute('role') === 'option') { input.value = e.target.textContent; box.hidden = true; }
+    });
+</script>
+</body>
+</html>

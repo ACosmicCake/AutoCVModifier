@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Apply - Multi-step</title></head>
+<body>
+<h1>Application</h1>
+<div id="step1">
+    <h2>Your details</h2>
+    <label for="fn">First name</label><input id="fn" required>
+    <label for="ln">Last name</label><input id="ln" required>
+    <label for="em">Email address</label><input id="em" type="email" required>
+    <label for="cv">Upload your resume</label><input id="cv" type="file">
+    <div id="err1" role="alert"></div>
+    <button type="button" id="next1">Next</button>
+</div>
+<div id="step2" hidden>
+    <h2>Questions</h2>
+    <label for="years">How many years of Python experience do you have?</label>
+    <input id="years" type="number" required>
+    <label for="start">When can you start?</label><input id="start" required>
+    <div id="err2" role="alert"></div>
+    <button type="button" id="back2">Back</button>
+    <button type="button" id="submit">Submit</button>
+</div>
+<div id="done" hidden><h2>Thank you for applying! We have received your application.</h2></div>
+<script>
+    function check(ids, errId) {
+        let ok = true;
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            const bad = !el.value;
+            el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+            if (bad) ok = false;
+        });
+        document.getElementById(errId).textContent = ok ? '' : 'Please fill in all required fields.';
+        return ok;
+    }
+    document.getElementById('next1').onclick = () => {
+        if (!check(['fn', 'ln', 'em'], 'err1')) return;
+        document.getElementById('step1').hidden = true;
+        document.getElementById('step2').hidden = false;
+    };
+    document.getElementById('submit').onclick = () => {
+        if (!check(['years', 'start'], 'err2')) return;
+        window.submitted = {
+            fn: fn.value, ln: ln.value, em: em.value, years: years.value, start: start.value,
+            cv: cv.files.length ? cv.files[0].name : null,
+        };
+        document.getElementById('step2').hidden = true;
+        document.getElementById('done').hidden = false;
+    };
+</script>
+</body>
+</html>

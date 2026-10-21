@@ -56,6 +56,33 @@ def init_db():
             )
         ''')
         conn.execute("CREATE INDEX IF NOT EXISTS idx_generated_cvs_job_id ON generated_cvs (job_id);")
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS applicant_profile (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                data TEXT NOT NULL,
+                updated_at TIMESTAMP
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS applications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER,
+                url TEXT NOT NULL,
+                cv_filename TEXT,
+                status TEXT NOT NULL,
+                message TEXT,
+                ats TEXT,
+                auto_submit INTEGER NOT NULL DEFAULT 0,
+                model TEXT,
+                log TEXT NOT NULL DEFAULT '[]',
+                fields TEXT NOT NULL DEFAULT '[]',
+                screenshot TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
+            )
+        ''')
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_applications_job_id ON applications (job_id);")
 
         # Simple migration for databases created before the 'applied' column existed.
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
@@ -187,6 +214,33 @@ def get_job(job_id: int) -> dict | None:
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+def set_applied(job_id: int, applied: bool = True):
+    """Sets (rather than toggles) a job's applied status."""
+    conn = get_db_connection()
+    try:
+        conn.execute("UPDATE jobs SET applied = ? WHERE id = ?", (1 if applied else 0, job_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_job_apply_url(job_id: int) -> str | None:
+    """The best URL to apply at: the employer's own page when the scraper found one, else the listing."""
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT url, raw_job_data FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    try:
+        raw = json.loads(row["raw_job_data"] or "{}")
+    except json.JSONDecodeError:
+        raw = {}
+    direct = raw.get("job_url_direct") if isinstance(raw, dict) else None
+    return direct or row["url"]
 
 
 def delete_job(job_id: int) -> bool:

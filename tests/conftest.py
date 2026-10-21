@@ -25,8 +25,13 @@ def app(tmp_path_factory):
         'GENERATED_JSONS_FOLDER': str(base / 'jsons'),
         'BATCH_MAX_WORKERS': 1,  # deterministic ordering for mocked side effects
         'CV_FORMAT_FILE_PATH': os.path.join(PROJECT_ROOT, 'CV_format.json'),
+        'AUTOAPPLY_PROFILE_DIR': str(base / 'browser_profile'),
+        'AUTOAPPLY_UPLOADS_FOLDER': str(base / 'autoapply_uploads'),
+        'AUTOAPPLY_SCREENSHOTS_FOLDER': str(base / 'autoapply_screens'),
+        'AUTOAPPLY_HEADLESS': True,
     })
     yield flask_app
+    flask_app.extensions['autoapply'].stop()
 
 
 @pytest.fixture

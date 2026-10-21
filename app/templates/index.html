@@ -81,6 +81,7 @@
                     <button type="button" id="previewPdfBtn" class="btn btn-gray">Preview</button>
                     <a id="downloadJsonBtn" class="btn btn-gray" href="#" target="_blank" rel="noopener">Download JSON</a>
                     <button type="button" id="editJsonBtn" class="btn btn-gray">Edit content</button>
+                    <button type="button" id="autoApplyResultBtn" class="btn btn-purple hidden" title="Fill this job's application form with your profile and this CV">Auto apply to this job</button>
                 </div>
 
                 <div id="pdfPreview" class="hidden mb-4">
@@ -201,6 +202,110 @@
         <div id="jobPagination" class="mt-4 text-center"></div>
         <div id="batchCvResults" class="mt-4"></div>
     </section>
+
+    <!-- Auto apply -->
+    <section id="auto-apply" class="card mt-8">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h2 class="card-title mb-0"><span class="step">4</span> Auto apply</h2>
+            <div class="flex flex-wrap items-center gap-3">
+                <label class="inline-flex items-center text-sm cursor-pointer select-none" title="When off, forms are filled and left open for you to review and submit.">
+                    <input type="checkbox" id="autoSubmitToggle" class="h-4 w-4 mr-2"> Submit automatically
+                </label>
+                <button type="button" id="openBrowserBtn" class="btn btn-gray btn-sm" title="Sign in to LinkedIn, Indeed, Workday etc. once; the browser remembers it">Open browser to sign in</button>
+                <span id="workerStatus" class="text-xs text-gray-500"></span>
+            </div>
+        </div>
+        <p class="text-sm text-gray-600 mb-4">
+            Pick jobs that have a tailored CV and press <strong>Auto apply</strong>. A Chrome window opens the employer's application page,
+            uploads your CV and fills every field from your profile, CV and the job description. Forms are left open for you to
+            check and submit unless "Submit automatically" is on. CAPTCHAs and sign-ins are always left to you.
+        </p>
+        <p id="autoSubmitWarning" class="text-sm text-yellow-800 bg-yellow-50 border border-yellow-200 rounded p-2 mb-4 hidden">
+            Automatic submission is on: complete forms are submitted without your review. Forms with unanswered required questions are still left for you.
+        </p>
+
+        <details id="profilePanel" class="border rounded-lg mb-6">
+            <summary class="cursor-pointer select-none px-4 py-3 flex items-center justify-between">
+                <span class="font-semibold">Applicant profile</span>
+                <span id="profileStatus" class="badge"></span>
+            </summary>
+            <form id="profileForm" class="px-4 pb-4" autocomplete="off" novalidate>
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <button type="button" id="profileFromCvBtn" class="btn btn-gray btn-sm">Fill blanks from my tailored CV</button>
+                    <span class="text-xs text-gray-500 self-center">Used only to fill application forms. Stored locally in instance/jobs.db.</span>
+                </div>
+
+                <h4 class="profile-heading">Contact</h4>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                    <div><label class="label" for="pf_first_name">First name *</label><input class="input" id="pf_first_name" name="first_name"></div>
+                    <div><label class="label" for="pf_last_name">Last name *</label><input class="input" id="pf_last_name" name="last_name"></div>
+                    <div><label class="label" for="pf_preferred_name">Preferred name</label><input class="input" id="pf_preferred_name" name="preferred_name"></div>
+                    <div><label class="label" for="pf_pronouns">Pronouns</label><input class="input" id="pf_pronouns" name="pronouns" placeholder="optional"></div>
+                    <div><label class="label" for="pf_email">Email *</label><input class="input" id="pf_email" name="email" type="email"></div>
+                    <div><label class="label" for="pf_phone">Phone *</label><input class="input" id="pf_phone" name="phone" type="tel"></div>
+                    <div class="lg:col-span-2"><label class="label" for="pf_address_line1">Street address</label><input class="input" id="pf_address_line1" name="address_line1"></div>
+                    <div><label class="label" for="pf_city">City *</label><input class="input" id="pf_city" name="city"></div>
+                    <div><label class="label" for="pf_state">State / province</label><input class="input" id="pf_state" name="state"></div>
+                    <div><label class="label" for="pf_postal_code">Postal code</label><input class="input" id="pf_postal_code" name="postal_code"></div>
+                    <div><label class="label" for="pf_country">Country</label><input class="input" id="pf_country" name="country"></div>
+                </div>
+
+                <h4 class="profile-heading">Links</h4>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                    <div><label class="label" for="pf_linkedin_url">LinkedIn</label><input class="input" id="pf_linkedin_url" name="linkedin_url" type="url"></div>
+                    <div><label class="label" for="pf_github_url">GitHub</label><input class="input" id="pf_github_url" name="github_url" type="url"></div>
+                    <div><label class="label" for="pf_portfolio_url">Portfolio / website</label><input class="input" id="pf_portfolio_url" name="portfolio_url" type="url"></div>
+                    <div><label class="label" for="pf_other_url">Other link</label><input class="input" id="pf_other_url" name="other_url" type="url"></div>
+                </div>
+
+                <h4 class="profile-heading">Work &amp; education</h4>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                    <div><label class="label" for="pf_current_company">Current company</label><input class="input" id="pf_current_company" name="current_company"></div>
+                    <div><label class="label" for="pf_current_title">Current title</label><input class="input" id="pf_current_title" name="current_title"></div>
+                    <div><label class="label" for="pf_years_experience">Years of experience</label><input class="input" id="pf_years_experience" name="years_experience"></div>
+                    <div><label class="label" for="pf_salary_expectation">Salary expectation</label><input class="input" id="pf_salary_expectation" name="salary_expectation" placeholder="e.g. $120,000"></div>
+                    <div><label class="label" for="pf_highest_degree">Highest degree</label><input class="input" id="pf_highest_degree" name="highest_degree"></div>
+                    <div><label class="label" for="pf_school">School</label><input class="input" id="pf_school" name="school"></div>
+                    <div><label class="label" for="pf_graduation_year">Graduation year</label><input class="input" id="pf_graduation_year" name="graduation_year"></div>
+                    <div><label class="label" for="pf_earliest_start_date">Earliest start</label><input class="input" id="pf_earliest_start_date" name="earliest_start_date"></div>
+                </div>
+
+                <h4 class="profile-heading">Eligibility</h4>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                    <div><label class="label" for="pf_authorized_to_work">Authorized to work in the country of the job?</label>
+                        <select class="input" id="pf_authorized_to_work" name="authorized_to_work"><option>Yes</option><option>No</option></select></div>
+                    <div><label class="label" for="pf_requires_sponsorship">Need visa sponsorship?</label>
+                        <select class="input" id="pf_requires_sponsorship" name="requires_sponsorship"><option>No</option><option>Yes</option></select></div>
+                    <div><label class="label" for="pf_willing_to_relocate">Willing to relocate?</label>
+                        <select class="input" id="pf_willing_to_relocate" name="willing_to_relocate"><option>Yes</option><option>No</option></select></div>
+                    <div><label class="label" for="pf_how_did_you_hear">"How did you hear about us?"</label><input class="input" id="pf_how_did_you_hear" name="how_did_you_hear"></div>
+                </div>
+
+                <h4 class="profile-heading">Voluntary self-identification <span class="font-normal text-gray-500">(US EEO questions; declining is always fine)</span></h4>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4" id="eeoFields"></div>
+
+                <h4 class="profile-heading">Extra context &amp; saved answers</h4>
+                <div class="mb-3">
+                    <label class="label" for="pf_additional_info">Anything else the AI may use when answering questions (true facts only)</label>
+                    <textarea class="input" id="pf_additional_info" name="additional_info" rows="3" placeholder="e.g. Open to hybrid work. Fluent in Spanish. Available for interviews on weekdays."></textarea>
+                </div>
+                <p class="text-xs text-gray-600 mb-2">Saved answers are reused word for word when a form asks the same question.</p>
+                <div id="savedAnswers" class="space-y-2 mb-2"></div>
+                <button type="button" id="addAnswerBtn" class="btn btn-gray btn-xs mb-4">+ Add saved answer</button>
+
+                <label class="flex items-center text-sm mb-4"><input type="checkbox" id="pf_generate_cover_letter" name="generate_cover_letter" class="h-4 w-4 mr-2">
+                    Write and attach a tailored cover letter when a form asks for one</label>
+
+                <button type="submit" id="saveProfileBtn" class="btn btn-blue">Save profile</button>
+            </form>
+        </details>
+
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold">Applications</h3>
+            <span id="applicationsCount" class="text-sm text-gray-500"></span>
+        </div>
+        <div id="applicationsList" class="space-y-2"><p class="text-sm text-gray-500">No applications yet.</p></div>
+    </section>
 </div>
 
 <!-- Batch generation bar -->
@@ -210,6 +315,7 @@
         <div class="flex gap-2">
             <button type="button" id="clearSelectionBtn" class="btn btn-gray btn-sm">Clear selection</button>
             <button type="button" id="batchGenerateCVsButton" class="btn btn-blue btn-sm" disabled>Generate CVs for selected jobs</button>
+            <button type="button" id="batchAutoApplyBtn" class="btn btn-purple btn-sm hidden">Auto apply</button>
         </div>
     </div>
 </div>
@@ -217,5 +323,6 @@
 <div id="toasts" class="toasts" aria-live="polite"></div>
 
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/autoapply.js') }}"></script>
 </body>
 </html>
