@@ -1,659 +1,719 @@
 // app/static/js/main.js
 document.addEventListener('DOMContentLoaded', () => {
-    const cvTailorForm = document.getElementById('cvTailorForm');
-    const cvFileInput = document.getElementById('cvFile');
-    const tailorResultDiv = document.getElementById('tailorResult');
-    const pdfDownloadLinkDiv = document.getElementById('pdfDownloadLink');
+    const $ = (id) => document.getElementById(id);
 
-    const jobScrapeForm = document.getElementById('jobScrapeForm');
-    const jobResultsDiv = document.getElementById('jobResults');
-    const loadingIndicator = document.getElementById('loadingIndicator');
+    // --- Elements ---
+    const cvTailorForm = $('cvTailorForm');
+    const cvFileInput = $('cvFile');
+    const cvDropZone = $('cvDropZone');
+    const cvFileLabel = $('cvFileLabel');
+    const cvTextInput = $('cvText');
+    const jobDescriptionInput = $('jobDescription');
+    const linkedJobIdInput = $('linkedJobId');
+    const linkedJobChip = $('linkedJobChip');
+    const modelSelect = $('model');
+    const customModelInput = $('customModel');
+    const includeSummaryInput = $('includeSummary');
+    const tailorBtn = $('tailorBtn');
 
-    // Filter controls
-    const filterKeywordInput = document.getElementById('filterKeyword');
-    const filterLocationInput = document.getElementById('filterLocation');
-    const filterSourceSelect = document.getElementById('filterSource');
-    const filterAppliedStatusSelect = document.getElementById('filterAppliedStatus'); // Added
-    const filterJobsButton = document.getElementById('filterJobsButton');
-    const clearFiltersButton = document.getElementById('clearFiltersButton');
+    const resultEmpty = $('resultEmpty');
+    const resultPanel = $('resultPanel');
+    const tailorResultDiv = $('tailorResult');
+    const downloadPdfBtn = $('downloadPdfBtn');
+    const downloadJsonBtn = $('downloadJsonBtn');
+    const previewPdfBtn = $('previewPdfBtn');
+    const pdfPreview = $('pdfPreview');
+    const pdfFrame = $('pdfFrame');
+    const editJsonBtn = $('editJsonBtn');
+    const jsonEditor = $('jsonEditor');
+    const jsonEditorText = $('jsonEditorText');
+    const rerenderBtn = $('rerenderBtn');
+    const resetJsonBtn = $('resetJsonBtn');
 
-    // Batch CV Generation
-    const batchGenerateCVsButton = document.getElementById('batchGenerateCVsButton');
-    const batchCvResultsDiv = document.getElementById('batchCvResults');
-    const batchCvHelpText = document.getElementById('batchCvHelpText');
+    const generateCoverLetterBtn = $('generateCoverLetterBtn');
+    const copyCoverLetterBtn = $('copyCoverLetterBtn');
+    const coverLetterResultDiv = $('coverLetterResult');
+    const qaForm = $('qaForm');
+    const qaBtn = $('qaBtn');
+    const qaResultDiv = $('qaResult');
 
-    // Post-CV Generation Follow-up
-    const followUpSection = document.getElementById('follow-up-section');
-    const generateCoverLetterBtn = document.getElementById('generateCoverLetterBtn');
-    const coverLetterResultDiv = document.getElementById('coverLetterResult');
-    const qaForm = document.getElementById('qaForm');
-    const qaResultDiv = document.getElementById('qaResult');
+    const jobScrapeForm = $('jobScrapeForm');
+    const scrapeBtn = $('scrapeBtn');
+    const jobResultsDiv = $('jobResults');
+    const jobPagination = $('jobPagination');
+    const jobCount = $('jobCount');
+    const filterKeywordInput = $('filterKeyword');
+    const filterLocationInput = $('filterLocation');
+    const filterSourceSelect = $('filterSource');
+    const filterAppliedStatusSelect = $('filterAppliedStatus');
+    const clearFiltersButton = $('clearFiltersButton');
+    const selectAllCheckbox = $('selectAllJobsCheckbox');
 
-    let tailoredCVData = null;
-    let jobDescription = '';
+    const batchBar = $('batchBar');
+    const batchGenerateCVsButton = $('batchGenerateCVsButton');
+    const batchCvHelpText = $('batchCvHelpText');
+    const clearSelectionBtn = $('clearSelectionBtn');
+    const batchCvResultsDiv = $('batchCvResults');
 
+    // --- State ---
+    let cvMode = 'file';
+    let tailored = null; // { cv, originalCv, jobDescription, jobId, pdfUrl, jsonUrl }
+    let allJobs = [];
+    let shownCount = 0;
+    const JOBS_PER_PAGE = 10;
+    const selectedJobIds = new Set();
+    let batchRunning = false;
 
-    function showLoading(message = 'Processing...') {
-        if (loadingIndicator) {
-            loadingIndicator.querySelector('p').textContent = message;
-            loadingIndicator.classList.remove('hidden');
-        }
-    }
-
-    function hideLoading() {
-        if (loadingIndicator) {
-            loadingIndicator.classList.add('hidden');
-        }
-    }
-
+    // --- Utilities ---
     function escapeHtml(unsafe) {
         if (unsafe === null || typeof unsafe === 'undefined') return '';
-        return unsafe
-            .toString()
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return unsafe.toString()
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
-    // --- Update Batch Generate Button State ---
-    function updateBatchButtonState() {
-        // Ensure button and help text elements exist before proceeding
-        if (!batchGenerateCVsButton || !batchCvHelpText) {
-            return;
-        }
-        if (!cvFileInput || !jobResultsDiv) {
-            batchGenerateCVsButton.disabled = true;
-            batchGenerateCVsButton.classList.add('hidden');
-            batchCvHelpText.textContent = "Upload a CV and ensure job listings are loaded to enable batch generation.";
-            batchCvHelpText.classList.remove('hidden');
-            return;
-        }
+    const storage = {
+        get(key, fallback = null) {
+            try { const v = localStorage.getItem(`cvtailor.${key}`); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
+        },
+        set(key, value) {
+            try { localStorage.setItem(`cvtailor.${key}`, JSON.stringify(value)); } catch { /* storage unavailable */ }
+        },
+    };
 
-        const cvFileSelected = cvFileInput.files && cvFileInput.files.length > 0;
-        const selectedJobsCount = jobResultsDiv.querySelectorAll('.job-select-checkbox:checked').length;
+    function toast(message, type = 'info', timeout = 5000) {
+        const el = document.createElement('div');
+        el.className = `toast toast-${type}`;
+        el.textContent = message;
+        $('toasts').appendChild(el);
+        setTimeout(() => el.remove(), timeout);
+    }
 
-        if (cvFileSelected && selectedJobsCount > 0) {
-            batchGenerateCVsButton.disabled = false;
-            batchGenerateCVsButton.classList.remove('hidden');
-            batchCvHelpText.classList.add('hidden');
-            batchCvHelpText.textContent = "Select your base CV and one or more jobs to generate tailored CVs."; // Default help text
+    function setLoading(button, loading, loadingText) {
+        if (!button) return;
+        if (loading) {
+            button.dataset.originalHtml = button.innerHTML;
+            button.disabled = true;
+            button.classList.add('is-loading');
+            button.innerHTML = `<span class="spinner"></span><span>${escapeHtml(loadingText || 'Working...')}</span>`;
         } else {
-            batchGenerateCVsButton.disabled = true;
-            batchGenerateCVsButton.classList.add('hidden');
-            batchCvHelpText.classList.remove('hidden');
-            if (!cvFileSelected && selectedJobsCount === 0) {
-                batchCvHelpText.textContent = "Please upload your base CV and select at least one job from the list below.";
-            } else if (!cvFileSelected) {
-                batchCvHelpText.textContent = "Please upload your base CV.";
-            } else { // selectedJobsCount === 0
-                batchCvHelpText.textContent = "Please select at least one job from the list below.";
-            }
+            button.disabled = false;
+            button.classList.remove('is-loading');
+            if (button.dataset.originalHtml) button.innerHTML = button.dataset.originalHtml;
         }
     }
+
+    async function api(url, options = {}) {
+        let response;
+        try {
+            response = await fetch(url, options);
+        } catch (e) {
+            throw new Error('Could not reach the server. Is it still running?');
+        }
+        let data = {};
+        try { data = await response.json(); } catch { /* non-JSON response */ }
+        return { ok: response.ok, status: response.status, data };
+    }
+
+    function debounce(fn, wait = 300) {
+        let t;
+        return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+    }
+
+    function formatDate(value) {
+        if (!value) return '';
+        const d = new Date(String(value).replace(' ', 'T'));
+        return isNaN(d) ? String(value) : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    // --- Models & provider status ---
+    function selectedModel() {
+        return modelSelect.value === '__custom__' ? customModelInput.value.trim() : modelSelect.value;
+    }
+
+    async function loadModels() {
+        const { ok, data } = await api('/api/models');
+        if (!ok) { toast('Could not load the model list.', 'error'); return; }
+
+        const providers = data.providers || {};
+        $('providerStatus').innerHTML = [
+            ['Gemini', providers.google],
+            ['OpenRouter', providers.openrouter],
+        ].map(([name, on]) => `<span class="badge ${on ? 'badge-green' : 'badge-red'}" title="${on ? 'API key configured' : 'No API key in .env'}">${name}: ${on ? 'ready' : 'no key'}</span>`).join('');
+
+        const groups = { google: 'Google Gemini (direct)', openrouter: 'OpenRouter' };
+        modelSelect.innerHTML = Object.entries(groups).map(([provider, label]) => {
+            const options = (data.models || []).filter(m => m.provider === provider).map(m =>
+                `<option value="${escapeHtml(m.id)}" ${m.available ? '' : 'disabled'}>${escapeHtml(m.label)}${m.available ? '' : ' (no API key)'}</option>`
+            ).join('');
+            return options ? `<optgroup label="${escapeHtml(label)}">${options}</optgroup>` : '';
+        }).join('') + '<option value="__custom__">Custom model id...</option>';
+
+        const saved = storage.get('model');
+        const savedCustom = storage.get('customModel', '');
+        const optionExists = (v) => [...modelSelect.options].some(o => o.value === v && !o.disabled);
+        if (saved && optionExists(saved)) modelSelect.value = saved;
+        else if (optionExists(data.default)) modelSelect.value = data.default;
+        else {
+            const firstAvailable = [...modelSelect.options].find(o => !o.disabled);
+            if (firstAvailable) modelSelect.value = firstAvailable.value;
+        }
+        customModelInput.value = savedCustom;
+        customModelInput.classList.toggle('hidden', modelSelect.value !== '__custom__');
+
+        if (!providers.google && !providers.openrouter) {
+            toast('No API keys configured. Add GOOGLE_API_KEY or OPENROUTER_API_KEY to .env and restart.', 'error', 10000);
+        }
+    }
+
+    modelSelect.addEventListener('change', () => {
+        customModelInput.classList.toggle('hidden', modelSelect.value !== '__custom__');
+        storage.set('model', modelSelect.value);
+        if (modelSelect.value === '__custom__') customModelInput.focus();
+    });
+    customModelInput.addEventListener('change', () => storage.set('customModel', customModelInput.value.trim()));
+    includeSummaryInput.checked = !!storage.get('includeSummary', false);
+    includeSummaryInput.addEventListener('change', () => storage.set('includeSummary', includeSummaryInput.checked));
+
+    // --- CV input (file or pasted text) ---
+    document.querySelectorAll('[data-cv-mode]').forEach(tab => {
+        tab.addEventListener('click', () => {
+            cvMode = tab.dataset.cvMode;
+            document.querySelectorAll('[data-cv-mode]').forEach(t => t.classList.toggle('active', t === tab));
+            $('cvFilePanel').classList.toggle('hidden', cvMode !== 'file');
+            $('cvTextPanel').classList.toggle('hidden', cvMode !== 'text');
+            updateBatchBar();
+        });
+    });
+
+    function updateFileLabel() {
+        const file = cvFileInput.files && cvFileInput.files[0];
+        cvDropZone.classList.toggle('has-file', !!file);
+        cvFileLabel.innerHTML = file
+            ? `<strong>${escapeHtml(file.name)}</strong> <span class="text-gray-500">(${Math.ceil(file.size / 1024)} KB) - click to change</span>`
+            : 'Drop your CV here or <span class="text-blue-600 font-semibold">browse</span> (PDF, DOCX, TXT, JSON)';
+        updateBatchBar();
+    }
+
+    cvFileInput.addEventListener('change', updateFileLabel);
+    ['dragenter', 'dragover'].forEach(evt => cvDropZone.addEventListener(evt, (e) => { e.preventDefault(); cvDropZone.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach(evt => cvDropZone.addEventListener(evt, (e) => { e.preventDefault(); cvDropZone.classList.remove('dragover'); }));
+    cvDropZone.addEventListener('drop', (e) => {
+        if (e.dataTransfer && e.dataTransfer.files.length) {
+            cvFileInput.files = e.dataTransfer.files;
+            updateFileLabel();
+        }
+    });
+    cvTextInput.addEventListener('input', debounce(updateBatchBar, 200));
+
+    function hasCv() {
+        return cvMode === 'file' ? !!(cvFileInput.files && cvFileInput.files[0]) : cvTextInput.value.trim().length > 0;
+    }
+
+    function appendCv(formData) {
+        if (cvMode === 'file') formData.append('cv_file', cvFileInput.files[0]);
+        else formData.append('cv_text', cvTextInput.value.trim());
+    }
+
+    // --- Linking a saved job to the tailoring form ---
+    function linkJob(job) {
+        jobDescriptionInput.value = job.description || '';
+        linkedJobIdInput.value = job.id;
+        linkedJobChip.innerHTML = `<span class="truncate">For: ${escapeHtml(job.title)}${job.company ? ' @ ' + escapeHtml(job.company) : ''}</span><button type="button" title="Unlink job" aria-label="Unlink job">&times;</button>`;
+        linkedJobChip.classList.remove('hidden');
+        linkedJobChip.querySelector('button').addEventListener('click', unlinkJob);
+        $('cv-tailoring').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (!job.description) toast('This job has no saved description. Paste one in.', 'info');
+    }
+
+    function unlinkJob() {
+        linkedJobIdInput.value = '';
+        linkedJobChip.classList.add('hidden');
+    }
+
+    jobDescriptionInput.addEventListener('input', () => {
+        // Editing the description by hand still keeps the link, so the CV is saved against that job.
+        if (!jobDescriptionInput.value.trim()) unlinkJob();
+    });
 
     // --- CV Tailoring ---
-    if (cvTailorForm) {
-        cvTailorForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            showLoading('Tailoring CV and generating PDF...');
-            if (tailorResultDiv) tailorResultDiv.innerHTML = '';
-            if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
-            if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear batch results too
-
-            const formData = new FormData(cvTailorForm);
-
-            try {
-                const response = await fetch('/api/tailor-cv', {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                const result = await response.json();
-                hideLoading();
-
-                if (response.ok) {
-                    if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-green-600">Success: ${escapeHtml(result.message || 'CV Tailored!')}</p>`;
-                    if (result.tailored_cv_json) {
-                        tailoredCVData = result.tailored_cv_json;
-                        jobDescription = formData.get('job_description');
-                        followUpSection.classList.remove('hidden');
-
-                        const formattedJson = JSON.stringify(result.tailored_cv_json, null, 2);
-                        const jsonPreviewDiv = document.getElementById('jsonPreview');
-                        const displayJsonBtn = document.getElementById('displayJsonBtn');
-                        if (jsonPreviewDiv && displayJsonBtn) {
-                            jsonPreviewDiv.querySelector('pre').textContent = formattedJson;
-                            displayJsonBtn.classList.remove('hidden');
-                            displayJsonBtn.addEventListener('click', () => {
-                                jsonPreviewDiv.classList.toggle('hidden');
-                            });
-                        }
-                    }
-                    if (result.pdf_download_url && pdfDownloadLinkDiv) {
-                        pdfDownloadLinkDiv.innerHTML = `<a href="${escapeHtml(result.pdf_download_url)}" target="_blank" class="inline-block mt-3 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Download Tailored CV (PDF)</a>`;
-                    } else if (result.error_pdf && pdfDownloadLinkDiv) {
-                         pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">Note: ${escapeHtml(result.error_pdf)}</p>`;
-                    } else if (pdfDownloadLinkDiv) {
-                         pdfDownloadLinkDiv.innerHTML = `<p class="text-orange-500 mt-2">PDF download link not available.</p>`;
-                    }
-                } else {
-                    if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to tailor CV.')}</p>`;
-                }
-            } catch (error) {
-                hideLoading();
-                console.error('CV Tailoring Error:', error);
-                if (tailorResultDiv) tailorResultDiv.innerHTML = `<p class="text-red-600">An unexpected error occurred. Check console.</p>`;
-            }
-        });
-    }
-    if (cvFileInput) {
-        cvFileInput.addEventListener('change', updateBatchButtonState);
+    function showResult(result, jobDescription, jobId) {
+        tailored = {
+            cv: result.tailored_cv_json,
+            originalCv: result.tailored_cv_json,
+            jobDescription,
+            jobId,
+            pdfUrl: result.pdf_download_url,
+            jsonUrl: result.json_download_url,
+        };
+        resultEmpty.classList.add('hidden');
+        resultPanel.classList.remove('hidden');
+        updateResultLinks();
+        jsonEditorText.value = JSON.stringify(tailored.cv, null, 2);
+        coverLetterResultDiv.innerHTML = '';
+        copyCoverLetterBtn.classList.add('hidden');
+        qaResultDiv.innerHTML = '';
+        if (window.innerWidth < 1024) $('result-section').scrollIntoView({ behavior: 'smooth' });
     }
 
-    if (generateCoverLetterBtn) {
-        generateCoverLetterBtn.addEventListener('click', async () => {
-            if (!tailoredCVData || !jobDescription) {
-                alert('Please tailor a CV first.');
-                return;
-            }
-
-            showLoading('Generating cover letter...');
-            coverLetterResultDiv.innerHTML = '';
-
-            try {
-                const response = await fetch('/api/generate-cover-letter', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        cv_json: tailoredCVData,
-                        job_description: jobDescription,
-                    }),
-                });
-
-                const result = await response.json();
-                hideLoading();
-
-                if (response.ok) {
-                    coverLetterResultDiv.innerHTML = `<h4 class="font-semibold mt-2">Generated Cover Letter:</h4><pre class="whitespace-pre-wrap text-sm">${escapeHtml(result.cover_letter)}</pre>`;
-                } else {
-                    coverLetterResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to generate cover letter.')}</p>`;
-                }
-            } catch (error) {
-                hideLoading();
-                console.error('Cover Letter Generation Error:', error);
-                coverLetterResultDiv.innerHTML = `<p class="text-red-600">An unexpected error occurred. Check console.</p>`;
-            }
-        });
+    function updateResultLinks() {
+        const hasPdf = !!tailored.pdfUrl;
+        downloadPdfBtn.classList.toggle('hidden', !hasPdf);
+        previewPdfBtn.classList.toggle('hidden', !hasPdf);
+        if (hasPdf) downloadPdfBtn.href = tailored.pdfUrl;
+        downloadJsonBtn.classList.toggle('hidden', !tailored.jsonUrl);
+        if (tailored.jsonUrl) downloadJsonBtn.href = tailored.jsonUrl;
+        if (!pdfPreview.classList.contains('hidden') && hasPdf) pdfFrame.src = `${tailored.pdfUrl}?inline=1`;
     }
 
-    if (qaForm) {
-        qaForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            if (!tailoredCVData || !jobDescription) {
-                alert('Please tailor a CV first.');
-                return;
+    cvTailorForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!hasCv()) { toast(cvMode === 'file' ? 'Please choose your CV file.' : 'Please paste your CV text.', 'error'); return; }
+        const jobDescription = jobDescriptionInput.value.trim();
+        if (!jobDescription) { toast('Please paste a job description or pick a job below.', 'error'); return; }
+        const model = selectedModel();
+        if (!model) { toast('Please choose a model.', 'error'); return; }
+
+        const formData = new FormData();
+        appendCv(formData);
+        formData.append('job_description', jobDescription);
+        formData.append('model', model);
+        formData.append('include_summary', includeSummaryInput.checked ? 'true' : 'false');
+        const jobId = linkedJobIdInput.value;
+        if (jobId) formData.append('job_id', jobId);
+
+        setLoading(tailorBtn, true, 'Tailoring your CV...');
+        try {
+            const { ok, data } = await api('/api/tailor-cv', { method: 'POST', body: formData });
+            if (data.tailored_cv_json) {
+                showResult(data, jobDescription, jobId || null);
+                const cls = ok ? 'text-green-700' : 'text-yellow-700';
+                const title = data.job_title ? ` <span class="text-gray-500">(${escapeHtml(data.job_title)})</span>` : '';
+                tailorResultDiv.innerHTML = `<p class="${cls} font-semibold">${escapeHtml(data.message || 'CV tailored!')}${title}</p>` +
+                    (data.error_pdf ? `<p class="text-sm text-yellow-700">${escapeHtml(data.error_pdf)}</p>` : '');
+                toast(ok ? 'Your tailored CV is ready.' : (data.error_pdf || data.message), ok ? 'success' : 'error');
+                if (jobId) fetchAndDisplayJobs();
+            } else {
+                toast(data.error || 'Failed to tailor CV.', 'error', 9000);
             }
+        } catch (err) {
+            toast(err.message, 'error');
+        } finally {
+            setLoading(tailorBtn, false);
+        }
+    });
 
-            const questions = new FormData(qaForm).get('application_question').split('\\n').filter(q => q.trim() !== '');
-            if (questions.length === 0) {
-                alert('Please enter at least one question.');
-                return;
-            }
+    previewPdfBtn.addEventListener('click', () => {
+        const opening = pdfPreview.classList.contains('hidden');
+        pdfPreview.classList.toggle('hidden', !opening);
+        previewPdfBtn.textContent = opening ? 'Hide preview' : 'Preview';
+        if (opening && tailored && tailored.pdfUrl) pdfFrame.src = `${tailored.pdfUrl}?inline=1`;
+    });
 
-            showLoading('Getting answers...');
-            qaResultDiv.innerHTML = '';
+    editJsonBtn.addEventListener('click', () => {
+        const opening = jsonEditor.classList.contains('hidden');
+        jsonEditor.classList.toggle('hidden', !opening);
+        editJsonBtn.textContent = opening ? 'Close editor' : 'Edit content';
+    });
 
-            try {
-                const response = await fetch('/api/answer-question', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        cv_json: tailoredCVData,
-                        job_description: jobDescription,
-                        question: questions,
-                    }),
-                });
+    resetJsonBtn.addEventListener('click', () => {
+        if (tailored) jsonEditorText.value = JSON.stringify(tailored.originalCv, null, 2);
+    });
 
-                const result = await response.json();
-                hideLoading();
-
-                if (response.ok) {
-                    let html = '<h4 class="font-semibold mt-2">Answers:</h4>';
-                    result.answer.forEach((answer) => {
-                        html += `</p><pre class="whitespace-pre-wrap text-sm">${escapeHtml(answer)}</pre></div>`;
-                    });
-                    qaResultDiv.innerHTML = html;
-                } else {
-                    qaResultDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to get answers.')}</p>`;
-                }
-            } catch (error) {
-                hideLoading();
-                console.error('Q&A Error:', error);
-                qaResultDiv.innerHTML = `<p class="text-red-600">An unexpected error occurred. Check console.</p>`;
-            }
-        });
-    }
-
-
-    // --- Job Display Function ---
-    let allJobs = [];
-    let displayedJobsCount = 0;
-    const jobsPerPage = 5;
-
-    function displayJobs(jobsArray) {
-        if (!jobResultsDiv) return;
-        allJobs = jobsArray;
-        displayedJobsCount = 0;
-        jobResultsDiv.innerHTML = '';
-
-        if (!allJobs || allJobs.length === 0) {
-            jobResultsDiv.innerHTML = '<p>No jobs found matching your criteria.</p>';
-            updateBatchButtonState();
+    rerenderBtn.addEventListener('click', async () => {
+        if (!tailored) return;
+        let cv;
+        try {
+            cv = JSON.parse(jsonEditorText.value);
+        } catch (err) {
+            toast(`The JSON is not valid: ${err.message}`, 'error', 8000);
             return;
         }
-
-        const topControls = `<div class="flex justify-between items-center mb-3">
-                                <h3 class="text-xl font-semibold">Job Listings:</h3>
-                                <label class="text-sm"><input type="checkbox" id="selectAllJobsCheckbox" class="mr-1"> Select All</label>
-                             </div>`;
-        jobResultsDiv.innerHTML = topControls + '<div class="space-y-4" id="job-listings-container"></div><div id="job-pagination-controls" class="mt-4"></div>';
-
-        loadMoreJobs();
-    }
-
-    function loadMoreJobs() {
-        const container = document.getElementById('job-listings-container');
-        if (!container) return;
-
-        const jobsToDisplay = allJobs.slice(displayedJobsCount, displayedJobsCount + jobsPerPage);
-
-        let html = '';
-        jobsToDisplay.forEach(job => {
-            const description = job.description || 'No description available.';
-            const company = job.company || 'N/A';
-            const location = job.location || 'N/A';
-            const job_url = job.url;
-            const source = job.source;
-            const date_scraped_obj = new Date(job.date_scraped);
-            const formatted_date_scraped = date_scraped_obj.toLocaleDateString() + ' ' + date_scraped_obj.toLocaleTimeString();
-            const jobId = job.id;
-            const isApplied = job.applied === 1 || job.applied === true;
-            const cvFilename = job.cv_filename;
-
-            html += `
-                <div class="p-4 border rounded-md shadow-sm bg-gray-50 job-card" data-job-id="${escapeHtml(jobId)}">
-                    <div class="flex items-start">
-                        <input type="checkbox" class="job-select-checkbox mt-1 mr-3 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
-                               value="${escapeHtml(jobId)}" 
-                               data-job-id="${escapeHtml(jobId)}" 
-                               data-job-description="${escapeHtml(description)}" 
-                               data-job-title="${escapeHtml(job.title || 'N/A')}">
-                        <div class="flex-grow">
-                            <div class="flex justify-between items-center">
-                                <h4 class="text-lg font-bold text-blue-600">${escapeHtml(job.title || 'N/A')}</h4>
-                                <button class="text-xs py-1 px-2 rounded border toggle-applied-btn ${isApplied ? 'bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}" data-job-id="${escapeHtml(jobId)}">${isApplied ? 'Mark Unapplied' : 'Mark Applied'}</button>
-                            </div>
-                            <p class="text-sm text-gray-700">${escapeHtml(company)} - ${escapeHtml(location)}</p>
-                            <p class="text-xs text-gray-500">Source: ${escapeHtml(source)} | Scraped: ${escapeHtml(formatted_date_scraped)} | DB ID: ${jobId}</p>
-                            <p class="text-xs text-gray-500 job-applied-status">Status: ${isApplied ? 'Applied' : 'Not Applied'}</p>
-                            ${job_url ? `<a href="${escapeHtml(job_url)}" target="_blank" class="text-blue-500 hover:underline text-sm mr-2">View Original Job</a>` : ''}
-                            
-                            <div class="mt-2 job-actions">`;
-            
-            if (cvFilename) {
-                html += `<button onclick="window.open('/api/download-cv/${escapeHtml(cvFilename)}', '_blank')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2">Download CV</button>`;
-                html += `<button onclick="console.log('Auto Apply for job ID ${escapeHtml(jobId)} clicked. CV: ${escapeHtml(cvFilename)}')" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2">Auto Apply Job</button>`;
-            }
-
-            html += `       </div> 
-                            <details class="mt-2 text-sm">
-                                <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Full Description (for reference)</summary>
-                                <p class="mt-1 text-gray-600 leading-relaxed whitespace-pre-line">${escapeHtml(description)}</p>
-                            </details>
-                        </div>
-                    </div>
-                </div>`;
-        });
-        container.innerHTML += html;
-        displayedJobsCount += jobsToDisplay.length;
-
-        updatePaginationControls();
-        attachEventListenersToJobs();
-    }
-
-    function updatePaginationControls() {
-        const paginationControls = document.getElementById('job-pagination-controls');
-        if (!paginationControls) return;
-
-        paginationControls.innerHTML = '';
-
-        if (displayedJobsCount < allJobs.length) {
-            const loadMoreBtn = document.createElement('button');
-            loadMoreBtn.id = 'loadMoreJobsBtn';
-            loadMoreBtn.textContent = 'Load More';
-            loadMoreBtn.className = 'bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline';
-            loadMoreBtn.addEventListener('click', loadMoreJobs);
-            paginationControls.appendChild(loadMoreBtn);
-        }
-
-        if (displayedJobsCount > jobsPerPage) {
-            const showLessBtn = document.createElement('button');
-            showLessBtn.id = 'showLessJobsBtn';
-            showLessBtn.textContent = 'Show Less';
-            showLessBtn.className = 'bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline ml-2';
-            showLessBtn.addEventListener('click', () => {
-                const container = document.getElementById('job-listings-container');
-                container.innerHTML = '';
-                displayedJobsCount = 0;
-                loadMoreJobs();
-            });
-            paginationControls.appendChild(showLessBtn);
-        }
-    }
-
-    function attachEventListenersToJobs() {
-        const jobCheckboxes = jobResultsDiv.querySelectorAll('.job-select-checkbox');
-        jobCheckboxes.forEach(checkbox => {
-            checkbox.removeEventListener('change', updateBatchButtonState); // Avoid duplicate listeners
-            checkbox.addEventListener('change', updateBatchButtonState);
-        });
-
-        const selectAllCheckbox = document.getElementById('selectAllJobsCheckbox');
-        if (selectAllCheckbox) {
-            selectAllCheckbox.removeEventListener('change', selectAllHandler);
-            selectAllCheckbox.addEventListener('change', selectAllHandler);
-        }
-
-        const toggleButtons = jobResultsDiv.querySelectorAll('.toggle-applied-btn');
-        toggleButtons.forEach(button => {
-            button.removeEventListener('click', toggleAppliedHandler);
-            button.addEventListener('click', toggleAppliedHandler);
-        });
-
-        updateBatchButtonState();
-    }
-
-    function selectAllHandler(e) {
-        const jobCheckboxes = jobResultsDiv.querySelectorAll('.job-select-checkbox');
-        jobCheckboxes.forEach(cb => cb.checked = e.target.checked);
-        updateBatchButtonState();
-    }
-
-    async function toggleAppliedHandler(event) {
-        const jobId = event.target.dataset.jobId;
-        if (!jobId) return;
-
-        showLoading('Updating status...');
-
+        setLoading(rerenderBtn, true, 'Rendering...');
         try {
-            const response = await fetch(`/api/jobs/${jobId}/toggle-applied`, {
+            const { ok, data } = await api('/api/render-pdf', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cv_json: cv, job_id: tailored.jobId }),
             });
-            const result = await response.json();
-            hideLoading();
-
-            if (response.ok && result.new_status !== undefined) {
-                const card = event.target.closest('.job-card');
-                if (card) {
-                    const statusTextElement = card.querySelector('.job-applied-status');
-                    const toggleButton = event.target;
-                    const newAppliedStatusBool = result.new_status === 1 || result.new_status === true;
-
-                    if (statusTextElement) {
-                        statusTextElement.textContent = `Status: ${newAppliedStatusBool ? 'Applied' : 'Not Applied'}`;
-                    }
-                    if (toggleButton) {
-                        toggleButton.textContent = newAppliedStatusBool ? 'Mark Unapplied' : 'Mark Applied';
-                        if (newAppliedStatusBool) {
-                            toggleButton.classList.add('bg-yellow-500', 'text-white');
-                            toggleButton.classList.remove('bg-gray-200', 'hover:bg-gray-300');
-                        } else {
-                            toggleButton.classList.remove('bg-yellow-500', 'text-white');
-                            toggleButton.classList.add('bg-gray-200', 'hover:bg-gray-300');
-                        }
-                    }
-                }
-            } else {
-                alert(`Error updating status: ${result.error || 'Unknown error'}`);
-            }
-        } catch (error) {
-            hideLoading();
-            console.error('Toggle Applied Status Error:', error);
-            alert('An unexpected error occurred while updating status.');
+            if (!ok) { toast(data.error || 'Failed to render PDF.', 'error'); return; }
+            tailored.cv = data.tailored_cv_json;
+            tailored.pdfUrl = data.pdf_download_url;
+            tailored.jsonUrl = data.json_download_url;
+            updateResultLinks();
+            toast('PDF re-rendered with your edits.', 'success');
+            if (tailored.jobId) fetchAndDisplayJobs();
+        } catch (err) {
+            toast(err.message, 'error');
+        } finally {
+            setLoading(rerenderBtn, false);
         }
-    }
+    });
 
-    // --- Fetch and Display Jobs (Filtered or All) ---
-    async function fetchAndDisplayJobs(queryParams = {}) {
-        showLoading('Fetching jobs from database...');
-        if (jobResultsDiv) jobResultsDiv.innerHTML = '<p>Loading jobs...</p>';
-
-        const params = new URLSearchParams();
-        if (queryParams.keyword) params.append('keyword', queryParams.keyword);
-        if (queryParams.location) params.append('location', queryParams.location);
-        if (queryParams.source) params.append('source', queryParams.source);
-        if (queryParams.applied_status && queryParams.applied_status !== 'all') {
-            params.append('applied_status', queryParams.applied_status);
-        }
-
+    // --- Follow-ups ---
+    generateCoverLetterBtn.addEventListener('click', async () => {
+        if (!tailored) { toast('Please tailor a CV first.', 'error'); return; }
+        setLoading(generateCoverLetterBtn, true, 'Writing...');
+        coverLetterResultDiv.innerHTML = '';
         try {
-            const response = await fetch(`/api/jobs?${params.toString()}`);
-            const result = await response.json();
-            hideLoading();
-
-            if (response.ok && result.jobs) {
-                displayJobs(result.jobs);
+            const { ok, data } = await api('/api/generate-cover-letter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cv_json: tailored.cv, job_description: tailored.jobDescription, model: selectedModel() }),
+            });
+            if (ok) {
+                coverLetterResultDiv.innerHTML = `<pre class="output" id="coverLetterText">${escapeHtml(data.cover_letter)}</pre>`;
+                copyCoverLetterBtn.classList.remove('hidden');
             } else {
-                if (jobResultsDiv) jobResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(result.error || 'Failed to fetch jobs.')}</p>`;
-                updateBatchButtonState(); // Still update button state on error
+                coverLetterResultDiv.innerHTML = `<p class="text-red-600 text-sm">${escapeHtml(data.error || 'Failed to generate cover letter.')}</p>`;
             }
-        } catch (error) {
-            hideLoading();
-            console.error('Fetch Jobs Error:', error);
-            if (jobResultsDiv) jobResultsDiv.innerHTML = '<p class="text-red-600">An unexpected error occurred while fetching jobs. Check console.</p>';
-            updateBatchButtonState(); // Still update button state on error
+        } catch (err) {
+            toast(err.message, 'error');
+        } finally {
+            setLoading(generateCoverLetterBtn, false);
+        }
+    });
+
+    async function copyText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast('Copied to clipboard.', 'success', 2000);
+        } catch {
+            toast('Could not copy automatically. Select the text and copy it manually.', 'error');
         }
     }
 
-    // --- Event Listener for Filter Button ---
-    if (filterJobsButton) {
-        filterJobsButton.addEventListener('click', () => {
-            const filters = {
-                keyword: filterKeywordInput ? filterKeywordInput.value.trim() : '',
-                location: filterLocationInput ? filterLocationInput.value.trim() : '',
-                source: filterSourceSelect ? filterSourceSelect.value : '',
-                applied_status: filterAppliedStatusSelect ? filterAppliedStatusSelect.value : 'all'
-            };
-            fetchAndDisplayJobs(filters);
-        });
-    }
+    copyCoverLetterBtn.addEventListener('click', () => {
+        const el = $('coverLetterText');
+        if (el) copyText(el.textContent);
+    });
 
-    // --- Event Listener for Clear Filters Button ---
-    if (clearFiltersButton) {
-        clearFiltersButton.addEventListener('click', () => {
-            if(filterKeywordInput) filterKeywordInput.value = '';
-            if(filterLocationInput) filterLocationInput.value = '';
-            if(filterSourceSelect) filterSourceSelect.value = '';
-            if(filterAppliedStatusSelect) filterAppliedStatusSelect.value = 'all'; // Reset new filter
-            fetchAndDisplayJobs(); // Fetch all jobs
-        });
-    }
+    qaForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!tailored) { toast('Please tailor a CV first.', 'error'); return; }
+        const questions = $('applicationQuestion').value.split(/\r?\n/).map(q => q.trim()).filter(Boolean);
+        if (questions.length === 0) { toast('Please enter at least one question.', 'error'); return; }
 
-    // --- Job Scraping Form Submission ---
-    if (jobScrapeForm) {
-        jobScrapeForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            showLoading('Scraping jobs...');
-            if (jobResultsDiv) jobResultsDiv.innerHTML = '<p>Scraping jobs, please wait...</p>';
-             if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear previous batch results
-
-            const scrapeParams = new URLSearchParams({
-                search_term: document.getElementById('searchTerm').value,
-                location: document.getElementById('location').value,
-                site_names: document.getElementById('siteNames').value,
-                results_wanted: document.getElementById('resultsWanted').value || 5
+        setLoading(qaBtn, true, `Answering ${questions.length}...`);
+        qaResultDiv.innerHTML = '';
+        try {
+            const { ok, data } = await api('/api/answer-question', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cv_json: tailored.cv, job_description: tailored.jobDescription, question: questions, model: selectedModel() }),
             });
-
-            try {
-                const response = await fetch(`/api/scrape-jobs?${scrapeParams.toString()}`);
-                const result = await response.json();
-                hideLoading();
-
-                if (response.ok) {
-                    let message = "Jobs scraped successfully!";
-                    if (result.jobs && result.jobs.length > 0) {
-                         message += ` Found ${result.jobs.length} new potential listings. Refreshing job list from database.`;
-                    } else {
-                        message += " No new listings found from this scrape. Refreshing job list from database.";
-                    }
-                    // Temporarily show message in jobResultsDiv before it's overwritten by fetchAndDisplayJobs
-                    if (jobResultsDiv) jobResultsDiv.innerHTML = `<p>${escapeHtml(message)}</p>`;
-
-                    const currentFilters = {
-                        keyword: filterKeywordInput ? filterKeywordInput.value.trim() : '',
-                        location: filterLocationInput ? filterLocationInput.value.trim() : '',
-                        source: filterSourceSelect ? filterSourceSelect.value : '',
-                        applied_status: filterAppliedStatusSelect ? filterAppliedStatusSelect.value : 'all'
-                    };
-                    fetchAndDisplayJobs(currentFilters);
-
-                } else {
-                    if (jobResultsDiv) jobResultsDiv.innerHTML = `<p class="text-red-600">Error scraping: ${escapeHtml(result.error || 'Failed to scrape jobs.')}</p>`;
-                }
-            } catch (error) {
-                hideLoading();
-                console.error('Job Scraping Error:', error);
-                if (jobResultsDiv) jobResultsDiv.innerHTML = '<p class="text-red-600">An unexpected error occurred while scraping jobs. Check console.</p>';
-            }
-        });
-    }
-
-    // --- Batch CV Generation Event Listener ---
-    if (batchGenerateCVsButton) {
-        batchGenerateCVsButton.addEventListener('click', async () => {
-            if (!cvFileInput || !cvFileInput.files[0]) {
-                alert('Please select a CV file first.');
+            if (!ok) {
+                qaResultDiv.innerHTML = `<p class="text-red-600 text-sm">${escapeHtml(data.error || 'Failed to get answers.')}</p>`;
                 return;
             }
-            const selectedCheckboxes = jobResultsDiv.querySelectorAll('.job-select-checkbox:checked');
-            if (selectedCheckboxes.length === 0) {
-                alert('Please select at least one job.');
+            qaResultDiv.innerHTML = (data.answers || []).map((item, i) => `
+                <div>
+                    <div class="flex items-start justify-between gap-2 mb-1">
+                        <p class="text-sm font-semibold">${i + 1}. ${escapeHtml(item.question)}</p>
+                        <button type="button" class="btn btn-gray btn-xs copy-answer" data-index="${i}">Copy</button>
+                    </div>
+                    <pre class="output ${item.ok ? '' : 'text-red-600'}">${escapeHtml(item.answer)}</pre>
+                </div>`).join('');
+            qaResultDiv.querySelectorAll('.copy-answer').forEach(btn => {
+                btn.addEventListener('click', () => copyText(data.answers[Number(btn.dataset.index)].answer));
+            });
+        } catch (err) {
+            toast(err.message, 'error');
+        } finally {
+            setLoading(qaBtn, false);
+        }
+    });
+
+    // --- Jobs list ---
+    function currentFilters() {
+        return {
+            keyword: filterKeywordInput.value.trim(),
+            location: filterLocationInput.value.trim(),
+            source: filterSourceSelect.value,
+            applied_status: filterAppliedStatusSelect.value,
+        };
+    }
+
+    async function fetchAndDisplayJobs() {
+        const params = new URLSearchParams();
+        Object.entries(currentFilters()).forEach(([key, value]) => {
+            if (value && !(key === 'applied_status' && value === 'all')) params.append(key, value);
+        });
+        try {
+            const { ok, data } = await api(`/api/jobs?${params.toString()}`);
+            if (!ok) {
+                jobResultsDiv.innerHTML = `<p class="text-red-600">${escapeHtml(data.error || 'Failed to fetch jobs.')}</p>`;
                 return;
             }
-
-            showLoading(`Generating ${selectedCheckboxes.length} CV(s)...`);
-            if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = '';
-            if (tailorResultDiv) tailorResultDiv.innerHTML = ''; // Clear single tailor results
-            if (pdfDownloadLinkDiv) pdfDownloadLinkDiv.innerHTML = '';
-
-
-            const formData = new FormData();
-            formData.append('cv_file', cvFileInput.files[0]);
-
-            selectedCheckboxes.forEach(checkbox => {
-                // Send job_id and job_description. Backend will use description.
-                // ID is useful if backend needs to fetch more details, though here description is primary.
-                formData.append('job_ids[]', checkbox.value);
-                formData.append('job_descriptions[]', checkbox.dataset.jobDescription);
-                formData.append('job_titles[]', checkbox.dataset.jobTitle); // For summary in results
-            });
-
-            try {
-                const response = await fetch('/api/batch-generate-cvs', {
-                    method: 'POST',
-                    body: formData,
-                });
-                const resultsData = await response.json();
-                hideLoading();
-
-                if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = ''; // Clear previous summary
-                const errorMessages = [];
-                let successes = 0;
-
-                if (response.ok && resultsData.results) {
-                    resultsData.results.forEach(result => {
-                        if (result.status === 'success') {
-                            successes++;
-                            const jobCard = document.querySelector(`.job-card[data-job-id='${result.job_id}']`);
-                            if (jobCard) {
-                                const actionsDiv = jobCard.querySelector('.job-actions');
-                                if (actionsDiv) {
-                                    actionsDiv.innerHTML = ''; // Clear existing buttons
-
-                                    const downloadBtn = document.createElement('a');
-                                    downloadBtn.href = escapeHtml(result.pdf_url);
-                                    downloadBtn.textContent = 'Download CV';
-                                    downloadBtn.className = 'bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs mt-2 mr-2';
-                                    downloadBtn.target = '_blank';
-                                    actionsDiv.appendChild(downloadBtn);
-
-                                    const autoApplyBtn = document.createElement('button');
-                                    autoApplyBtn.textContent = 'Auto Apply Job';
-                                    autoApplyBtn.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs mt-2';
-                                    autoApplyBtn.addEventListener('click', () => {
-                                        console.log(`Auto Apply clicked for job ID ${result.job_id}, CV: ${escapeHtml(result.pdf_url)}`);
-                                    });
-                                    actionsDiv.appendChild(autoApplyBtn);
-
-                                    jobCard.classList.add('bg-green-100');
-                                    setTimeout(() => jobCard.classList.remove('bg-green-100'), 3000);
-                                } else {
-                                    console.warn(`Actions div not found for job card ID: ${result.job_id}`);
-                                    // Optionally add this to a different kind of error/warning list if needed
-                                }
-                            } else {
-                                console.warn(`Job card not found for ID: ${result.job_id}`);
-                                // This case might happen if the job list was refreshed or changed during batch processing.
-                                // Add to errorMessages or a separate warnings list if necessary.
-                                errorMessages.push(`<li>Successfully generated CV for Job ID ${result.job_id} (title: ${escapeHtml(result.job_title_summary || 'N/A')}) but could not find its card to update. PDF: <a href="${escapeHtml(result.pdf_url)}" target="_blank" class="text-blue-500 hover:underline">Download Here</a></li>`);
-                            }
-                        } else { // result.status === 'error'
-                            errorMessages.push(`<li>${escapeHtml(result.job_title_summary || 'Unknown Job')}: ${escapeHtml(result.message)} (Job ID: ${result.job_id || 'N/A'})</li>`);
-                        }
-                    });
-
-                    if (errorMessages.length > 0 && batchCvResultsDiv) {
-                        const errorTitle = document.createElement('h4');
-                        errorTitle.className = 'text-lg font-semibold text-red-700 mb-2';
-                        errorTitle.textContent = 'CV Generation Issues:';
-                        batchCvResultsDiv.appendChild(errorTitle);
-                        
-                        const errorList = document.createElement('ul');
-                        errorList.className = 'list-disc list-inside text-red-600';
-                        errorList.innerHTML = errorMessages.join('');
-                        batchCvResultsDiv.appendChild(errorList);
-                    }
-                    
-                    if (successes > 0 && errorMessages.length === 0 && batchCvResultsDiv) {
-                         batchCvResultsDiv.innerHTML = `<p class="text-green-600">Batch CV generation completed successfully for ${successes} job(s). Job cards have been updated.</p>`;
-                    } else if (successes > 0 && errorMessages.length > 0 && batchCvResultsDiv) {
-                        // If there were also successes, add a small note about them if not already clear
-                        const successMessage = document.createElement('p');
-                        successMessage.className = 'text-green-600 mt-2';
-                        successMessage.textContent = `${successes} CV(s) generated successfully and job cards updated. See issues above.`;
-                        batchCvResultsDiv.appendChild(successMessage);
-                    }
-
-
-                } else { // Response not ok or resultsData.results not present
-                     if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = `<p class="text-red-600">Error: ${escapeHtml(resultsData.error || 'Failed to process batch CVs response.')}</p>`;
-                }
-            } catch (error) {
-                hideLoading();
-                console.error('Batch CV Generation Error:', error);
-                if (batchCvResultsDiv) batchCvResultsDiv.innerHTML = '<p class="text-red-600">An unexpected error occurred. Check console.</p>';
-            }
-        });
+            updateSourceOptions(data.sources || []);
+            allJobs = data.jobs || [];
+            // Drop selections that are no longer visible.
+            const visibleIds = new Set(allJobs.map(j => String(j.id)));
+            [...selectedJobIds].forEach(id => { if (!visibleIds.has(id)) selectedJobIds.delete(id); });
+            shownCount = Math.max(JOBS_PER_PAGE, Math.min(shownCount, allJobs.length));
+            renderJobs();
+        } catch (err) {
+            jobResultsDiv.innerHTML = `<p class="text-red-600">${escapeHtml(err.message)}</p>`;
+        }
     }
+
+    function updateSourceOptions(sources) {
+        const current = filterSourceSelect.value;
+        filterSourceSelect.innerHTML = '<option value="">All sources</option>' +
+            sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+        if (current && !sources.includes(current)) {
+            filterSourceSelect.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(current)}">${escapeHtml(current)}</option>`);
+        }
+        filterSourceSelect.value = current;
+    }
+
+    function jobCardHtml(job) {
+        const id = String(job.id);
+        const isApplied = job.applied === 1 || job.applied === true;
+        const selected = selectedJobIds.has(id);
+        return `
+            <div class="job-card ${selected ? 'is-selected' : ''} ${isApplied ? 'is-applied' : ''}" data-job-id="${escapeHtml(id)}">
+                <div class="flex items-start gap-3">
+                    <input type="checkbox" class="job-select-checkbox mt-1 h-4 w-4" value="${escapeHtml(id)}" ${selected ? 'checked' : ''} aria-label="Select job">
+                    <div class="flex-grow min-w-0">
+                        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                            <div class="min-w-0">
+                                <h4 class="font-semibold text-blue-700 truncate">
+                                    ${job.url ? `<a href="${escapeHtml(job.url)}" target="_blank" rel="noopener" class="hover:underline">${escapeHtml(job.title || 'Untitled role')}</a>` : escapeHtml(job.title || 'Untitled role')}
+                                </h4>
+                                <p class="text-sm text-gray-700">${escapeHtml(job.company || 'Unknown company')}${job.location ? ' &middot; ' + escapeHtml(job.location) : ''}</p>
+                                <div class="flex flex-wrap items-center gap-2 mt-1">
+                                    <span class="badge badge-blue">${escapeHtml(job.source || 'unknown')}</span>
+                                    <span class="text-xs text-gray-500">Saved ${escapeHtml(formatDate(job.date_scraped))}</span>
+                                    ${isApplied ? '<span class="badge badge-yellow">Applied</span>' : ''}
+                                    ${job.cv_filename ? '<span class="badge badge-green">CV ready</span>' : ''}
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-1 sm:justify-end flex-shrink-0">
+                                <button type="button" class="btn btn-blue btn-xs" data-action="tailor">Tailor CV</button>
+                                ${job.cv_filename ? `<a class="btn btn-green btn-xs" href="/api/download-cv/${encodeURIComponent(job.cv_filename)}" target="_blank" rel="noopener">Download CV</a>` : ''}
+                                <button type="button" class="btn ${isApplied ? 'btn-yellow' : 'btn-gray'} btn-xs" data-action="toggle-applied">${isApplied ? 'Mark unapplied' : 'Mark applied'}</button>
+                                <button type="button" class="btn btn-red-outline btn-xs" data-action="delete" title="Delete job">Delete</button>
+                            </div>
+                        </div>
+                        <details class="mt-2 text-sm">
+                            <summary class="cursor-pointer text-gray-600 hover:text-gray-800">Description</summary>
+                            <div class="description mt-1 text-gray-700 leading-relaxed">${escapeHtml(job.description || 'No description available.')}</div>
+                        </details>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function renderJobs() {
+        if (allJobs.length === 0) {
+            const filtered = Object.values(currentFilters()).some(v => v && v !== 'all');
+            jobResultsDiv.innerHTML = `<p class="text-gray-500 text-sm">${filtered ? 'No saved jobs match these filters.' : 'No saved jobs yet. Scrape some above to get started.'}</p>`;
+            jobPagination.innerHTML = '';
+            jobCount.textContent = '';
+            updateBatchBar();
+            return;
+        }
+        const visible = allJobs.slice(0, shownCount);
+        jobResultsDiv.innerHTML = visible.map(jobCardHtml).join('');
+        jobCount.textContent = `Showing ${visible.length} of ${allJobs.length}`;
+        jobPagination.innerHTML = shownCount < allJobs.length
+            ? `<button type="button" id="loadMoreJobsBtn" class="btn btn-gray btn-sm">Show ${Math.min(JOBS_PER_PAGE, allJobs.length - shownCount)} more</button>`
+            : '';
+        const loadMore = $('loadMoreJobsBtn');
+        if (loadMore) loadMore.addEventListener('click', () => { shownCount += JOBS_PER_PAGE; renderJobs(); });
+        updateBatchBar();
+    }
+
+    function jobById(id) {
+        return allJobs.find(j => String(j.id) === String(id));
+    }
+
+    // Event delegation: one listener for every job card.
+    jobResultsDiv.addEventListener('change', (e) => {
+        if (!e.target.classList.contains('job-select-checkbox')) return;
+        const id = e.target.value;
+        if (e.target.checked) selectedJobIds.add(id); else selectedJobIds.delete(id);
+        e.target.closest('.job-card').classList.toggle('is-selected', e.target.checked);
+        updateBatchBar();
+    });
+
+    jobResultsDiv.addEventListener('click', async (e) => {
+        const button = e.target.closest('[data-action]');
+        if (!button) return;
+        const card = button.closest('.job-card');
+        const job = jobById(card.dataset.jobId);
+        if (!job) return;
+
+        if (button.dataset.action === 'tailor') {
+            linkJob(job);
+        } else if (button.dataset.action === 'toggle-applied') {
+            button.disabled = true;
+            const { ok, data } = await api(`/api/jobs/${job.id}/toggle-applied`, { method: 'POST' }).catch(err => ({ ok: false, data: { error: err.message } }));
+            if (ok) {
+                job.applied = data.new_status;
+                if (filterAppliedStatusSelect.value !== 'all') fetchAndDisplayJobs();
+                else card.outerHTML = jobCardHtml(job);
+            } else {
+                toast(data.error || 'Could not update status.', 'error');
+                button.disabled = false;
+            }
+        } else if (button.dataset.action === 'delete') {
+            if (!confirm(`Delete "${job.title}" from your saved jobs?`)) return;
+            const { ok, data } = await api(`/api/jobs/${job.id}`, { method: 'DELETE' }).catch(err => ({ ok: false, data: { error: err.message } }));
+            if (ok) {
+                selectedJobIds.delete(String(job.id));
+                if (linkedJobIdInput.value === String(job.id)) unlinkJob();
+                allJobs = allJobs.filter(j => j !== job);
+                renderJobs();
+                toast('Job deleted.', 'info', 2500);
+            } else {
+                toast(data.error || 'Could not delete job.', 'error');
+            }
+        }
+    });
+
+    selectAllCheckbox.addEventListener('change', () => {
+        allJobs.slice(0, shownCount).forEach(job => {
+            if (selectAllCheckbox.checked) selectedJobIds.add(String(job.id)); else selectedJobIds.delete(String(job.id));
+        });
+        renderJobs();
+    });
+
+    clearSelectionBtn.addEventListener('click', () => {
+        selectedJobIds.clear();
+        selectAllCheckbox.checked = false;
+        renderJobs();
+    });
+
+    const debouncedFetch = debounce(fetchAndDisplayJobs, 300);
+    [filterKeywordInput, filterLocationInput].forEach(input => input.addEventListener('input', debouncedFetch));
+    [filterSourceSelect, filterAppliedStatusSelect].forEach(select => select.addEventListener('change', fetchAndDisplayJobs));
+    clearFiltersButton.addEventListener('click', () => {
+        filterKeywordInput.value = '';
+        filterLocationInput.value = '';
+        filterSourceSelect.value = '';
+        filterAppliedStatusSelect.value = 'all';
+        fetchAndDisplayJobs();
+    });
+
+    // --- Job scraping ---
+    const scrapeFields = ['searchTerm', 'location', 'resultsWanted', 'hoursOld'];
+    const savedScrape = storage.get('scrape', {});
+    scrapeFields.forEach(id => { if (savedScrape[id] !== undefined) $(id).value = savedScrape[id]; });
+    if (Array.isArray(savedScrape.sites)) {
+        document.querySelectorAll('.site-cb').forEach(cb => { cb.checked = savedScrape.sites.includes(cb.value); });
+    }
+    if (savedScrape.isRemote !== undefined) $('isRemote').checked = !!savedScrape.isRemote;
+
+    jobScrapeForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const sites = [...document.querySelectorAll('.site-cb:checked')].map(cb => cb.value);
+        if (sites.length === 0) { toast('Pick at least one site to scrape.', 'error'); return; }
+
+        const values = Object.fromEntries(scrapeFields.map(id => [id, $(id).value]));
+        storage.set('scrape', { ...values, sites, isRemote: $('isRemote').checked });
+
+        const params = new URLSearchParams({
+            search_term: values.searchTerm,
+            location: values.location,
+            site_names: sites.join(','),
+            results_wanted: values.resultsWanted || 5,
+        });
+        if (values.hoursOld) params.append('hours_old', values.hoursOld);
+        if ($('isRemote').checked) params.append('is_remote', 'true');
+
+        setLoading(scrapeBtn, true, 'Scraping...');
+        try {
+            const { ok, data } = await api(`/api/scrape-jobs?${params.toString()}`);
+            if (ok) {
+                const n = (data.jobs || []).length;
+                toast(n ? `Saved ${n} new job${n === 1 ? '' : 's'}.` : 'No new jobs found (they may already be in your list).', n ? 'success' : 'info');
+                await fetchAndDisplayJobs();
+            } else {
+                toast(data.error || 'Failed to scrape jobs.', 'error', 9000);
+            }
+        } catch (err) {
+            toast(err.message, 'error');
+        } finally {
+            setLoading(scrapeBtn, false);
+        }
+    });
+
+    // --- Batch CV generation ---
+    function updateBatchBar() {
+        const count = selectedJobIds.size;
+        batchBar.classList.toggle('hidden', count === 0 && !batchRunning);
+        document.body.classList.toggle('has-batch-bar', count > 0 || batchRunning);
+        if (batchRunning) return;
+        const cvReady = hasCv();
+        batchGenerateCVsButton.disabled = !(cvReady && count > 0);
+        batchGenerateCVsButton.textContent = `Generate ${count} tailored CV${count === 1 ? '' : 's'}`;
+        batchCvHelpText.textContent = cvReady
+            ? `${count} job${count === 1 ? '' : 's'} selected.`
+            : `${count} job${count === 1 ? '' : 's'} selected. Add your CV in step 1 to generate tailored CVs.`;
+        const visible = allJobs.slice(0, shownCount);
+        selectAllCheckbox.checked = visible.length > 0 && visible.every(j => selectedJobIds.has(String(j.id)));
+    }
+
+    batchGenerateCVsButton.addEventListener('click', async () => {
+        if (!hasCv()) { toast('Please add your CV in step 1 first.', 'error'); return; }
+        const ids = [...selectedJobIds];
+        if (ids.length === 0) return;
+        const model = selectedModel();
+        if (!model) { toast('Please choose a model.', 'error'); return; }
+
+        const formData = new FormData();
+        appendCv(formData);
+        ids.forEach(id => formData.append('job_ids[]', id));
+        formData.append('model', model);
+        formData.append('include_summary', includeSummaryInput.checked ? 'true' : 'false');
+
+        batchRunning = true;
+        batchCvResultsDiv.innerHTML = '';
+        setLoading(batchGenerateCVsButton, true, `Generating ${ids.length} CV${ids.length === 1 ? '' : 's'}...`);
+        batchCvHelpText.textContent = 'This can take a few minutes. You can keep browsing.';
+        try {
+            const { ok, data } = await api('/api/batch-generate-cvs', { method: 'POST', body: formData });
+            if (!ok || !data.results) {
+                toast(data.error || 'Batch generation failed.', 'error', 9000);
+                return;
+            }
+            const successes = data.results.filter(r => r.status === 'success');
+            const failures = data.results.filter(r => r.status !== 'success');
+            batchCvResultsDiv.innerHTML = `
+                <div class="border rounded-lg p-4 bg-gray-50">
+                    <h4 class="font-semibold mb-2">Batch results: ${successes.length} succeeded${failures.length ? `, ${failures.length} failed` : ''}</h4>
+                    <ul class="text-sm space-y-1">
+                        ${data.results.map(r => `<li>
+                            <span class="badge ${r.status === 'success' ? 'badge-green' : 'badge-red'}">${r.status === 'success' ? 'OK' : 'Error'}</span>
+                            ${escapeHtml(r.job_title_summary || 'Job ' + r.job_id)}
+                            ${r.pdf_url ? ` &middot; <a class="text-blue-600 hover:underline" href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>` : ''}
+                            ${r.message ? ` <span class="text-red-600">${escapeHtml(r.message)}</span>` : ''}
+                        </li>`).join('')}
+                    </ul>
+                </div>`;
+            toast(`Generated ${successes.length} of ${data.results.length} CVs.`, failures.length ? 'info' : 'success');
+            successes.forEach(r => selectedJobIds.delete(String(r.job_id)));
+            await fetchAndDisplayJobs();
+            successes.forEach(r => {
+                const card = jobResultsDiv.querySelector(`.job-card[data-job-id="${CSS.escape(String(r.job_id))}"]`);
+                if (card) { card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 2500); }
+            });
+        } catch (err) {
+            toast(err.message, 'error');
+        } finally {
+            batchRunning = false;
+            setLoading(batchGenerateCVsButton, false);
+            updateBatchBar();
+        }
+    });
 
     // --- Initial Load ---
-    if (jobResultsDiv) { // Basic check, specific elements for filters/batch are checked inside their setup.
-        fetchAndDisplayJobs();
-    } else {
-        console.warn("jobResultsDiv not found on page load. Initial job fetch skipped.");
-    }
-    updateBatchButtonState(); // Initial state for the batch button
+    loadModels();
+    fetchAndDisplayJobs();
+    updateBatchBar();
 });

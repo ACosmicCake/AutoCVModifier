@@ -1,88 +1,110 @@
 # app/job_scraper.py
-import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from jobspy import scrape_jobs as jobspy_scrape
-import pandas as pd # jobspy returns a pandas DataFrame
-import requests # For catching specific network exceptions like ReadTimeout
+import logging
+import math
+import traceback
+
+import requests  # For catching specific network exceptions like ReadTimeout
+
+try:
+    from jobspy import scrape_jobs as jobspy_scrape  # provided by the `python-jobspy` package
+except ImportError:  # keep the rest of the app usable if the scraper isn't installed
+    jobspy_scrape = None
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_JOBSPY_SITES = {"indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"}
 
+
+def _clean_value(value):
+    """Converts pandas/numpy values (NaN, Timestamps, numpy scalars) into JSON-friendly Python values."""
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if hasattr(value, "isoformat"):  # date, datetime, pandas Timestamp
+        try:
+            return value.isoformat()
+        except (TypeError, ValueError):
+            return str(value)
+    if hasattr(value, "item"):  # numpy scalar
+        try:
+            return _clean_value(value.item())
+        except (TypeError, ValueError):
+            return str(value)
+    return value
+
+
 def scrape_online_jobs(
-    site_names: list[str] = ["indeed", "linkedin"],
+    site_names: list[str] | None = None,
     search_term: str = "software engineer",
     location: str = "USA",
     results_wanted: int = 5,
-    country_indeed: str = 'USA', # Example of a site-specific parameter
-    linkedin_fetch_description: bool = True # New parameter
-    ) -> list[dict] | None:
+    country_indeed: str = 'USA',
+    linkedin_fetch_description: bool = True,
+    offset: int = 0,
+    hours_old: int | None = None,
+    is_remote: bool = False,
+    job_type: str | None = None,
+) -> list[dict] | None:
     """
-    Scrapes jobs from specified sites using JobSpy.
+    Scrapes jobs from the given sites using JobSpy.
 
-    Args:
-        site_names: A list of site names to scrape (e.g., ["indeed", "linkedin"]).
-        search_term: The job title or keywords to search for.
-        location: The location to search for jobs in.
-        results_wanted: The desired number of results from each site.
-        country_indeed: Country for Indeed searches (JobSpy specific parameter).
-
-    Returns:
-        A list of job dictionaries, or None if an error occurs or no jobs are found.
+    Returns a list of job dicts (possibly empty), or None if the scraper failed.
+    `offset` skips that many results per site, so repeated calls can page through listings.
     """
-    if not site_names: # Initial check if site_names is empty or None from the start
-        print("Error: No site names provided for job scraping.")
-        return None # Or [] if preferred for consistency
+    if jobspy_scrape is None:
+        logger.error("JobSpy is not installed. Run: pip install python-jobspy")
+        return None
 
+    site_names = site_names or ["indeed", "linkedin"]
     processed_site_names = []
     for name in site_names:
-        if isinstance(name, str):
-            cleaned_name = name.strip().lower()
-            if cleaned_name in SUPPORTED_JOBSPY_SITES:
-                if cleaned_name not in processed_site_names: # Avoid duplicates
-                    processed_site_names.append(cleaned_name)
-            else:
-                print(f"Warning: Invalid or unsupported site name '{name}' provided. It will be ignored.")
+        cleaned_name = str(name).strip().lower()
+        if cleaned_name in SUPPORTED_JOBSPY_SITES:
+            if cleaned_name not in processed_site_names:
+                processed_site_names.append(cleaned_name)
         else:
-            print(f"Warning: Non-string site name '{name}' found in list. It will be ignored.")
+            logger.warning("Unsupported site name '%s' ignored.", name)
 
     if not processed_site_names:
-        print("Error: No valid site names remaining after validation. Please provide supported sites.")
-        return [] # Return empty list as no valid sites to scrape
+        logger.error("No valid site names remaining after validation.")
+        return []
 
-    site_names_to_scrape = processed_site_names
+    logger.info("Scraping %s for '%s' in '%s' (results_wanted=%s, offset=%s)",
+                processed_site_names, search_term, location, results_wanted, offset)
 
-    print(f"Attempting to scrape jobs from {site_names_to_scrape} for '{search_term}' in '{location}', results_wanted={results_wanted}")
+    kwargs = dict(
+        site_name=processed_site_names,
+        search_term=search_term,
+        location=location,
+        results_wanted=results_wanted,
+        country_indeed=country_indeed,
+        linkedin_fetch_description=linkedin_fetch_description,
+        offset=offset,
+        is_remote=is_remote,
+        verbose=0,
+    )
+    if hours_old:
+        kwargs["hours_old"] = hours_old
+    if job_type:
+        kwargs["job_type"] = job_type
+    if "google" in processed_site_names:
+        kwargs["google_search_term"] = f"{search_term} jobs near {location}"
 
     try:
-        jobs_df = jobspy_scrape(
-            site_name=site_names_to_scrape,
-            search_term=search_term,
-            location=location,
-            results_wanted=results_wanted,
-            country_indeed=country_indeed, # Pass site-specific params if needed
-            linkedin_fetch_description=linkedin_fetch_description # Added parameter
-            # Add other relevant parameters for jobspy if required by the UI/feature set
-            # e.g., distance_km, job_type
-        )
-
-        if jobs_df is not None and not jobs_df.empty:
-            # Convert DataFrame to a list of dictionaries for easier JSON response
-            # Handle potential NaN values that are not JSON serializable directly
-            jobs_df_filled = jobs_df.fillna('') # Replace NaN with empty strings
-            return jobs_df_filled.to_dict(orient='records')
-        elif jobs_df is not None and jobs_df.empty:
-            print("No jobs found matching the criteria.")
-            return [] # Return empty if no jobs found but no error occurred
-        else: # Should not happen if jobspy_scrape returns None on error
-            print("Job scraping returned None, indicating an issue.")
-            return None
+        jobs_df = jobspy_scrape(**kwargs)
     except requests.exceptions.ReadTimeout as rte:
-        print(f"Timeout error while scraping jobs: {rte}")
-        print("This could be due to network issues or the site (e.g., Indeed) being slow/blocking the request.")
-        # For now, a general timeout message. Consistent return with other errors.
+        logger.error("Timeout while scraping jobs (the site may be slow or blocking requests): %s", rte)
         return None
     except Exception as e:
-        print(f"An unexpected error occurred while scraping jobs using JobSpy: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("Unexpected error while scraping jobs with JobSpy: %s\n%s", e, traceback.format_exc())
         return None
+
+    if jobs_df is None:
+        return None
+    if jobs_df.empty:
+        logger.info("No jobs found matching the criteria.")
+        return []
+
+    records = jobs_df.to_dict(orient='records')
+    return [{key: _clean_value(value) for key, value in record.items()} for record in records]

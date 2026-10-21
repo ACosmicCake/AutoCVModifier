@@ -104,8 +104,12 @@ class TestApiEndpoints:
         assert saved_job_with_dates is not None
         assert saved_job_with_dates['source'] == mock_job_with_dates_from_scraper['site']
 
-        # Check raw_job_data serialization for dates
-        raw_data_dict = json.loads(saved_job_with_dates['raw_job_data'])
+        # Check raw_job_data serialization for dates (get_jobs doesn't return raw data, so read it directly)
+        from app.database import get_db_connection
+        conn = get_db_connection()
+        raw_json = conn.execute("SELECT raw_job_data FROM jobs WHERE id = ?", (saved_job_with_dates['id'],)).fetchone()[0]
+        conn.close()
+        raw_data_dict = json.loads(raw_json)
         assert raw_data_dict['date_posted'] == "2023-03-10"
         assert raw_data_dict['last_seen'] == "2023-03-15T12:00:00"
         assert raw_data_dict['misc_details']['event_date'] == "2023-04-01"
@@ -325,156 +329,255 @@ class TestApiEndpoints:
         json_data = response.get_json()
         assert "Database operation failed" in json_data['error']
 
+    # --- Batch CV generation ---
+    def _save_jobs(self, *jobs):
+        from app.database import save_job
+        return [save_job(job) for job in jobs]
 
     @patch('app.main.process_cv_and_jd')
     @patch('app.main.generate_cv_pdf_from_json_string')
     def test_batch_generate_cvs_success(self, mock_generate_pdf, mock_process_cv, client):
-        # Mock Gemini and PDF generation
-        mock_process_cv.return_value = '{"cv_field": "tailored_value"}' # JSON string
-        mock_generate_pdf.return_value = True # PDF generation success
+        mock_process_cv.return_value = '{"CV": {"PersonalInformation": {"Name": "Jane Doe"}}}'
+        mock_generate_pdf.return_value = True
+        job_ids = self._save_jobs(DB_JOB_1, DB_JOB_2)
 
-        # Create a dummy CV file for upload
-        dummy_cv_content = "This is a dummy CV content."
-        # Need to create a temp file that can be "uploaded"
-        # For simplicity, we use BytesIO to simulate a file.
         from io import BytesIO
-        cv_file = (BytesIO(dummy_cv_content.encode('utf-8')), 'dummy_cv.txt')
-
-        job_descs = ["Job desc 1 for SWE", "Job desc 2 for DS"]
-        job_titles = ["SWE Role", "DS Role"]
-
         data = {
-            'cv_file': cv_file,
-            'job_descriptions[]': job_descs,
-            'job_titles[]': job_titles
+            'cv_file': (BytesIO(b"This is a dummy CV content."), 'dummy_cv.txt'),
+            'job_ids[]': [str(i) for i in job_ids],
+            'model': 'gemini/gemini-2.5-pro',
+            'include_summary': 'true',
         }
-
         response = client.post('/api/batch-generate-cvs', data=data, content_type='multipart/form-data')
 
         assert response.status_code == 200
-        json_data = response.get_json()
-        assert 'results' in json_data
-        assert len(json_data['results']) == 2
-
-        for i, result in enumerate(json_data['results']):
+        results = response.get_json()['results']
+        assert len(results) == 2
+        for result, job_id, job in zip(results, job_ids, (DB_JOB_1, DB_JOB_2)):
             assert result['status'] == 'success'
-            assert result['job_title_summary'] == job_titles[i]
+            assert result['job_id'] == job_id
+            assert result['job_title_summary'] == job['title']
             assert '/api/download-cv/' in result['pdf_url']
 
+        # The selected model and the job's own description (from the DB) reach the tailoring call.
         assert mock_process_cv.call_count == 2
-        assert mock_generate_pdf.call_count == 2
-        # Check args for one of the calls (optional, more detailed)
-        # args_cv, kwargs_cv = mock_process_cv.call_args_list[0]
-        # assert dummy_cv_content in args_cv # cv_content_str
-        # assert job_descs[0] in args_cv      # jd_content
+        first_args = mock_process_cv.call_args_list[0].args
+        assert first_args[1] == DB_JOB_1['description']
+        assert first_args[3] == 'gemini/gemini-2.5-pro'
+        assert first_args[4] is True
 
+        # Generated CVs are linked to their jobs.
+        jobs = client.get('/api/jobs').get_json()['jobs']
+        assert all(job['cv_filename'] for job in jobs)
 
     @patch('app.main.process_cv_and_jd')
     @patch('app.main.generate_cv_pdf_from_json_string')
     def test_batch_generate_cvs_partial_failure(self, mock_generate_pdf, mock_process_cv, client):
         # First job succeeds, second fails at process_cv_and_jd, third fails at pdf_gen
-        mock_process_cv.side_effect = [
-            '{"cv_field": "success_cv"}', # Success for job 1
-            None,                         # process_cv_and_jd fails for job 2
-            '{"cv_field": "failure_pdf_cv"}' # Success for job 3 (process)
-        ]
-        mock_generate_pdf.side_effect = [
-            True, # PDF success for job 1
-            # No call for job 2 as process_cv failed
-            False # PDF fails for job 3
-        ]
+        mock_process_cv.side_effect = ['{"cv_field": "success_cv"}', None, '{"cv_field": "failure_pdf_cv"}']
+        mock_generate_pdf.side_effect = [True, False]
+        job_ids = self._save_jobs(DB_JOB_1, DB_JOB_2, DB_JOB_3)
 
         from io import BytesIO
-        cv_file = (BytesIO(b"dummy cv content"), 'dummy.txt')
-        job_descs = ["Desc 1", "Desc 2", "Desc 3"]
-        job_titles = ["Title 1", "Title 2", "Title 3"]
-
-        data = {
-            'cv_file': cv_file,
-            'job_descriptions[]': job_descs,
-            'job_titles[]': job_titles
-        }
+        data = {'cv_file': (BytesIO(b"dummy cv content"), 'dummy.txt'), 'job_ids[]': [str(i) for i in job_ids]}
         response = client.post('/api/batch-generate-cvs', data=data, content_type='multipart/form-data')
 
         assert response.status_code == 200
-        json_data = response.get_json()
-        results = json_data['results']
-        assert len(results) == 3
-
-        assert results[0]['status'] == 'success'
-        assert results[0]['job_title_summary'] == job_titles[0]
+        results = response.get_json()['results']
+        assert [r['status'] for r in results] == ['success', 'error', 'error']
         assert '/api/download-cv/' in results[0]['pdf_url']
-
-        assert results[1]['status'] == 'error'
-        assert results[1]['job_title_summary'] == job_titles[1]
         assert "Failed to tailor CV" in results[1]['message']
-
-        assert results[2]['status'] == 'error'
-        assert results[2]['job_title_summary'] == job_titles[2]
         assert "PDF generation failed" in results[2]['message']
+        assert mock_process_cv.call_count == 3
+        assert mock_generate_pdf.call_count == 2
 
-        assert mock_process_cv.call_count == 3 # Called for all three
-        assert mock_generate_pdf.call_count == 2 # Called for 1 and 3
+    @patch('app.main.process_cv_and_jd')
+    def test_batch_generate_cvs_llm_error_is_reported_per_job(self, mock_process_cv, client):
+        from app.llm import LLMError
+        mock_process_cv.side_effect = LLMError("rate limited")
+        job_ids = self._save_jobs(DB_JOB_1)
 
+        from io import BytesIO
+        data = {'cv_file': (BytesIO(b"cv"), 'cv.txt'), 'job_ids[]': [str(job_ids[0])]}
+        result = client.post('/api/batch-generate-cvs', data=data, content_type='multipart/form-data').get_json()['results'][0]
+        assert result['status'] == 'error'
+        assert "rate limited" in result['message']
+
+    @patch('app.main.process_cv_and_jd')
+    def test_batch_generate_cvs_unknown_and_invalid_ids(self, mock_process_cv, client):
+        data = {'cv_text': 'pasted cv', 'job_ids[]': ['99999', 'abc']}
+        results = client.post('/api/batch-generate-cvs', data=data, content_type='multipart/form-data').get_json()['results']
+        assert results[0]['message'] == "Job not found."
+        assert "Invalid job_id" in results[1]['message']
+        mock_process_cv.assert_not_called()
 
     def test_batch_generate_cvs_no_cv_file(self, client):
-        response = client.post('/api/batch-generate-cvs', data={
-            'job_descriptions[]': ["Desc 1"],
-            'job_titles[]': ["Title 1"]
-        }, content_type='multipart/form-data')
+        response = client.post('/api/batch-generate-cvs', data={'job_ids[]': ["1"]}, content_type='multipart/form-data')
         assert response.status_code == 400
-        json_data = response.get_json()
-        assert "No CV file part" in json_data['error']
+        assert "No CV file part" in response.get_json()['error']
 
     def test_batch_generate_cvs_no_job_descriptions(self, client):
         from io import BytesIO
-        cv_file = (BytesIO(b"dummy cv content"), 'dummy.txt')
-        response = client.post('/api/batch-generate-cvs', data={
-            'cv_file': cv_file
-        }, content_type='multipart/form-data')
+        response = client.post('/api/batch-generate-cvs', data={'cv_file': (BytesIO(b"dummy cv content"), 'dummy.txt')},
+                               content_type='multipart/form-data')
         assert response.status_code == 400
-        json_data = response.get_json()
-        assert "No job descriptions provided" in json_data['error']
-
-    # Test for GOOGLE_API_KEY missing can be added if mock_google_api_key is not session-wide
-    # or if specific endpoints need to be tested without it.
-    # For that, you might need a way to 'unpatch' or run specific tests without the fixture.
-    # Example:
-    # def test_endpoint_fails_if_no_api_key(self, client, monkeypatch):
-    #     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    #     # If app loads config at startup, need to re-create app or modify its config
-    #     # This is more complex and depends on app structure.
-    #     # For now, assume mock_google_api_key fixture covers most cases or real key is present for testing.
-    #     pass
+        assert "No job descriptions provided" in response.get_json()['error']
 
     def test_cv_format_file_missing(self, client, app, monkeypatch):
         """Test server error if CV_FORMAT_FILE_PATH is incorrect."""
-        # Temporarily change the CV_FORMAT_FILE_PATH to something invalid
-        original_path = app.config['CV_FORMAT_FILE_PATH']
         monkeypatch.setitem(app.config, 'CV_FORMAT_FILE_PATH', 'non_existent_cv_format.json')
-
         from io import BytesIO
-        cv_file = (BytesIO(b"dummy cv content"), 'dummy.txt')
-        job_descs = ["Job desc 1"]
-        job_titles = ["Title 1"]
-        data = {'cv_file': cv_file, 'job_descriptions[]': job_descs, 'job_titles[]': job_titles}
 
-        # Test /api/tailor-cv (as it's simpler for this case)
-        # Need to add job_description for this endpoint
-        data_single = data.copy()
-        data_single['job_description'] = job_descs[0] # Use first job_desc
-        del data_single['job_descriptions[]'] # remove batch fields
-        del data_single['job_titles[]']
-
-        response_single = client.post('/api/tailor-cv', data=data_single, content_type='multipart/form-data')
+        response_single = client.post('/api/tailor-cv', data={
+            'cv_file': (BytesIO(b"dummy cv content"), 'dummy.txt'), 'job_description': "Job desc 1",
+        }, content_type='multipart/form-data')
         assert response_single.status_code == 500
         assert "CV format file not found" in response_single.get_json()['error']
 
-        # Test /api/batch-generate-cvs
-        response_batch = client.post('/api/batch-generate-cvs', data=data, content_type='multipart/form-data')
+        response_batch = client.post('/api/batch-generate-cvs', data={
+            'cv_file': (BytesIO(b"dummy cv content"), 'dummy.txt'), 'job_descriptions[]': ["Job desc 1"],
+        }, content_type='multipart/form-data')
         assert response_batch.status_code == 500
         assert "CV format file not found" in response_batch.get_json()['error']
 
-        # Restore original path (monkeypatch should do this, but good practice if not using setitem)
-        # app.config['CV_FORMAT_FILE_PATH'] = original_path
-        # For setitem, monkeypatch handles restoration.
+    # --- Single CV tailoring ---
+    @patch('app.main.process_cv_and_jd')
+    def test_tailor_cv_success_generates_pdf_and_json(self, mock_process_cv, client):
+        mock_process_cv.return_value = json.dumps({"CV": {
+            "PersonalInformation": {"Name": "Jane Doe"}, "JobTitle": "Data Engineer",
+            "Skills": [{"SkillCategory": "Languages", "Skill": ["Python", "a<b"]}],
+        }})
+        from io import BytesIO
+        response = client.post('/api/tailor-cv', data={
+            'cv_file': (BytesIO(b"my cv"), 'cv.txt'), 'job_description': "Build data pipelines",
+            'model': 'gemini/gemini-2.5-flash',
+        }, content_type='multipart/form-data')
+
+        assert response.status_code == 200, response.get_json()
+        body = response.get_json()
+        assert body['pdf_download_url'] == '/api/download-cv/CV_Data_Engineer_Jane_Doe.pdf'
+        assert body['json_download_url'].endswith('.json')
+        assert body['tailored_cv_json']['CV']['PersonalInformation']['Name'] == "Jane Doe"
+        assert mock_process_cv.call_args.args[3] == 'gemini/gemini-2.5-flash'
+
+        pdf = client.get(body['pdf_download_url'])
+        assert pdf.status_code == 200
+        assert pdf.data.startswith(b'%PDF')
+        assert client.get(body['json_download_url']).status_code == 200
+
+        # A second run never overwrites the first file.
+        second = client.post('/api/tailor-cv', data={
+            'cv_text': "pasted cv", 'job_description': "Build data pipelines",
+        }, content_type='multipart/form-data').get_json()
+        assert second['pdf_download_url'] == '/api/download-cv/CV_Data_Engineer_Jane_Doe_1.pdf'
+
+    @patch('app.main.process_cv_and_jd')
+    def test_tailor_cv_for_saved_job_uses_its_description_and_links_cv(self, mock_process_cv, client):
+        mock_process_cv.return_value = '{"CV": {"PersonalInformation": {"Name": "Sam"}}}'
+        job_id = self._save_jobs(DB_JOB_1)[0]
+
+        response = client.post('/api/tailor-cv', data={'cv_text': "cv", 'job_id': str(job_id)},
+                               content_type='multipart/form-data')
+        assert response.status_code == 200
+        assert mock_process_cv.call_args.args[1] == DB_JOB_1['description']
+        job = client.get('/api/jobs').get_json()['jobs'][0]
+        assert job['cv_filename'] == response.get_json()['pdf_download_url'].rsplit('/', 1)[1]
+
+    @patch('app.main.process_cv_and_jd')
+    def test_tailor_cv_llm_failure_returns_502(self, mock_process_cv, client):
+        from app.llm import LLMError
+        mock_process_cv.side_effect = LLMError("model not found")
+        response = client.post('/api/tailor-cv', data={'cv_text': "cv", 'job_description': "jd"},
+                               content_type='multipart/form-data')
+        assert response.status_code == 502
+        assert "model not found" in response.get_json()['error']
+
+    def test_tailor_cv_without_provider_key_returns_400(self, client, monkeypatch):
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        response = client.post('/api/tailor-cv', data={'cv_text': "cv", 'job_description': "jd"},
+                               content_type='multipart/form-data')
+        assert response.status_code == 400
+        assert "API_KEY" in response.get_json()['error']
+
+    def test_tailor_cv_rejects_bad_file_type(self, client):
+        from io import BytesIO
+        response = client.post('/api/tailor-cv', data={'cv_file': (BytesIO(b"x"), 'cv.exe'), 'job_description': "jd"},
+                               content_type='multipart/form-data')
+        assert response.status_code == 400
+        assert "Invalid file type" in response.get_json()['error']
+
+    def test_render_pdf_from_edited_json(self, client):
+        cv = {"CV": {"PersonalInformation": {"Name": "R&D <Lead>"},
+                     "ProfessionalExperience": [{"CompanyName": "AT&T", "ResponsibilitiesAndAchievements": ["Used <b> tags", "x<y"]}]}}
+        response = client.post('/api/render-pdf', json={'cv_json': cv})
+        assert response.status_code == 200
+        assert client.get(response.get_json()['pdf_download_url']).data.startswith(b'%PDF')
+
+        assert client.post('/api/render-pdf', json={'cv_json': '{not json'}).status_code == 400
+
+    # --- Downloads ---
+    def test_download_rejects_traversal_and_missing_files(self, client):
+        assert client.get('/api/download-cv/..%2F..%2Fsecret.pdf').status_code == 400
+        assert client.get('/api/download-cv/does_not_exist.pdf').status_code == 404
+        assert client.get('/api/download-json/does_not_exist.json').status_code == 404
+
+    # --- Follow-ups ---
+    @patch('app.main.answer_question')
+    def test_answer_question_answers_each_question(self, mock_answer, client):
+        mock_answer.side_effect = lambda cv, jd, q, model: f"answer to {q}"
+        response = client.post('/api/answer-question', json={
+            'cv_json': {"CV": {}}, 'job_description': "jd", 'question': ["Why us?", "Why you?"], 'model': 'gemini/x',
+        })
+        assert response.status_code == 200
+        body = response.get_json()
+        assert [a['question'] for a in body['answers']] == ["Why us?", "Why you?"]
+        assert body['answer'] == ["answer to Why us?", "answer to Why you?"]
+
+    @patch('app.main.generate_cover_letter')
+    def test_cover_letter(self, mock_cover, client):
+        mock_cover.return_value = "Dear team"
+        response = client.post('/api/generate-cover-letter', json={'cv_json': {"CV": {}}, 'job_description': "jd"})
+        assert response.status_code == 200
+        assert response.get_json()['cover_letter'] == "Dear team"
+        assert client.post('/api/generate-cover-letter', json={'cv_json': {}}).status_code == 400
+
+    # --- Jobs CRUD / meta ---
+    def test_delete_job_and_get_job(self, client):
+        job_id = self._save_jobs(DB_JOB_1)[0]
+        assert client.get(f'/api/jobs/{job_id}').get_json()['job']['title'] == DB_JOB_1['title']
+        assert client.delete(f'/api/jobs/{job_id}').status_code == 200
+        assert client.get(f'/api/jobs/{job_id}').status_code == 404
+        assert client.delete(f'/api/jobs/{job_id}').status_code == 404
+
+    def test_jobs_with_multiple_cvs_are_listed_once(self, client):
+        from app.database import save_generated_cv
+        job_id = self._save_jobs(DB_JOB_1)[0]
+        save_generated_cv(job_id, "old.pdf", "{}")
+        save_generated_cv(job_id, "new.pdf", "{}")
+        jobs = client.get('/api/jobs').get_json()['jobs']
+        assert len(jobs) == 1
+        assert jobs[0]['cv_filename'] == "new.pdf"
+
+    def test_models_endpoint(self, client):
+        body = client.get('/api/models').get_json()
+        assert body['providers'] == {'google': True, 'openrouter': False}
+        assert any(m['id'] == body['default'] for m in body['models'])
+        openrouter_models = [m for m in body['models'] if m['provider'] == 'openrouter']
+        assert openrouter_models and not any(m['available'] for m in openrouter_models)
+
+    @patch('app.main.scrape_online_jobs')
+    def test_scrape_pages_forward_with_offset(self, mock_scrape, client):
+        """Repeated scraper calls must page forward rather than re-fetching the same results."""
+        def page(offset):
+            return [{'site': 'indeed', 'job_url': f'http://example.com/p/{offset + i}', 'title': f'Job {offset + i}'}
+                    for i in range(15)]
+        self._save_jobs(*[{'title': 't', 'url': f'http://example.com/p/{i}', 'source': 'indeed'} for i in range(15)])
+        mock_scrape.side_effect = lambda **kw: page(kw['offset'])
+
+        response = client.get('/api/scrape-jobs?results_wanted=3&site_names=indeed')
+        assert response.status_code == 200
+        assert [j['url'] for j in response.get_json()['jobs']] == [f'http://example.com/p/{i}' for i in (15, 16, 17)]
+        assert [c.kwargs['offset'] for c in mock_scrape.call_args_list] == [0, 15]
+
+

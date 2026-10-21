@@ -1,118 +1,87 @@
-# AI CV Tailor & Job Assistant Web Application
+# AI CV Tailor & Job Assistant
 
-## Overview
-This project provides a web-based user interface for the AI-Powered CV Tailoring Program. It allows users to:
-*   Tailor their CV to specific job descriptions using Google's Gemini API.
-*   Generate a PDF of the tailored CV.
-*   Scrape job listings from popular job boards using JobSpy.
+A local web app that tailors your CV to a specific job with an LLM, renders it as a clean PDF, writes cover letters and application answers, and helps you scrape and track job listings.
 
-The core application logic is built with Python and Flask, with a user-friendly frontend.
+## Features
 
-## Project Structure
-The main application code is structured in the repository root.
-```
-/
-|-- app/            # Contains the Flask application modules
-|   |-- static/     # CSS, JavaScript, images
-|   |-- templates/  # HTML templates
-|   |-- __init__.py
-|   |-- main.py     # Flask app routes and core logic
-|   |-- cv_utils.py # CV processing and Gemini API interaction
-|   |-- pdf_generator.py # PDF generation for CVs
-|   |-- job_scraper.py   # Job scraping logic
-|-- instance/       # Instance-specific config (e.g., uploads, generated PDFs)
-|-- .env            # Environment variables (GOOGLE_API_KEY, SECRET_KEY)
-|-- CV_format.json  # Structure for the CV (used by the app)
-|-- requirements.txt # Python dependencies
-|-- run.py          # Script to run the Flask development server
-|-- README.md       # This file
-|-- job_description.txt # Example job description file (can be used for testing UI)
-|-- my_cv.json          # Example CV file (can be used for testing UI)
-|-- my_cv.txt           # Example CV file (can be used for testing UI)
-```
+* **Tailor your CV** to a pasted job description or to a job you saved. Upload a PDF, DOCX, TXT or JSON CV, or paste the text.
+* **Choose your model**: Google Gemini directly, or any model on [OpenRouter](https://openrouter.ai/models) (Claude, GPT, Grok, Kimi, Qwen, DeepSeek, free models, or a custom model id).
+* **Truthful by design**: the prompt reframes and prioritises your real experience. It doesn't invent employers, titles, dates or numbers.
+* **Optional summary section**, toggled per run.
+* **Review and edit**: preview the PDF, edit the tailored content (JSON) and re-render the PDF, and download the JSON.
+* **Cover letters and application answers**, one answer per question, with copy buttons.
+* **Job scraping** from LinkedIn, Indeed, Glassdoor, ZipRecruiter and Google (via JobSpy), with "posted within" and remote filters. Results are saved to a local SQLite database without duplicates.
+* **Job tracker**: live search and filters, applied/not-applied status, delete, and one-click "Tailor CV" for any saved job.
+* **Batch generation**: select several jobs and generate a tailored CV for each (in parallel); each CV is linked to its job.
 
-## Prerequisites
-*   Python 3.8 or higher
-*   `pip` (Python package installer)
-*   Access to Google's Gemini API and a `GOOGLE_API_KEY`.
+## Setup
 
-## Setup Instructions
+Requires Python 3.10 or newer.
 
-1.  **Clone the Repository:**
-    ```bash
-    git clone <repository_url> # Replace <repository_url> with the actual URL
-    cd <repository_directory_name>
-    ```
-
-2.  **Create and Configure `.env` File (Project Root):**
-    *   In the **root directory** of the cloned repository, create a file named `.env`.
-    *   Add your Google API key and a Flask secret key:
-        ```env
-        # .env (This file should be in the root of your cloned repository)
-        GOOGLE_API_KEY="YOUR_ACTUAL_GOOGLE_API_KEY"
-
-        # Flask SECRET_KEY:
-        # Used for session management and security.
-        # - If left blank or not set, a temporary key is auto-generated at startup (ideal for quick local testing).
-        # - For development requiring stable sessions or for any production use,
-        #   set this to a strong, unique, randomly generated string.
-        #   You can generate one using: python -c 'import secrets; print(secrets.token_hex(16))'
-        SECRET_KEY=""
-        ```
-        Replace `"YOUR_ACTUAL_GOOGLE_API_KEY"` with your real API key.
-        For SECRET_KEY, you can leave it blank for the app to auto-generate a temporary one, or set a persistent strong random string for more stable development/production, e.g., by running the python command suggested in the comments and pasting the output.
-
-3.  **Create a Virtual Environment (Recommended, in the project root directory):**
+1. Create a virtual environment and install dependencies (from the project root):
     ```bash
     python -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-    ```
-
-4.  **Install Dependencies (in project root and with venv activated):**
-    ```bash
+    venv\Scripts\activate        # macOS/Linux: source venv/bin/activate
     pip install -r requirements.txt
     ```
+    > Note: the scraper package is `python-jobspy`. An unrelated package called `jobspy` exists on PyPI; if you installed it by mistake, run `pip uninstall jobspy`.
 
-## Running the Application
+2. Copy `.env.example` to `.env` and add at least one API key:
+    ```env
+    GOOGLE_API_KEY="..."        # for gemini/* models (https://aistudio.google.com/apikey)
+    OPENROUTER_API_KEY="..."    # for every other model (https://openrouter.ai/keys)
+    SECRET_KEY=""               # optional; a temporary key is generated if blank
+    ```
+    With only an OpenRouter key, Gemini models are routed through OpenRouter automatically.
 
-1.  **Activate your virtual environment** (e.g., `source venv/bin/activate`).
-2.  **Run the Flask Development Server (from the project root):**
+3. Run the app:
     ```bash
     python run.py
     ```
-3.  **Access the Web UI:**
-    Open your web browser and go to `http://127.0.0.1:5001` (or the host/port shown in the console if you configured it differently via environment variables in your `.env` file like `FLASK_RUN_HOST` or `FLASK_RUN_PORT`).
+    Then open http://127.0.0.1:5001.
 
-## Features & API Endpoints
+The server listens on `127.0.0.1` with debug mode off by default. Set `FLASK_RUN_HOST`, `FLASK_RUN_PORT` or `FLASK_DEBUG` to change that, but never expose the debugger (`FLASK_DEBUG=true`) on a network, because it allows remote code execution.
 
-The application provides the following features through a web interface and corresponding API endpoints:
+## Customising the CV structure
 
-*   **CV Tailoring:**
-    *   **UI:** Upload CV (PDF, DOCX, TXT, JSON), paste job description, get tailored CV (JSON preview) and PDF download.
-    *   **API:** `POST /api/tailor-cv`
-        *   `cv_file`: Uploaded CV file.
-        *   `job_description`: Text of the job description.
-        *   Returns: JSON with tailored CV data and a PDF download link.
+`CV_format.json` defines the JSON structure the model fills in and the PDF renders. It must be valid JSON (no `//` comments). Remove sections you don't want, or copy extra ones from `CV_format_backup.json` (Certifications, Awards, Volunteer Experience). The summary section is controlled by the "Include a summary section" checkbox rather than by editing the file.
 
-*   **Job Scraping:**
-    *   **UI:** Enter search term, location, sites (comma-separated), and number of results to scrape. Supported sites: `indeed`, `linkedin`, `zip_recruiter`, `glassdoor`, `google`, `bayt`, `naukri`.
-    *   **API:** `GET /api/scrape-jobs`
-        *   Query Parameters: `search_term`, `location`, `site_names`, `results_wanted`.
-        *   Returns: JSON list of scraped job details.
+## API
 
-*   **Download Tailored CV:**
-    *   **UI:** Link provided after successful CV tailoring.
-    *   **API:** `GET /api/download-cv/<filename>`
-        *   `<filename>`: The unique filename of the generated PDF.
+| Method & path | Purpose |
+| --- | --- |
+| `GET /api/models` | Model catalog, which providers have keys, supported scrape sites |
+| `POST /api/tailor-cv` | Form: `cv_file` or `cv_text`, `job_description` and/or `job_id`, `model`, `include_summary` |
+| `POST /api/render-pdf` | JSON: `cv_json` (edited CV), optional `job_id`. Re-renders the PDF |
+| `POST /api/batch-generate-cvs` | Form: `cv_file` or `cv_text`, `job_ids[]`, `model`, `include_summary` |
+| `POST /api/generate-cover-letter` | JSON: `cv_json`, `job_description`, `model` |
+| `POST /api/answer-question` | JSON: `cv_json`, `job_description`, `question` (list), `model` |
+| `GET /api/scrape-jobs` | Query: `search_term`, `location`, `site_names`, `results_wanted`, `hours_old`, `is_remote` |
+| `GET /api/jobs` | Query: `keyword`, `location`, `source`, `applied_status` |
+| `GET` / `DELETE /api/jobs/<id>` | Get or delete a saved job |
+| `POST /api/jobs/<id>/toggle-applied` | Toggle applied status |
+| `GET /api/download-cv/<file>` / `GET /api/download-json/<file>` | Download outputs (`?inline=1` to view in the browser) |
 
-## Technology Stack
-*   **Backend:** Python, Flask
-*   **AI Integration:** Google Gemini API (via google-genai package)
-*   **Job Scraping:** JobSpy
-*   **PDF Generation:** ReportLab
-*   **File Handling:** PyPDF2 (for PDF text extraction), python-docx (for DOCX text extraction)
-*   **Frontend:** HTML, Tailwind CSS, JavaScript
+## Project structure
 
-## Original Command-Line Tool
-The original command-line Python scripts and associated files (like `cv_tailor.py`, `generate_cv.py`) have been superseded by the web application now structured in the repository root. The example text files (`my_cv.txt`, `my_cv.json`, `job_description.txt`) in the root directory can still be used as sources of content to copy-paste into the web UI.
 ```
+app/
+  main.py           Flask app factory and routes
+  llm.py            Model catalog, Gemini/OpenRouter routing, retries, JSON extraction
+  cv_utils.py       CV file readers, prompts, template handling
+  pdf_generator.py  ReportLab PDF rendering
+  job_scraper.py    JobSpy wrapper
+  database.py       SQLite storage for jobs and generated CVs
+  templates/, static/
+instance/           Local data: jobs.db, generated_pdfs/, generated_jsons/ (git-ignored)
+tests/              pytest suite
+CV_format.json      CV structure used for tailoring
+```
+
+## Tests
+
+```bash
+python -m pytest
+```
+
+Tests use temporary databases and folders and never call a real model.

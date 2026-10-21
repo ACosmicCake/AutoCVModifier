@@ -1,8 +1,8 @@
 import pytest
-import pytest
 import sqlite3
 import json
-from app.database import save_job, get_jobs, get_db_connection, toggle_applied_status # Import toggle_applied_status
+from unittest.mock import patch
+from app.database import save_job, get_jobs, get_db_connection, toggle_applied_status, delete_job, save_generated_cv, get_generated_cv_by_job_id
 from datetime import datetime, date
 
 # Sample job data for testing
@@ -54,7 +54,7 @@ def test_save_new_job(test_db):
     assert job_from_db['description'] == SAMPLE_JOB_1['description']
     assert job_from_db['source'] == SAMPLE_JOB_1['source']
     assert json.loads(job_from_db['raw_job_data']) == SAMPLE_JOB_1['raw_job_data']
-    assert 'date_scraped' in job_from_db and job_from_db['date_scraped'] is not None
+    assert 'date_scraped' in job_from_db.keys() and job_from_db['date_scraped'] is not None
     assert job_from_db['applied'] == 0 # Verify default applied status
 
 def test_save_duplicate_job_url(test_db):
@@ -316,14 +316,18 @@ def test_toggle_applied_status_db_error(test_db, monkeypatch):
     job_id = conn_temp.execute("SELECT id FROM jobs WHERE url = ?", (SAMPLE_JOB_1['url'],)).fetchone()['id']
     conn_temp.close()
 
-    # Mock commit to raise an error
-    def mock_commit():
-        raise sqlite3.OperationalError("Simulated commit error")
+    # sqlite3.Connection is a C type and can't be patched directly, so wrap the connection instead.
+    class FailingCommitConnection:
+        def __init__(self, conn):
+            self._conn = conn
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+        def commit(self):
+            raise sqlite3.OperationalError("Simulated commit error")
 
-    # Find the connection object within the function to mock its commit
-    # This is a bit more involved, might be simpler to mock cursor.execute on the UPDATE
-    with patch('sqlite3.Connection.commit', side_effect=sqlite3.OperationalError("Simulated commit error")):
-         with pytest.raises(sqlite3.OperationalError, match="Simulated commit error"):
+    real_get_connection = get_db_connection
+    with patch('app.database.get_db_connection', side_effect=lambda: FailingCommitConnection(real_get_connection())):
+        with pytest.raises(sqlite3.OperationalError, match="Simulated commit error"):
             toggle_applied_status(job_id)
 
     # Verify status was not changed
@@ -425,11 +429,34 @@ def test_get_jobs_combined_filter_with_applied_status(test_db):
     assert jobs_loc_applied[0]['url'] == SAMPLE_JOB_1['url']
 
 
-# Example of how to use the app_context if some db functions might need it
-# (though current ones don't seem to strictly require it for connection)
-# def test_get_jobs_with_app_context(test_db, app):
-#     with app.app_context():
-#         save_job(SAMPLE_JOB_1)
-#         jobs = get_jobs()
-#         assert len(jobs) == 1
-#         assert jobs[0]['title'] == SAMPLE_JOB_1['title']
+def test_save_job_returns_id_only_for_new_jobs(test_db):
+    first = save_job(SAMPLE_JOB_1)
+    assert isinstance(first, int)
+    assert save_job(SAMPLE_JOB_1) is None
+
+
+def test_get_jobs_filter_by_keyword_in_company(test_db):
+    save_job(SAMPLE_JOB_1)
+    save_job(SAMPLE_JOB_2)
+    jobs = get_jobs(filters={'keyword': 'AlphaOrg'})
+    assert [job['url'] for job in jobs] == [SAMPLE_JOB_2['url']]
+
+
+def test_delete_job_cascades_generated_cvs(test_db):
+    job_id = save_job(SAMPLE_JOB_1)
+    save_generated_cv(job_id, "cv.pdf", "{}")
+    assert get_generated_cv_by_job_id(job_id)['cv_filename'] == "cv.pdf"
+
+    assert delete_job(job_id) is True
+    assert get_generated_cv_by_job_id(job_id) is None
+    assert delete_job(job_id) is False
+
+
+def test_latest_generated_cv_is_returned(test_db):
+    job_id = save_job(SAMPLE_JOB_1)
+    save_generated_cv(job_id, "first.pdf", "{}")
+    save_generated_cv(job_id, "second.pdf", "{}")
+    assert get_generated_cv_by_job_id(job_id)['cv_filename'] == "second.pdf"
+    jobs = get_jobs()
+    assert len(jobs) == 1
+    assert jobs[0]['cv_filename'] == "second.pdf"

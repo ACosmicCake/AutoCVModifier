@@ -1,25 +1,43 @@
 # cv_tailor_project/app/pdf_generator.py
 import json
+import logging
 import os
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib.colors import HexColor, black, navy, darkslategray, gray, lightgrey
-from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 import traceback
+from xml.sax.saxutils import escape
+
+from reportlab.lib.colors import black, gray, lightgrey
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+logger = logging.getLogger(__name__)
 
 # --- Font Setup ---
 FONT_NAME = 'Helvetica'
 FONT_NAME_BOLD = 'Helvetica-Bold'
 FONT_NAME_ITALIC = 'Helvetica-Oblique'
-FONT_NAME_BOLD_ITALIC = 'Helvetica-BoldOblique'
 
-try:
-    pass # Keeping Helvetica as default
-except Exception as e:
-    print(f"Font loading warning (using Helvetica): {e}")
+PLACEHOLDER_DATES = {"", "dates not specified", "n/a"}
+
+
+def esc(value) -> str:
+    """Escapes model-generated text so ReportLab doesn't parse it as markup (e.g. 'a<b' or 'R&D')."""
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        value = ", ".join(str(v) for v in value if v not in (None, ""))
+    return escape(str(value).strip())
+
+
+def as_list(value) -> list:
+    """Model output sometimes has a string where a list is expected (or vice versa)."""
+    if value is None or value == "":
+        return []
+    if isinstance(value, (list, tuple)):
+        return [v for v in value if v not in (None, "")]
+    return [value]
+
 
 def parse_cv_json(json_text_block: str) -> dict | None:
     """
@@ -27,337 +45,219 @@ def parse_cv_json(json_text_block: str) -> dict | None:
     """
     try:
         data = json.loads(json_text_block)
-        if isinstance(data, dict) and "CV" in data and isinstance(data["CV"], dict):
-            return data["CV"]
-        elif isinstance(data, dict) :
-            print("Warning: 'CV' root key not found in JSON. Assuming the entire JSON object is the CV data.")
-            return data
-        else:
-            print("Error: Parsed JSON is not a dictionary or 'CV' key does not contain a dictionary.")
-            return None
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON in parse_cv_json: {e}")
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.error("Error decoding CV JSON: %s", e)
         return None
-    except Exception as e:
-        print(f"Unexpected error in parse_cv_json: {e}")
-        return None
+    if isinstance(data, dict) and isinstance(data.get("CV"), dict):
+        return data["CV"]
+    if isinstance(data, dict):
+        logger.warning("'CV' root key not found in JSON. Assuming the entire JSON object is the CV data.")
+        return data
+    logger.error("Parsed CV JSON is not an object.")
+    return None
 
-def create_cv_pdf(data: dict, output_filepath: str) -> bool:
-    """
-    Generates a PDF CV from the provided data dictionary and saves it to output_filepath.
-    """
-    if not data:
-        print("No valid data provided to create_cv_pdf. PDF not generated.")
-        return False
-    if not isinstance(data, dict):
-        print("Error: Data for create_cv_pdf must be a dictionary.")
-        return False
 
-    doc = SimpleDocTemplate(output_filepath, pagesize=(8.5 * inch, 11 * inch),
-                            leftMargin=0.6*inch, rightMargin=0.6*inch,
-                            topMargin=0.4*inch, bottomMargin=0.4*inch)
+def _build_styles():
     styles = getSampleStyleSheet()
-
-    # --- Define Styles (with compactness adjustments for skills) ---
     styles.add(ParagraphStyle(name='NameStyle', fontName=FONT_NAME_BOLD, fontSize=20, alignment=TA_CENTER, spaceAfter=0.03*inch, textColor=black, leading=24))
     styles.add(ParagraphStyle(name='ContactStyle', fontName=FONT_NAME, fontSize=9.5, alignment=TA_CENTER, spaceAfter=0.1*inch, textColor=black, leading=11))
-    styles.add(ParagraphStyle(name='SummaryStyle', fontName=FONT_NAME, fontSize=9.5, textColor=black, leading=12, spaceBefore=0.05*inch, spaceAfter=0.1*inch, alignment=TA_JUSTIFY, firstLineIndent=0.2*inch))
+    styles.add(ParagraphStyle(name='SummaryStyle', fontName=FONT_NAME, fontSize=9.5, textColor=black, leading=12, spaceBefore=0.02*inch, spaceAfter=0.08*inch, alignment=TA_JUSTIFY))
     styles.add(ParagraphStyle(name='TemplateSectionTitle', fontName=FONT_NAME_BOLD, fontSize=10.5, textColor=black, spaceBefore=0.1*inch, spaceAfter=0.05*inch, alignment=TA_LEFT, keepWithNext=1))
     styles.add(ParagraphStyle(name='EntryHeader', fontName=FONT_NAME_BOLD, fontSize=9.5, textColor=black, spaceAfter=0.01*inch, alignment=TA_LEFT, leading=11))
     styles.add(ParagraphStyle(name='EntrySubHeader', fontName=FONT_NAME, fontSize=9.5, textColor=black, spaceAfter=0.01*inch, alignment=TA_LEFT, leading=11))
     styles.add(ParagraphStyle(name='DateLocation', fontName=FONT_NAME_ITALIC, fontSize=9.5, textColor=gray, alignment=TA_RIGHT, leading=11))
     styles.add(ParagraphStyle(name='SubDetail', fontName=FONT_NAME, fontSize=9.5, textColor=black, leading=11, spaceAfter=0.02*inch, leftIndent=0.05*inch))
     styles.add(ParagraphStyle(name='TemplateBullet', fontName=FONT_NAME, fontSize=9.5, textColor=black, leading=12, spaceBefore=0.01*inch, leftIndent=0.2*inch, bulletIndent=0.08*inch, firstLineIndent=0))
-    # SkillsCategory style made more compact
     styles.add(ParagraphStyle(name='SkillsCategory', fontName=FONT_NAME_BOLD, fontSize=9.5, textColor=black, leading=11, spaceBefore=0.02*inch, spaceAfter=0.005*inch, keepWithNext=1))
     styles.add(ParagraphStyle(name='SkillInTableStyle', fontName=FONT_NAME, fontSize=9.5, textColor=black, leading=11, alignment=TA_LEFT))
+    return styles
 
+
+def create_cv_pdf(data: dict, output_filepath: str) -> bool:
+    """
+    Generates a PDF CV from the provided data dictionary and saves it to output_filepath.
+    """
+    if not data or not isinstance(data, dict):
+        logger.error("No valid CV data provided to create_cv_pdf. PDF not generated.")
+        return False
+
+    doc = SimpleDocTemplate(output_filepath, pagesize=(8.5 * inch, 11 * inch),
+                            leftMargin=0.6*inch, rightMargin=0.6*inch,
+                            topMargin=0.4*inch, bottomMargin=0.4*inch,
+                            title=f"CV - {data.get('PersonalInformation', {}).get('Name', '') if isinstance(data.get('PersonalInformation'), dict) else ''}")
+    styles = _build_styles()
     story = []
+
+    def header_row(left_text, right_text):
+        right = esc(right_text)
+        date_p = Paragraph(right if right.lower() not in PLACEHOLDER_DATES else "", styles['DateLocation'])
+        return Table([[Paragraph(left_text, styles['EntryHeader']), date_p]], colWidths=['75%', '25%'],
+                     style=[('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0)])
+
+    def joined(*parts, sep=", "):
+        return sep.join(esc(p) for p in parts if p and esc(p))
 
     # --- Personal Information ---
     personal_info = data.get("PersonalInformation", {})
     if isinstance(personal_info, dict):
-        story.append(Paragraph(personal_info.get("Name", "N/A"), styles['NameStyle']))
-        contact_parts = [personal_info.get("PhoneNumber"), personal_info.get("EmailAddress"), personal_info.get("WebsiteOrLinkedInURL")]
-        contact_info = " / ".join(filter(None, contact_parts))
-        if not contact_info: contact_info = "Contact information not provided"
-        story.append(Paragraph(contact_info, styles['ContactStyle']))
+        story.append(Paragraph(esc(personal_info.get("Name")) or "N/A", styles['NameStyle']))
+        contact_info = joined(personal_info.get("PhoneNumber"), personal_info.get("EmailAddress"),
+                              personal_info.get("WebsiteOrLinkedInURL"), sep=" / ")
+        if contact_info:
+            story.append(Paragraph(contact_info, styles['ContactStyle']))
         story.append(HRFlowable(width="100%", thickness=0.5, color=lightgrey, spaceBefore=0, spaceAfter=0.08*inch))
 
-    # --- Summary/Objective ---
-    summary_data = data.get("SummaryOrObjective", {})
-    if isinstance(summary_data, dict) and summary_data.get("Statement"):
-        # Wrap summary and its title together
-        summary_block = [
+    # --- Summary/Objective (only when the tailored CV includes one) ---
+    summary_data = data.get("SummaryOrObjective")
+    statement = summary_data.get("Statement") if isinstance(summary_data, dict) else summary_data
+    if isinstance(statement, str) and statement.strip():
+        story.append(KeepTogether([
             Paragraph("Summary", styles['TemplateSectionTitle']),
-            Paragraph(summary_data["Statement"], styles['SummaryStyle'])
-        ]
-        story.append(KeepTogether(summary_block))
-
+            Paragraph(esc(statement), styles['SummaryStyle']),
+        ]))
 
     # --- Generic Section Renderer ---
     def render_section(title, items_data, render_item_func, section_key):
-        if isinstance(items_data, list) and items_data:
-            for i, item in enumerate(items_data):
-                if isinstance(item, dict):
-                     # Pass the title only to the first item's render function
-                     section_title = title if i == 0 else None
-                     render_item_func(item, section_title=section_title)
-                     if i < len(items_data) - 1: story.append(Spacer(1, 0.05*inch))
-                else:
-                    print(f"Warning: Item in section '{section_key}' is not a dictionary: {item}")
+        items = [item for item in as_list(items_data) if isinstance(item, dict)]
+        if len(items) != len(as_list(items_data)):
+            logger.warning("Some items in section '%s' were not objects and were skipped.", section_key)
+        for i, item in enumerate(items):
+            render_item_func(item, section_title=title if i == 0 else None)
+            if i < len(items) - 1:
+                story.append(Spacer(1, 0.05*inch))
+        if items:
             story.append(Spacer(1, 0.05*inch))
 
     def render_education_item(entry, section_title=None):
-        entry_flowables = []
-        if section_title:
-            entry_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
-
-        left_col_text = f"{entry.get('InstitutionName', 'N/A')}"
-        if entry.get('Location'): left_col_text += f", {entry.get('Location', '')}"
-        right_col_text = entry.get('GraduationDateOrExpected', '')
-        date_p = Paragraph(right_col_text, styles['DateLocation']) if right_col_text and str(right_col_text).strip().lower() not in ["", "dates not specified"] else Paragraph("", styles['DateLocation'])
-        header_table = Table([[Paragraph(left_col_text, styles['EntryHeader']), date_p]], colWidths=['75%', '25%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-        entry_flowables.append(header_table)
-        degree_major = f"{entry.get('DegreeEarned', 'N/A')}"
-        if entry.get('MajorOrFieldOfStudy'): degree_major += f" - {entry.get('MajorOrFieldOfStudy', '')}"
-        entry_flowables.append(Paragraph(degree_major, styles['EntrySubHeader']))
-        
-        # MODIFIED PART FOR EDUCATION ACHIEVEMENTS
-        honors = entry.get("HonorsAndAwardsOrRelevantCoursework", [])
+        flowables = [Paragraph(section_title, styles['TemplateSectionTitle'])] if section_title else []
+        flowables.append(header_row(joined(entry.get('InstitutionName') or 'N/A', entry.get('Location')),
+                                    entry.get('GraduationDateOrExpected')))
+        degree_major = joined(entry.get('DegreeEarned'), entry.get('MajorOrFieldOfStudy'), sep=" - ")
+        if degree_major:
+            flowables.append(Paragraph(degree_major, styles['EntrySubHeader']))
+        honors = as_list(entry.get("HonorsAndAwardsOrRelevantCoursework"))
         if honors:
-            honors_text = ", ".join(honors)
-            entry_flowables.append(Paragraph(f"<i>{honors_text}</i>" if "thesis:" in honors_text.lower() else honors_text, styles['SubDetail']))
-        
-        story.append(KeepTogether(entry_flowables))
+            honors_text = esc(honors)
+            flowables.append(Paragraph(f"<i>{honors_text}</i>" if "thesis:" in honors_text.lower() else honors_text, styles['SubDetail']))
+        story.append(KeepTogether(flowables))
 
     def render_experience_item(job, section_title=None):
-        job_flowables = []
-        if section_title:
-            job_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
-
-        left_col_text = f"{job.get('CompanyName', 'N/A')}"
-        if job.get('Location'): left_col_text += f", {job.get('Location', '')}"
-        right_col_text = job.get("EmploymentDates", "")
-        date_p = Paragraph(right_col_text, styles['DateLocation']) if right_col_text and str(right_col_text).strip().lower() not in ["", "dates not specified"] else Paragraph("", styles['DateLocation'])
-        header_table = Table([[Paragraph(left_col_text, styles['EntryHeader']), date_p]], colWidths=['75%', '25%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-        job_flowables.append(header_table)
-        job_flowables.append(Paragraph(job.get("JobTitle", "N/A"), styles['EntrySubHeader']))
-        for resp in job.get("ResponsibilitiesAndAchievements", []):
-            job_flowables.append(Paragraph(str(resp), styles['TemplateBullet'], bulletText='•'))
-        story.append(KeepTogether(job_flowables))
+        flowables = [Paragraph(section_title, styles['TemplateSectionTitle'])] if section_title else []
+        flowables.append(header_row(joined(job.get('CompanyName') or 'N/A', job.get('Location')), job.get("EmploymentDates")))
+        if job.get("JobTitle"):
+            flowables.append(Paragraph(esc(job.get("JobTitle")), styles['EntrySubHeader']))
+        for resp in as_list(job.get("ResponsibilitiesAndAchievements")):
+            flowables.append(Paragraph(esc(resp), styles['TemplateBullet'], bulletText='•'))
+        story.append(KeepTogether(flowables))
 
     def render_project_item(proj, section_title=None):
-        project_flowables = []
-        if section_title:
-            project_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
-
-        left_col_text = proj.get("ProjectName", "N/A")
-        right_col_text = proj.get("DatesOrDuration", "")
-        date_p = Paragraph(right_col_text, styles['DateLocation']) if right_col_text and str(right_col_text).strip().lower() not in ["", "dates not specified"] else Paragraph("", styles['DateLocation'])
-        header_table = Table([[Paragraph(left_col_text, styles['EntryHeader']), date_p]], colWidths=['75%', '25%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-        project_flowables.append(header_table)
-        if proj.get("Description"): project_flowables.append(Paragraph(proj.get("Description"), styles['EntrySubHeader']))
-        for contrib in proj.get("KeyContributionsOrTechnologiesUsed", []):
-            project_flowables.append(Paragraph(str(contrib), styles['TemplateBullet'], bulletText='•'))
-        story.append(KeepTogether(project_flowables))
+        flowables = [Paragraph(section_title, styles['TemplateSectionTitle'])] if section_title else []
+        flowables.append(header_row(esc(proj.get("ProjectName")) or "N/A", proj.get("DatesOrDuration")))
+        if proj.get("Description"):
+            flowables.append(Paragraph(esc(proj.get("Description")), styles['EntrySubHeader']))
+        for contrib in as_list(proj.get("KeyContributionsOrTechnologiesUsed")):
+            flowables.append(Paragraph(esc(contrib), styles['TemplateBullet'], bulletText='•'))
+        story.append(KeepTogether(flowables))
 
     def render_volunteer_item(vol_entry, section_title=None):
-        volunteer_flowables = []
-        if section_title:
-            volunteer_flowables.append(Paragraph(section_title, styles['TemplateSectionTitle']))
-            
-        org_name = vol_entry.get("OrganizationName", "N/A")
-        dates = vol_entry.get("Dates", "")
-        date_p = Paragraph(dates, styles['DateLocation']) if dates and str(dates).strip().lower() not in ["", "dates not specified"] else Paragraph("", styles['DateLocation'])
-        header_table = Table([[Paragraph(org_name, styles['EntryHeader']), date_p]], colWidths=['75%', '25%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-        volunteer_flowables.append(header_table)
-        if vol_entry.get("Role"): volunteer_flowables.append(Paragraph(vol_entry.get("Role"), styles['EntrySubHeader']))
-        if vol_entry.get("Description"): volunteer_flowables.append(Paragraph(vol_entry.get("Description"), styles['SubDetail']))
-        story.append(KeepTogether(volunteer_flowables))
+        flowables = [Paragraph(section_title, styles['TemplateSectionTitle'])] if section_title else []
+        flowables.append(header_row(esc(vol_entry.get("OrganizationName")) or "N/A", vol_entry.get("Dates")))
+        if vol_entry.get("Role"):
+            flowables.append(Paragraph(esc(vol_entry.get("Role")), styles['EntrySubHeader']))
+        if vol_entry.get("Description"):
+            flowables.append(Paragraph(esc(vol_entry.get("Description")), styles['SubDetail']))
+        story.append(KeepTogether(flowables))
 
     # --- Render Sections ---
-    render_section("Education", data.get("Education", []), render_education_item, "Education")
-    render_section("Professional Experience", data.get("ProfessionalExperience", []), render_experience_item, "ProfessionalExperience")
-    render_section("Projects", data.get("Projects", []), render_project_item, "Projects")
+    render_section("Education", data.get("Education"), render_education_item, "Education")
+    render_section("Professional Experience", data.get("ProfessionalExperience"), render_experience_item, "ProfessionalExperience")
+    render_section("Projects", data.get("Projects"), render_project_item, "Projects")
 
     # --- Skills Section (5 column layout) ---
-    skills_data = data.get("Skills", [])
-    if isinstance(skills_data, list) and skills_data:
+    skill_groups = [s for s in as_list(data.get("Skills")) if isinstance(s, dict) and as_list(s.get("Skill"))]
+    if skill_groups:
+        num_cols = 5
         skills_block = [Paragraph("Skills", styles['TemplateSectionTitle'])]
-        for skill_item in skills_data:
-            if isinstance(skill_item, dict):
-                skills_block.append(Paragraph(skill_item.get("SkillCategory", "General Skills"), styles['SkillsCategory']))
-                
-                skills_list = skill_item.get("Skill", [])
-                if isinstance(skills_list, list) and skills_list:
-                    # Use 5 columns for skills
-                    num_cols = 5
-                    col_widths = ['20%', '20%', '20%', '20%', '20%']
-
-                    skill_cell_paragraphs = [Paragraph(str(skill_detail), styles['SkillInTableStyle']) for skill_detail in skills_list]
-
-                    table_data = []
-                    for i in range(0, len(skill_cell_paragraphs), num_cols):
-                        row = skill_cell_paragraphs[i:i+num_cols]
-                        while len(row) < num_cols:
-                            row.append(Paragraph("", styles['SkillInTableStyle'])) 
-                        table_data.append(row)
-
-                    if table_data:
-                        skill_table = Table(table_data, colWidths=col_widths, repeatRows=0)
-                        
-                        # TableStyle with compact padding
-                        skills_table_style = TableStyle([
-                            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                            ('LEFTPADDING', (0,0), (-1,-1), 1),
-                            ('RIGHTPADDING', (0,0), (-1,-1), 3),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-                            ('TOPPADDING', (0,0), (-1,-1), 1),
-                        ])
-                        skill_table.setStyle(skills_table_style)
-                        skills_block.append(skill_table)
-                        skills_block.append(Spacer(1, 0.02*inch))
-                else:
-                    print(f"Warning: 'Skill' field in Skills section is not a list or is empty for category '{skill_item.get('SkillCategory', 'Unknown')}': {skills_list}")
-            else:
-                print(f"Warning: Item in Skills section is not a dictionary: {skill_item}")
-        
+        for skill_item in skill_groups:
+            skills_block.append(Paragraph(esc(skill_item.get("SkillCategory")) or "General Skills", styles['SkillsCategory']))
+            cells = [Paragraph(esc(skill), styles['SkillInTableStyle']) for skill in as_list(skill_item.get("Skill"))]
+            rows = []
+            for i in range(0, len(cells), num_cols):
+                row = cells[i:i+num_cols]
+                row += [Paragraph("", styles['SkillInTableStyle'])] * (num_cols - len(row))
+                rows.append(row)
+            skill_table = Table(rows, colWidths=['20%'] * num_cols, repeatRows=0)
+            skill_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 1),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+                ('TOPPADDING', (0, 0), (-1, -1), 1),
+            ]))
+            skills_block.append(skill_table)
+            skills_block.append(Spacer(1, 0.02*inch))
         story.append(KeepTogether(skills_block))
-        story.append(Spacer(1, 0.05*inch)) 
+        story.append(Spacer(1, 0.05*inch))
 
     # --- Certifications & Awards ---
-    def render_simple_list_section(title, items_data, fields, section_key):
-        if isinstance(items_data, list) and items_data:
-            section_block = [Paragraph(title, styles['TemplateSectionTitle'])]
-            for item in items_data:
-                 if isinstance(item, dict):
-                    text_parts = [str(item.get(f)) for f in fields if item.get(f)]
-                    item_paragraph = Paragraph(" - ".join(text_parts), styles['SubDetail'])
-                    section_block.append(item_paragraph)
-                 else:
-                    print(f"Warning: Item in section '{section_key}' is not a dictionary: {item}")
-            story.append(KeepTogether(section_block))
+    def render_simple_list_section(title, items_data, fields):
+        items = [item for item in as_list(items_data) if isinstance(item, dict)]
+        lines = [joined(*(item.get(f) for f in fields), sep=" - ") for item in items]
+        lines = [line for line in lines if line]
+        if lines:
+            block = [Paragraph(title, styles['TemplateSectionTitle'])]
+            block += [Paragraph(line, styles['SubDetail']) for line in lines]
+            story.append(KeepTogether(block))
             story.append(Spacer(1, 0.05*inch))
 
-    render_simple_list_section("Certifications", data.get("Certifications", []), ["CertificationName", "IssuingOrganization"], "Certifications")
-    render_simple_list_section("Awards and Recognition", data.get("AwardsAndRecognition", []), ["AwardName", "AwardingBody"], "AwardsAndRecognition")
-    render_section("Volunteer Experience", data.get("VolunteerExperience", []), render_volunteer_item, "VolunteerExperience")
+    render_simple_list_section("Certifications", data.get("Certifications"), ["CertificationName", "IssuingOrganization", "DateObtained"])
+    render_simple_list_section("Awards and Recognition", data.get("AwardsAndRecognition"), ["AwardName", "AwardingBody", "Date"])
+    render_section("Volunteer Experience", data.get("VolunteerExperience"), render_volunteer_item, "VolunteerExperience")
 
     try:
         doc.build(story)
-        print(f"CV generated successfully: {output_filepath}")
+        logger.info("CV generated successfully: %s", output_filepath)
         return True
     except Exception as e:
-        print(f"Error building PDF at {output_filepath}: {e}")
-        print(traceback.format_exc())
+        logger.error("Error building PDF at %s: %s\n%s", output_filepath, e, traceback.format_exc())
         return False
+
 
 def generate_cv_pdf_from_json_string(cv_json_string: str, output_filepath: str) -> bool:
     """
     Parses a JSON string containing CV data and generates a PDF CV.
     """
-    if not cv_json_string:
-        print("Error: Empty CV JSON string provided.")
+    if not cv_json_string or not output_filepath:
+        logger.error("Missing CV JSON or output path for PDF generation.")
         return False
-    if not output_filepath:
-        print("Error: No output filepath provided.")
-        return False
-
     parsed_cv_data = parse_cv_json(cv_json_string)
-
-    if parsed_cv_data:
-        return create_cv_pdf(parsed_cv_data, output_filepath)
-    else:
-        print(f"Could not parse CV data. PDF not generated for {output_filepath}.")
+    if not parsed_cv_data:
+        logger.error("Could not parse CV data. PDF not generated for %s.", output_filepath)
         return False
+    return create_cv_pdf(parsed_cv_data, output_filepath)
+
 
 # --- Main Execution (for testing this module directly) ---
 if __name__ == "__main__":
-    print("Testing pdf_generator.py with variable columns for skills...")
-    
-    example_cv_json_str = """
-    {
-      "CV": {
-        "PersonalInformation": { 
-            "Name": "Johnathan M. Doe", 
-            "PhoneNumber": "(555) 123-4567", 
-            "EmailAddress": "john.doe@email.com", 
-            "WebsiteOrLinkedInURL": "linkedin.com/in/johndoe" 
-        },
-        "SummaryOrObjective": { 
-            "Statement": "Highly motivated and results-oriented Test Engineer with 5+ years of experience in software testing and quality assurance. Proven ability to design, develop, and execute comprehensive test plans and test cases. Adept at identifying, isolating, and tracking bugs to ensure software quality." 
-        },
-        "Education": [ 
-            { 
-                "InstitutionName": "State University", "Location": "Anytown, USA",
-                "DegreeEarned": "Bachelor of Science", "MajorOrFieldOfStudy": "Computer Science",
-                "GraduationDateOrExpected": "May 2018",
-                "HonorsAndAwardsOrRelevantCoursework": ["Dean's List (4 semesters)", "Thesis: Advanced Algorithms"]
-            }
-        ],
-        "ProfessionalExperience": [ 
-            { 
-                "CompanyName": "Tech Solutions Inc.", "Location": "Innovate City, USA",
-                "JobTitle": "Senior Test Engineer", "EmploymentDates": "June 2020 - Present",
-                "ResponsibilitiesAndAchievements": [
-                    "Led a team of 3 QA testers.",
-                    "Developed automated test scripts using Selenium and Python, reducing manual testing time by 40%."
-                ]
-            }
-        ],
-        "Projects": [
-            {
-                "ProjectName": "Automated Test Framework", "DatesOrDuration": "2022",
-                "Description": "Designed an internal automated testing framework.",
-                "KeyContributionsOrTechnologiesUsed": ["Python, PyTest, Selenium WebDriver"]
-            },
-            {
-                "ProjectName": "E-commerce Platform Testing", "DatesOrDuration": "2021",
-                "Description": "Lead QA for a new e-commerce platform launch.",
-                "KeyContributionsOrTechnologiesUsed": ["JIRA, Selenium, Postman API Testing"]
-            }
-        ],
-        "Skills": [ 
-            { 
-                "SkillCategory": "Programming Languages", 
-                "Skill": ["Python", "Java", "JavaScript", "C#", "SQL", "HTML5", "CSS3"] 
-            },
-            { 
-                "SkillCategory": "Testing Tools & Frameworks", 
-                "Skill": ["Selenium WebDriver", "JUnit", "TestNG", "PyTest", "JIRA", "Postman", "Appium", "Cucumber", "Playwright"] 
-            },
-            {
-                "SkillCategory": "Methodologies",
-                "Skill": ["Agile", "Scrum", "Waterfall", "DevOps", "Kanban"]
-            },
-            {
-                "SkillCategory": "Databases",
-                "Skill": ["MySQL", "PostgreSQL", "MongoDB"]
-            },
-            {
-                "SkillCategory": "Short List Skills",
-                "Skill": ["Skill A", "Skill B"]
-            },
-            {
-                "SkillCategory": "Very Long List Skills",
-                "Skill": ["Item1", "Item2", "Item3", "Item4", "Item5", "Item6", "Item7", "Item8", "Item9", "Item10", "Item11", "Item12", "Item13"]
-            }
-        ],
-        "Certifications": [{"CertificationName": "ISTQB Certified Tester", "IssuingOrganization": "ISTQB"}],
-        "AwardsAndRecognition": [{"AwardName": "Tester of the Year", "AwardingBody": "Tech Solutions Inc."}]
-      }
+    example = {
+        "CV": {
+            "PersonalInformation": {"Name": "Johnathan M. Doe", "PhoneNumber": "(555) 123-4567",
+                                    "EmailAddress": "john.doe@email.com", "WebsiteOrLinkedInURL": "linkedin.com/in/johndoe"},
+            "SummaryOrObjective": {"Statement": "Test Engineer with 5+ years of experience in R&D <QA> automation."},
+            "Education": [{"InstitutionName": "State University", "Location": "Anytown, USA",
+                           "DegreeEarned": "Bachelor of Science", "MajorOrFieldOfStudy": "Computer Science",
+                           "GraduationDateOrExpected": "May 2018",
+                           "HonorsAndAwardsOrRelevantCoursework": ["Dean's List", "Thesis: Advanced Algorithms"]}],
+            "ProfessionalExperience": [{"CompanyName": "Tech Solutions Inc.", "Location": "Innovate City, USA",
+                                        "JobTitle": "Senior Test Engineer", "EmploymentDates": "June 2020 - Present",
+                                        "ResponsibilitiesAndAchievements": ["Cut manual testing time by 40% with Selenium and Python.",
+                                                                            "Kept p99 latency < 200ms for List<Order> APIs."]}],
+            "Skills": [{"SkillCategory": "Programming Languages", "Skill": ["Python", "Java", "C#", "SQL", "HTML5", "CSS3"]}],
+            "Certifications": [{"CertificationName": "ISTQB Certified Tester", "IssuingOrganization": "ISTQB"}],
+        }
     }
-    """
-    test_output_dir = "instance/generated_pdfs_test"
-    if not os.path.exists(test_output_dir):
-        os.makedirs(test_output_dir)
-    test_output_filepath = os.path.join(test_output_dir, "test_generated_cv_variable_skills_compact.pdf")
-
-    print(f"Generating test PDF at: {test_output_filepath}")
-    success = generate_cv_pdf_from_json_string(example_cv_json_str, test_output_filepath)
-
-    if success:
-        print(f"Test PDF generated successfully: {test_output_filepath}")
-    else:
-        print("Test PDF generation failed.")
+    out_dir = os.path.join("instance", "generated_pdfs_test")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "test_generated_cv.pdf")
+    logging.basicConfig(level=logging.INFO)
+    print("Success" if generate_cv_pdf_from_json_string(json.dumps(example), out_path) else "Failed", out_path)
